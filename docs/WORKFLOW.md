@@ -12,13 +12,22 @@ We are aggressive about pushing things into (1). The PI extension API can replac
 ## First-time setup
 
 ```bash
-./scripts/sync-upstream.sh init main   # or a release tag like v0.74.0
-./scripts/apply-patches.sh
-cd vendor/pi && npm install && npm run build && cd ../..
-./bin/gah --version                     # smoke test
+make sync-init REF=v0.74.0   # or `main` to track tip; release tags recommended
+make smoke                    # confirm bin/gah runs
 ```
 
-This vendors upstream PI under `vendor/pi/` via `git subtree --squash`, applies our patch series, and produces a runnable `bin/gah` launcher that loads `packages/policy-pack/` as the only extension source.
+This vendors upstream PI under `vendor/pi/` via `git subtree --squash`, applies our patch series, installs npm deps, builds the full dependency chain (tui → ai → agent → coding-agent), and produces a runnable `bin/gah` launcher that loads `packages/policy-pack/` as the only extension source.
+
+`make` (with no args) lists all targets. The most common are:
+
+| Target | What |
+|--------|------|
+| `make build` | Incremental rebuild of coding-agent (after editing patches) |
+| `make sync REF=<tag>` | Pull upstream, re-apply patches, rebuild |
+| `make patches` | Re-apply patches only |
+| `make clean-vendor` | Discard build artifacts in vendor/pi |
+| `make patch-new NAME=foo` | Open scratch branch for a new patch |
+| `make patch-export NAME=foo NUM=0002` | Export scratch → patches/, return to main |
 
 ## Build artifacts
 

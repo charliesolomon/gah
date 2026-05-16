@@ -30,15 +30,18 @@ gah/
 ## Quick start
 
 ```bash
-# 1. First-time setup: vendor PI as a subtree at a chosen ref
-./scripts/sync-upstream.sh init main          # or a tag like v0.74.0
+# First-time setup: vendor PI, apply patches, install deps, build chain
+make sync-init REF=v0.74.0
 
-# 2. Re-apply our patch series
-./scripts/apply-patches.sh
+# Smoke test, then launch
+make smoke
+./bin/gah
 
-# 3. Subsequent syncs
-./scripts/sync-upstream.sh pull v0.75.0
-./scripts/apply-patches.sh
+# Subsequent syncs
+make sync REF=v0.75.0
+
+# See all commands
+make
 ```
 
 See [docs/WORKFLOW.md](docs/WORKFLOW.md) for the full sync ritual and patch hygiene rules.
