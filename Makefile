@@ -6,7 +6,7 @@
 PI_DIR := vendor/pi
 
 .DEFAULT_GOAL := help
-.PHONY: help install build build-all smoke patches clean-vendor sync sync-init status patch-new patch-export
+.PHONY: help install install-hooks build build-all smoke patches clean-vendor sync sync-init status patch-new patch-export
 
 help: ## Show available targets
 	@awk 'BEGIN { FS = ":.*##"; printf "Usage: make <target> [VAR=value]\n\nTargets:\n" } \
@@ -15,6 +15,12 @@ help: ## Show available targets
 
 install: ## Install npm deps in vendor/pi (run after first sync-init)
 	cd $(PI_DIR) && npm install
+
+install-hooks: ## Symlink scripts/git-hooks/* into .git/hooks/ (one-time per clone)
+	@for hook in scripts/git-hooks/*; do \
+	  name=$$(basename $$hook); \
+	  ln -sf ../../$$hook .git/hooks/$$name && echo "✓ .git/hooks/$$name → $$hook"; \
+	done
 
 build: ## Incremental build of coding-agent (after patch edits)
 	cd $(PI_DIR) && npm --workspace packages/coding-agent run build

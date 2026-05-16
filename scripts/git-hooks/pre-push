@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+#
+# gah pre-push hook — catch the obvious foot-guns before they reach GitHub.
+#
+# Currently runs `make smoke` (~2 sec): exercises the built bin/gah binary
+# against --version and --list-models. If the local build is broken or
+# missing, this fails the push.
+#
+# This is NOT a substitute for CI — server-side scanners (semgrep, trivy,
+# gitleaks, npm audit) still run on the PR. It's a fast local gate.
+#
+# Skip with: git push --no-verify
+#
+set -euo pipefail
+
+# Hooks run from the repo root via git's working-tree wiring, but be defensive
+# in case someone invokes the script directly.
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
+
+echo "→ pre-push: make smoke"
+make smoke
+
+echo "✓ pre-push: ok"

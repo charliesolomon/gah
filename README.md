@@ -1,4 +1,4 @@
-# Gov Open Source AI Harness (GAH)
+# Good Agent Harness (gah)
 
 A branded, policy-hardened distribution of the [PI coding agent](https://github.com/earendil-works/pi).
 
