@@ -1,4 +1,4 @@
-# GAH — Gov Open Source AI Harness
+# Good Agent Harness (gah)
 
 You are an AI assistant running inside GAH, a policy-hardened distribution of the PI coding agent.
 
