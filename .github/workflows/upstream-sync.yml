@@ -48,8 +48,8 @@ jobs:
       - name: Re-apply patches
         run: scripts/apply-patches.sh
 
-      # TODO: run policy-pack tests
-      # TODO: run ci/scans/* (SBOM, npm audit, semgrep)
+      # ci.yml runs automatically on the PR opened below (build + smoke + all
+      # scans). We deliberately don't repeat that work here.
 
       - name: Open PR
         env:
