@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+#
+# gah — launch PI with GAH policy-pack loaded, ignoring any user-global
+# extensions/skills/themes that PI would otherwise auto-discover.
+#
+# The wrapper exists so that the policy enforced in this repo is the policy
+# the user actually gets, regardless of what's in ~/.pi/agent/.
+#
+set -euo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PI_CLI="$HERE/vendor/pi/packages/coding-agent/dist/cli.js"
+POLICY_DIR="$HERE/packages/policy-pack/extensions"
+
+if [ ! -f "$PI_CLI" ]; then
+  cat >&2 <<EOF
+gah: PI build is missing at
+  $PI_CLI
+
+Run the build first:
+  cd vendor/pi && npm install && npm run build
+EOF
+  exit 1
+fi
+
+# --no-extensions disables auto-discovery from ~/.pi/agent and .pi/ ;
+# explicit --extension flags re-add exactly what GAH ships.
+exec node "$PI_CLI" \
+  --no-extensions \
+  --extension "$POLICY_DIR/policy.ts" \
+  --extension "$POLICY_DIR/branding.ts" \
+  "$@"

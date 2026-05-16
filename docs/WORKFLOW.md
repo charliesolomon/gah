@@ -14,9 +14,20 @@ We are aggressive about pushing things into (1). The PI extension API can replac
 ```bash
 ./scripts/sync-upstream.sh init main   # or a release tag like v0.74.0
 ./scripts/apply-patches.sh
+cd vendor/pi && npm install && npm run build && cd ../..
+./bin/gah --version                     # smoke test
 ```
 
-This vendors upstream PI under `vendor/pi/` via `git subtree --squash` and applies our patch series.
+This vendors upstream PI under `vendor/pi/` via `git subtree --squash`, applies our patch series, and produces a runnable `bin/gah` launcher that loads `packages/policy-pack/` as the only extension source.
+
+## Build artifacts
+
+The PI build regenerates some **tracked** source files in `vendor/pi/` (e.g. `packages/ai/src/models.generated.ts`, which is rebuilt from live provider catalogs). These are not changes we want to commit and not changes we want to merge.
+
+- `scripts/sync-upstream.sh pull` auto-runs `scripts/clean-vendor.sh` before pulling.
+- Run `./scripts/clean-vendor.sh` manually whenever `git status` shows working-tree noise in `vendor/pi/` you didn't author.
+
+Never commit changes to `vendor/pi/` outside the patch flow (`patches/README.md`).
 
 ## Daily flow
 

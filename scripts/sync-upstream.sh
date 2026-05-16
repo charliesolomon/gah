@@ -56,6 +56,11 @@ cmd_pull() {
     echo "vendor/pi missing. Run 'init' first." >&2
     exit 1
   fi
+
+  # The PI build regenerates tracked files (e.g. models.generated.ts).
+  # Discard those before pulling so we never merge with a dirty tree.
+  "$REPO_ROOT/scripts/clean-vendor.sh"
+
   ensure_remote
   echo "→ Pulling $UPSTREAM_REMOTE/$ref into $SUBTREE_PREFIX"
   git subtree pull --prefix="$SUBTREE_PREFIX" "$UPSTREAM_REMOTE" "$ref" --squash
