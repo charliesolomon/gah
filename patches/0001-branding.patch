@@ -1,0 +1,60 @@
+From c2143b84d463c14046707953fb93474b883144d3 Mon Sep 17 00:00:00 2001
+From: csolomon <charliesolomon@gmail.com>
+Date: Sat, 16 May 2026 13:12:37 -0700
+Subject: [PATCH] =?UTF-8?q?branding:=20rebrand=20pi=20=E2=86=92=20gah?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Set piConfig.name='gah' and configDir='.gah' in coding-agent
+package.json. PI's APP_NAME cascade picks this up everywhere:
+banner ('gah v0.74.0'), env vars (GAH_CODING_AGENT_DIR), process
+title, User-Agent, debug log filename, slash-command labels, session
+export filename. Global config moves to ~/.gah/agent/ — users will
+need to re-/login.
+
+Rename the bin entry from 'pi' to 'gah' for npm-install hygiene
+(GAH itself launches via bin/gah wrapper, so this only matters if
+the package is ever installed standalone).
+
+Replace the startup onboarding hint with a GAH-specific one
+referencing the policy + audit posture.
+---
+ packages/coding-agent/package.json                           | 5 +++--
+ .../coding-agent/src/modes/interactive/interactive-mode.ts   | 2 +-
+ 2 files changed, 4 insertions(+), 3 deletions(-)
+
+diff --git a/packages/coding-agent/package.json b/packages/coding-agent/package.json
+index a046a3c9..95fca649 100644
+--- a/packages/coding-agent/package.json
++++ b/packages/coding-agent/package.json
+@@ -4,10 +4,11 @@
+ 	"description": "Coding agent CLI with read, bash, edit, write tools and session management",
+ 	"type": "module",
+ 	"piConfig": {
+-		"configDir": ".pi"
++		"name": "gah",
++		"configDir": ".gah"
+ 	},
+ 	"bin": {
+-		"pi": "dist/cli.js"
++		"gah": "dist/cli.js"
+ 	},
+ 	"main": "./dist/index.js",
+ 	"types": "./dist/index.d.ts",
+diff --git a/packages/coding-agent/src/modes/interactive/interactive-mode.ts b/packages/coding-agent/src/modes/interactive/interactive-mode.ts
+index 00183be8..c484a4c4 100644
+--- a/packages/coding-agent/src/modes/interactive/interactive-mode.ts
++++ b/packages/coding-agent/src/modes/interactive/interactive-mode.ts
+@@ -613,7 +613,7 @@ export class InteractiveMode {
+ 			);
+ 			const onboarding = theme.fg(
+ 				"dim",
+-				`Pi can explain its own features and look up its docs. Ask it how to use or extend Pi.`,
++				`GAH enforces a tool allowlist and audits every call. Ask the agent what it can and can't do.`,
+ 			);
+ 			this.builtInHeader = new ExpandableText(
+ 				() => `${logo}\n${compactInstructions}\n${compactOnboarding}\n\n${onboarding}`,
+-- 
+2.43.0
+
