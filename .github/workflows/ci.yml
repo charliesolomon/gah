@@ -43,8 +43,11 @@ jobs:
       - name: Apply patches
         run: ./scripts/apply-patches.sh
 
-      - name: Build coding-agent
-        run: cd vendor/pi && npm --workspace packages/coding-agent run build
+      - name: Build full chain
+        # coding-agent's TS imports @earendil-works/pi-tui|ai|agent which only
+        # resolve once their sibling dist/ trees exist, so we always build the
+        # whole chain in CI from a fresh checkout.
+        run: make build-all
 
       - name: Smoke test
         run: make smoke
@@ -70,7 +73,7 @@ jobs:
         run: cd vendor/pi && npm audit --omit=dev --audit-level=high
 
       - name: Trivy filesystem scan
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@0.36.0
         with:
           scan-type: fs
           scan-ref: .
@@ -92,7 +95,11 @@ jobs:
           python-version: '3.12'
 
       - name: Install Semgrep
-        run: pip install semgrep==1.95.0
+        # Python 3.12 removed pkg_resources from the default install; semgrep's
+        # transitive deps still need it, so pull setuptools in explicitly.
+        run: |
+          pip install setuptools
+          pip install semgrep==1.95.0
 
       # Scan our owned source only. vendor/pi/ is upstream and out of scope
       # for our SAST — issues there belong to PI's maintainers, not us.
