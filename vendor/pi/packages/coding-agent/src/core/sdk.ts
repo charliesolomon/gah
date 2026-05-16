@@ -184,7 +184,7 @@ function getAttributionHeaders(
  * await loader.reload();
  * const { session } = await createAgentSession({
  *   model: myModel,
- *   tools: ["read", "bash"],
+ *   tools: [readTool, bashTool],
  *   resourceLoader: loader,
  *   sessionManager: SessionManager.inMemory(),
  * });

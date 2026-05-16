@@ -54,7 +54,7 @@ The main factory function for a single `AgentSession`.
 `createAgentSession()` uses a `ResourceLoader` to supply extensions, skills, prompt templates, themes, and context files. If you do not provide one, it uses `DefaultResourceLoader` with standard discovery.
 
 ```typescript
-import { createAgentSession, SessionManager } from "@earendil-works/pi-coding-agent";
+import { createAgentSession } from "@earendil-works/pi-coding-agent";
 
 // Minimal: defaults with DefaultResourceLoader
 const { session } = await createAgentSession();
@@ -62,7 +62,7 @@ const { session } = await createAgentSession();
 // Custom: override specific options
 const { session } = await createAgentSession({
   model: myModel,
-  tools: ["read", "bash"],
+  tools: [readTool, bashTool],
   sessionManager: SessionManager.inMemory(),
 });
 ```
@@ -466,49 +466,63 @@ const { session } = await createAgentSession({ resourceLoader: loader });
 
 ### Tools
 
-Specify which built-in tools to enable:
-
-- Built-in tool names: `read`, `bash`, `edit`, `write`, `grep`, `find`, `ls`
-- Default built-ins: `read`, `bash`, `edit`, `write`
-- `noTools: "all"` disables all tools
-- `noTools: "builtin"` disables default built-ins while keeping extension and custom tools enabled
-
 ```typescript
-import { createAgentSession } from "@earendil-works/pi-coding-agent";
+import {
+  codingTools,   // read, bash, edit, write (default)
+  readOnlyTools, // read, grep, find, ls
+  readTool, bashTool, editTool, writeTool,
+  grepTool, findTool, lsTool,
+} from "@earendil-works/pi-coding-agent";
 
-// Read-only mode
+// Use built-in tool set
 const { session } = await createAgentSession({
-  tools: ["read", "grep", "find", "ls"],
+  tools: readOnlyTools,
 });
 
 // Pick specific tools
 const { session } = await createAgentSession({
-  tools: ["read", "bash", "grep"],
+  tools: [readTool, bashTool, grepTool],
 });
 ```
 
 #### Tools with Custom cwd
 
-When you pass a custom `cwd`, `createAgentSession()` builds selected built-in tools for that cwd.
+**Important:** The pre-built tool instances (`readTool`, `bashTool`, etc.) use `process.cwd()` for path resolution. When you specify a custom `cwd` AND provide explicit `tools`, you must use the tool factory functions to ensure paths resolve correctly:
 
 ```typescript
-import { createAgentSession, SessionManager } from "@earendil-works/pi-coding-agent";
+import {
+  createCodingTools,    // Creates [read, bash, edit, write] for specific cwd
+  createReadOnlyTools,  // Creates [read, grep, find, ls] for specific cwd
+  createReadTool,
+  createBashTool,
+  createEditTool,
+  createWriteTool,
+  createGrepTool,
+  createFindTool,
+  createLsTool,
+} from "@earendil-works/pi-coding-agent";
 
 const cwd = "/path/to/project";
 
-// Use default tools for custom cwd
+// Use factory for tool sets
 const { session } = await createAgentSession({
   cwd,
-  sessionManager: SessionManager.inMemory(cwd),
+  tools: createCodingTools(cwd),  // Tools resolve paths relative to cwd
 });
 
-// Or pick specific tools for custom cwd
+// Or pick specific tools
 const { session } = await createAgentSession({
   cwd,
-  tools: ["read", "bash", "grep"],
-  sessionManager: SessionManager.inMemory(cwd),
+  tools: [createReadTool(cwd), createBashTool(cwd), createGrepTool(cwd)],
 });
 ```
+
+**When you don't need factories:**
+- If you omit `tools`, pi automatically creates them with the correct `cwd`
+- If you use `process.cwd()` as your `cwd`, the pre-built instances work fine
+
+**When you must use factories:**
+- When you specify both `cwd` (different from `process.cwd()`) AND `tools`
 
 > See [examples/sdk/05-tools.ts](../examples/sdk/05-tools.ts)
 
@@ -541,8 +555,6 @@ const { session } = await createAgentSession({
 Use `defineTool()` for standalone definitions and arrays like `customTools: [myTool]`. Inline `pi.registerTool({ ... })` already infers parameter types correctly.
 
 Custom tools passed via `customTools` are combined with extension-registered tools. Extensions loaded by the ResourceLoader can also register tools via `pi.registerTool()`.
-
-If you pass `tools`, include each custom or extension tool name you want enabled, for example `tools: ["read", "bash", "my_tool"]`.
 
 > See [examples/sdk/05-tools.ts](../examples/sdk/05-tools.ts)
 
@@ -873,10 +885,12 @@ import { getModel } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import {
   AuthStorage,
+  bashTool,
   createAgentSession,
   DefaultResourceLoader,
   defineTool,
   ModelRegistry,
+  readTool,
   SessionManager,
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
@@ -930,7 +944,7 @@ const { session } = await createAgentSession({
   authStorage,
   modelRegistry,
 
-  tools: ["read", "bash", "status"],
+  tools: [readTool, bashTool],
   customTools: [statusTool],
   resourceLoader: loader,
 
@@ -1109,7 +1123,13 @@ defineTool
 SessionManager
 SettingsManager
 
-// Tool factories
+// Built-in tools (use process.cwd())
+codingTools
+readOnlyTools
+readTool, bashTool, editTool, writeTool
+grepTool, findTool, lsTool
+
+// Tool factories (for custom cwd)
 createCodingTools
 createReadOnlyTools
 createReadTool, createBashTool, createEditTool, createWriteTool

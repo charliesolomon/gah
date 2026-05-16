@@ -12,7 +12,7 @@ The runtime example shows how to build a recreate function that closes over proc
 | `02-custom-model.ts` | Select model and thinking level |
 | `03-custom-prompt.ts` | Replace or modify system prompt |
 | `04-skills.ts` | Discover, filter, or replace skills |
-| `05-tools.ts` | Built-in tool allowlists |
+| `05-tools.ts` | Built-in tools, custom tools |
 | `06-extensions.ts` | Logging, blocking, result modification |
 | `07-context-files.ts` | AGENTS.md context files |
 | `08-slash-commands.ts` | File-based slash commands |
@@ -40,6 +40,9 @@ import {
   ModelRegistry,
   SessionManager,
   SettingsManager,
+  codingTools,
+  readOnlyTools,
+  readTool, bashTool, editTool, writeTool,
 } from "@earendil-works/pi-coding-agent";
 
 // Auth and models setup
@@ -61,7 +64,7 @@ await loader.reload();
 const { session } = await createAgentSession({ resourceLoader: loader, authStorage, modelRegistry });
 
 // Read-only
-const { session } = await createAgentSession({ tools: ["read", "grep", "find", "ls"], authStorage, modelRegistry });
+const { session } = await createAgentSession({ tools: readOnlyTools, authStorage, modelRegistry });
 
 // In-memory
 const { session } = await createAgentSession({
@@ -89,8 +92,8 @@ const { session } = await createAgentSession({
   authStorage: customAuth,
   modelRegistry: customRegistry,
   resourceLoader,
-  tools: ["read", "bash", "my_tool"],
-  customTools: [myTool],
+  tools: [readTool, bashTool],
+  customTools: [{ tool: myTool }],
   sessionManager: SessionManager.inMemory(),
   settingsManager: SettingsManager.inMemory(),
 });
@@ -114,7 +117,7 @@ await session.prompt("Hello");
 | `agentDir` | `~/.pi/agent` | Config directory |
 | `model` | From settings/first available | Model to use |
 | `thinkingLevel` | From settings/"off" | off, low, medium, high |
-| `tools` | `["read", "bash", "edit", "write"]` built-ins | Allowlist tool names across built-in, extension, and custom tools |
+| `tools` | `codingTools` | Built-in tools |
 | `customTools` | `[]` | Additional tool definitions |
 | `resourceLoader` | DefaultResourceLoader | Resource loader for extensions, skills, prompts, themes |
 | `sessionManager` | `SessionManager.create(cwd)` | Persistence |
