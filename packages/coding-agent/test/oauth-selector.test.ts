@@ -1,4 +1,5 @@
 import { setKeybindings } from "@earendil-works/pi-tui";
+import stripAnsi from "strip-ansi";
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { AuthStorage } from "../src/core/auth-storage.js";
 import { KeybindingsManager } from "../src/core/keybindings.js";
@@ -6,7 +7,6 @@ import { BUILT_IN_PROVIDER_DISPLAY_NAMES } from "../src/core/provider-display-na
 import { OAuthSelectorComponent } from "../src/modes/interactive/components/oauth-selector.js";
 import { isApiKeyLoginProvider } from "../src/modes/interactive/interactive-mode.js";
 import { initTheme } from "../src/modes/interactive/theme/theme.js";
-import { stripAnsi } from "../src/utils/ansi.js";
 
 const originalOpenAiApiKey = process.env.OPENAI_API_KEY;
 

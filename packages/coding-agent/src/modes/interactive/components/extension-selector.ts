@@ -12,7 +12,6 @@ import { keyHint, rawKeyHint } from "./keybinding-hints.js";
 export interface ExtensionSelectorOptions {
 	tui?: TUI;
 	timeout?: number;
-	onToggleToolsExpanded?: () => void;
 }
 
 export class ExtensionSelectorComponent extends Container {
@@ -24,7 +23,6 @@ export class ExtensionSelectorComponent extends Container {
 	private titleText: Text;
 	private baseTitle: string;
 	private countdown: CountdownTimer | undefined;
-	private onToggleToolsExpanded: (() => void) | undefined;
 
 	constructor(
 		title: string,
@@ -38,7 +36,6 @@ export class ExtensionSelectorComponent extends Container {
 		this.options = options;
 		this.onSelectCallback = onSelect;
 		this.onCancelCallback = onCancel;
-		this.onToggleToolsExpanded = opts?.onToggleToolsExpanded;
 		this.baseTitle = title;
 
 		this.addChild(new DynamicBorder());
@@ -90,9 +87,7 @@ export class ExtensionSelectorComponent extends Container {
 
 	handleInput(keyData: string): void {
 		const kb = getKeybindings();
-		if (kb.matches(keyData, "app.tools.expand")) {
-			this.onToggleToolsExpanded?.();
-		} else if (kb.matches(keyData, "tui.select.up") || keyData === "k") {
+		if (kb.matches(keyData, "tui.select.up") || keyData === "k") {
 			this.selectedIndex = Math.max(0, this.selectedIndex - 1);
 			this.updateList();
 		} else if (kb.matches(keyData, "tui.select.down") || keyData === "j") {

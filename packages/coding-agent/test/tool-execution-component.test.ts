@@ -1,5 +1,6 @@
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { Text, type TUI } from "@earendil-works/pi-tui";
+import stripAnsi from "strip-ansi";
 import { Type } from "typebox";
 import { beforeAll, describe, expect, test } from "vitest";
 import { getReadmePath } from "../src/config.js";
@@ -9,7 +10,6 @@ import { createReadTool, createReadToolDefinition } from "../src/core/tools/read
 import { createWriteToolDefinition } from "../src/core/tools/write.js";
 import { ToolExecutionComponent } from "../src/modes/interactive/components/tool-execution.js";
 import { initTheme } from "../src/modes/interactive/theme/theme.js";
-import { stripAnsi } from "../src/utils/ansi.js";
 
 function createBaseToolDefinition(name = "custom_tool"): ToolDefinition {
 	return {
@@ -342,18 +342,10 @@ describe("ToolExecutionComponent parity", () => {
 		},
 		{
 			title: "AGENTS.md",
-			path: join(process.cwd(), ".pi", "AGENTS.md"),
+			path: join(process.cwd(), "AGENTS.md"),
 			content: "Hidden resource instructions",
-			compact: "read resource .pi/AGENTS.md",
+			compact: "read resource AGENTS.md",
 			hidden: "Hidden resource instructions",
-			absent: undefined,
-		},
-		{
-			title: "outside AGENTS.md",
-			path: resolve(process.cwd(), "..", "AGENTS.md"),
-			content: "Hidden outside resource instructions",
-			compact: `read resource ${resolve(process.cwd(), "..", "AGENTS.md").replace(/\\/g, "/")}`,
-			hidden: "Hidden outside resource instructions",
 			absent: undefined,
 		},
 		{

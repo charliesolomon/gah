@@ -4,13 +4,7 @@ Pi is a minimal terminal coding harness. It is designed to stay small at the cor
 
 ## Quick start
 
-On linux or mac you can install Pi with curl:
-
-```bash
-curl -fsSL https://pi.dev/install.sh | sh
-```
-
-Or alternatively with npm:
+Install pi with npm:
 
 ```bash
 npm install -g @earendil-works/pi-coding-agent

@@ -153,15 +153,13 @@ function createAgentStream(): EventStream<AgentEvent, AgentMessage[]> {
  * Main loop logic shared by agentLoop and agentLoopContinue.
  */
 async function runLoop(
-	initialContext: AgentContext,
+	currentContext: AgentContext,
 	newMessages: AgentMessage[],
-	initialConfig: AgentLoopConfig,
+	config: AgentLoopConfig,
 	signal: AbortSignal | undefined,
 	emit: AgentEventSink,
 	streamFn?: StreamFn,
 ): Promise<void> {
-	let currentContext = initialContext;
-	let config = initialConfig;
 	let firstTurn = true;
 	// Check for steering messages at start (user may have typed while waiting)
 	let pendingMessages: AgentMessage[] = (await config.getSteeringMessages?.()) || [];
@@ -216,27 +214,6 @@ async function runLoop(
 			}
 
 			await emit({ type: "turn_end", message, toolResults });
-
-			const nextTurnContext = {
-				message,
-				toolResults,
-				context: currentContext,
-				newMessages,
-			};
-			const nextTurnSnapshot = await config.prepareNextTurn?.(nextTurnContext);
-			if (nextTurnSnapshot) {
-				currentContext = nextTurnSnapshot.context ?? currentContext;
-				config = {
-					...config,
-					model: nextTurnSnapshot.model ?? config.model,
-					reasoning:
-						nextTurnSnapshot.thinkingLevel === undefined
-							? config.reasoning
-							: nextTurnSnapshot.thinkingLevel === "off"
-								? undefined
-								: nextTurnSnapshot.thinkingLevel,
-				};
-			}
 
 			if (
 				await config.shouldStopAfterTurn?.({
