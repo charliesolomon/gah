@@ -40,9 +40,9 @@ All scanners use OSS configurations and run without external service accounts, s
 
 Scanners are pinned to specific versions to avoid silent behavior drift:
 
-- `aquasecurity/trivy-action@0.36.0`
-- `semgrep==1.95.0` (via pip; requires setuptools preinstalled on Python 3.12+)
+- `aquasecurity/trivy-action@v0.36.0`
+- `semgrep/semgrep:1.95.0` (Docker image; chosen over pip to avoid setuptools/pkg_resources drift on Python 3.12+)
 - `gitleaks v8.21.2`
-- `actions/checkout@v4`, `actions/setup-node@v4`, `actions/setup-python@v5`
+- `actions/checkout@v4`, `actions/setup-node@v4`
 
 Bump deliberately when needed; expect to do so manually every few months (no Renovate).

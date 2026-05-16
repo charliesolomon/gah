@@ -73,7 +73,7 @@ jobs:
         run: cd vendor/pi && npm audit --omit=dev --audit-level=high
 
       - name: Trivy filesystem scan
-        uses: aquasecurity/trivy-action@0.36.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
           scan-ref: .
@@ -89,30 +89,27 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Install Semgrep
-        # Python 3.12 removed pkg_resources from the default install; semgrep's
-        # transitive deps still need it, so pull setuptools in explicitly.
-        run: |
-          pip install setuptools
-          pip install semgrep==1.95.0
-
-      # Scan our owned source only. vendor/pi/ is upstream and out of scope
-      # for our SAST — issues there belong to PI's maintainers, not us.
+      # Run Semgrep via its official Docker image to sidestep the Python 3.12
+      # / setuptools / pkg_resources mess (recent setuptools dropped the
+      # pkg_resources module that semgrep's deps still import). Version is
+      # pinned at the image tag.
+      #
+      # Scope: scan our owned source only. vendor/pi/ is upstream and out of
+      # scope — issues there belong to PI's maintainers, not us.
       - name: Run Semgrep on owned code
         run: |
-          semgrep scan \
-            --config=p/owasp-top-ten \
-            --config=p/javascript \
-            --config=p/typescript \
-            --config=p/secrets \
-            --error \
-            --metrics=off \
-            packages/ scripts/ bin/
+          docker run --rm \
+            -v "${{ github.workspace }}:/src" \
+            -w /src \
+            semgrep/semgrep:1.95.0 \
+            semgrep scan \
+              --config=p/owasp-top-ten \
+              --config=p/javascript \
+              --config=p/typescript \
+              --config=p/secrets \
+              --error \
+              --metrics=off \
+              packages/ scripts/ bin/
 
   scan-secrets:
     name: secret scan (gitleaks)
