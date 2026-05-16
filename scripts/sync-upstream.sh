@@ -29,7 +29,10 @@ ensure_remote() {
 record_state() {
   local ref="$1"
   local sha
-  sha=$(git rev-parse "$UPSTREAM_REMOTE/$ref" 2>/dev/null || git rev-parse "$ref")
+  sha=$(git rev-parse --verify --quiet "refs/tags/$ref" \
+     || git rev-parse --verify --quiet "$UPSTREAM_REMOTE/$ref" \
+     || git rev-parse --verify --quiet "$ref" \
+     || echo unknown)
   printf 'ref=%s\nsha=%s\nsynced=%s\n' "$ref" "$sha" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$STATE_FILE"
 }
 
