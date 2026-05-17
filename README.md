@@ -1,5 +1,7 @@
 # Good Agent Harness (gah)
 
+[![ci](https://github.com/charliesolomon/gah/actions/workflows/ci.yml/badge.svg)](https://github.com/charliesolomon/gah/actions/workflows/ci.yml)
+
 A branded, policy-hardened distribution of the [PI coding agent](https://github.com/earendil-works/pi).
 
 GAH is structured as **two layers** so that customization survives upstream churn:
