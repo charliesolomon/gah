@@ -12,7 +12,8 @@ stay on Linux/macOS (see [WORKFLOW.md](WORKFLOW.md)).
   runtime and probes Git Bash first, then `bash.exe` on PATH (see
   `vendor/pi/packages/coding-agent/docs/windows.md`). GAH's policy blocks the
   bash *tool*, but the probe still runs.
-- Node.js LTS (with npm)
+- Node.js ≥ 22.19 (with npm) — upstream PI's `engines` requirement; builds
+  fail on older 22.x with `ERR_UNKNOWN_FILE_EXTENSION` on `.ts` scripts
 
 ## Build
 

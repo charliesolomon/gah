@@ -1,6 +1,6 @@
-From 306a3ddf2ad01c5e2fcedfd5a4f9c3e5adc39874 Mon Sep 17 00:00:00 2001
+From 0b295c6db244a9a8ed8410fc581745c6f6323331 Mon Sep 17 00:00:00 2001
 From: csolomon <charliesolomon@gmail.com>
-Date: Thu, 11 Jun 2026 14:28:29 -0700
+Date: Thu, 11 Jun 2026 14:45:35 -0700
 Subject: [PATCH] bake-policy: force-load bundled GAH policy in published
  artifacts
 
@@ -11,29 +11,30 @@ disables extension auto-discovery, mirroring what bin/gah does with
 npm-installed gah would launch upstream PI with no policy at all.
 
 Dev builds have no gah-policy dir and behave exactly like upstream.
+
+Regenerated against v0.79.1 (original was against v0.74.0).
 ---
- packages/coding-agent/src/main.ts | 19 +++++++++++++++++--
- 1 file changed, 17 insertions(+), 2 deletions(-)
+ packages/coding-agent/src/main.ts | 18 +++++++++++++++++-
+ 1 file changed, 17 insertions(+), 1 deletion(-)
 
 diff --git a/packages/coding-agent/src/main.ts b/packages/coding-agent/src/main.ts
-index 5a29a1fc..39af1016 100644
+index 38f95246..705a6ce9 100644
 --- a/packages/coding-agent/src/main.ts
 +++ b/packages/coding-agent/src/main.ts
-@@ -5,8 +5,10 @@
+@@ -5,7 +5,10 @@
   * createAgentSession() options. The SDK does the heavy lifting.
   */
  
--import { resolve } from "node:path";
 +import { existsSync, readdirSync } from "node:fs";
 +import { dirname, resolve } from "node:path";
  import { createInterface } from "node:readline";
 +import { fileURLToPath } from "node:url";
  import { type ImageContent, modelsAreEqual } from "@earendil-works/pi-ai";
- import { ProcessTerminal, setKeybindings, TUI } from "@earendil-works/pi-tui";
  import chalk from "chalk";
-@@ -514,7 +516,20 @@ export async function main(args: string[], options?: MainOptions) {
- 	}
- 	time("createSessionManager");
+ import { type Args, type Mode, parseArgs, printHelp } from "./cli/args.ts";
+@@ -568,7 +571,20 @@ export async function main(args: string[], options?: MainOptions) {
+ 	const trustPromptMode: AppMode = parsed.help || parsed.listModels !== undefined ? "print" : appMode;
+ 	const projectTrustByCwd = new Map<string, boolean>();
  
 -	const resolvedExtensionPaths = resolveCliPaths(cwd, parsed.extensions);
 +	let resolvedExtensionPaths = resolveCliPaths(cwd, parsed.extensions);
