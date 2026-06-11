@@ -47,6 +47,11 @@ for p in "${patches[@]}"; do
   if git apply --check --directory=vendor/pi "$p" 2>/dev/null; then
     git apply --directory=vendor/pi "$p"
     echo "  ✓ applied"
+  elif git apply --reverse --check --directory=vendor/pi "$p" 2>/dev/null; then
+    # The vendor tree is committed with patches applied, so on a normal
+    # checkout every patch is already present — only a pristine tree
+    # (mid-sync) actually needs applying.
+    echo "  ✓ already applied — skipping"
   else
     echo "  ✗ does not apply cleanly"
     failed+=("$name")
