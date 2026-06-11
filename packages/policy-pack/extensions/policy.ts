@@ -46,12 +46,14 @@ function audit(entry: Record<string, unknown>): void {
 	}
 }
 
+/** Normalize to forward slashes so fragment matching works on Windows paths. */
+function normalize(path: string): string {
+	return path.replace(/^~/, homedir()).replaceAll("\\", "/");
+}
+
 function isProtectedPath(path: string): boolean {
-	const expanded = path.replace(/^~/, homedir());
-	return PROTECTED_PATH_FRAGMENTS.some((frag) => {
-		const expandedFrag = frag.replace(/^~/, homedir());
-		return expanded.includes(expandedFrag);
-	});
+	const expanded = normalize(path);
+	return PROTECTED_PATH_FRAGMENTS.some((frag) => expanded.includes(normalize(frag)));
 }
 
 export default function (pi: ExtensionAPI) {
