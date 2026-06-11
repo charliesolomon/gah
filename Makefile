@@ -6,7 +6,7 @@
 PI_DIR := vendor/pi
 
 .DEFAULT_GOAL := help
-.PHONY: help install install-hooks build build-all smoke patches clean-vendor sync sync-init status patch-new patch-export
+.PHONY: help install install-hooks build build-all smoke patches bundle-policy clean-vendor sync sync-init status patch-new patch-export
 
 help: ## Show available targets
 	@awk 'BEGIN { FS = ":.*##"; printf "Usage: make <target> [VAR=value]\n\nTargets:\n" } \
@@ -38,6 +38,9 @@ smoke: ## Quick smoke test of the built binary
 
 patches: ## Re-apply patches in patches/
 	./scripts/apply-patches.sh
+
+bundle-policy: ## Copy policy pack into dist for publishing (see 0020-bake-policy)
+	./scripts/bundle-policy.sh
 
 clean-vendor: ## Discard working-tree changes in vendor/pi
 	./scripts/clean-vendor.sh
