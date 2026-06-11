@@ -48,19 +48,30 @@ Never commit changes to `vendor/pi/` outside the patch flow (`patches/README.md`
 
 Sync on **release tags**, not `main`. Releases batch upstream changes so we don't pay merge cost per commit.
 
+The vendor tree is committed **with patches applied** (clones run without a
+patch step), so every sync starts by reverse-applying the series — otherwise
+the subtree pull merges into a patched tree and `apply-patches.sh` has
+nothing it can do.
+
 ```bash
-# 1. Pull the new release into a sync branch
-git checkout -b sync/v0.75.0
-./scripts/sync-upstream.sh pull v0.75.0
+# 1. Sync branch; restore pristine vendor
+git checkout -b sync/v0.80.0
+for p in $(ls patches/[0-9]*.patch | sort -r); do
+  git apply -R --directory=vendor/pi "$p"
+done
+git commit -am "sync: restore pristine vendor"
 
-# 2. Re-apply our patches
-./scripts/apply-patches.sh
+# 2. Pull the new release
+./scripts/sync-upstream.sh pull v0.80.0
 
-# 3. Run our test/scan loop
-npm --workspace packages/policy-pack test   # once we add tests
-# ci/scans/* runs in CI; can also run locally
+# 3. Re-apply our patches; commit the patched state
+./scripts/apply-patches.sh        # regenerate any patch that fails (see below)
+git add -A && git commit -m "sync: vendor v0.80.0, patch series re-applied"
 
-# 4. Open a PR; review; merge
+# 4. Rebuild + smoke; deps may have changed
+cd vendor/pi && npm ci && cd ../.. && make build-all && make smoke
+
+# 5. Open a PR; review; merge
 ```
 
 CI does this automatically every Monday — see `.github/workflows/upstream-sync.yml`. The schedule + manual trigger together let you sync proactively for security releases.

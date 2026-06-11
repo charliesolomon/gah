@@ -3,6 +3,12 @@ name: upstream-sync
 # Attempts to pull the latest upstream PI release, re-apply our patches, and
 # open a PR if the result is clean. Runs weekly; can also be triggered manually
 # with a specific upstream ref.
+#
+# The vendor tree is committed WITH patches applied (so clones run without a
+# patch step). That makes the sync sequence: reverse-apply patches → commit
+# pristine vendor → subtree pull → re-apply patches → commit patched state.
+# Skipping the reverse-apply would merge upstream into a patched tree and
+# leave apply-patches.sh nothing it can do.
 
 on:
   schedule:
@@ -10,9 +16,9 @@ on:
   workflow_dispatch:
     inputs:
       ref:
-        description: "Upstream PI ref (tag, branch, or SHA)"
-        required: true
-        default: "main"
+        description: "Upstream PI ref (tag, branch, or SHA). Empty = latest release tag."
+        required: false
+        default: ""
 
 jobs:
   sync:
@@ -31,27 +37,64 @@ jobs:
           git config user.name  "gah-bot"
           git config user.email "gah-bot@users.noreply.github.com"
 
+      # Scheduled runs (and manual runs without a ref) sync to the latest
+      # upstream release tag — never `main`; releases batch the merge cost
+      # (docs/WORKFLOW.md). A no-op when we're already at that tag.
       - name: Resolve target ref
         id: resolve
         run: |
           REF="${{ inputs.ref }}"
-          if [ -z "$REF" ]; then REF="main"; fi
+          if [ -z "$REF" ]; then
+            REF=$(git ls-remote --tags --refs https://github.com/earendil-works/pi.git 'v*' \
+                  | awk -F/ '{print $NF}' | sort -V | tail -1)
+          fi
+          if [ -z "$REF" ]; then
+            echo "Could not resolve an upstream release tag" >&2
+            exit 1
+          fi
+          CURRENT=$(sed -n 's/^ref=//p' .sync-state 2>/dev/null || true)
+          if [ "$REF" = "$CURRENT" ]; then
+            echo "Already synced to $REF — nothing to do."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
           echo "ref=$REF" >> "$GITHUB_OUTPUT"
           echo "branch=sync/$(echo "$REF" | tr '/' '-')" >> "$GITHUB_OUTPUT"
 
       - name: Create sync branch
+        if: steps.resolve.outputs.skip != 'true'
         run: git checkout -b "${{ steps.resolve.outputs.branch }}"
 
+      - name: Restore pristine vendor (reverse-apply patches)
+        if: steps.resolve.outputs.skip != 'true'
+        run: |
+          for p in $(ls patches/[0-9]*.patch | sort -r); do
+            echo "→ Reversing $p"
+            git apply -R --directory=vendor/pi "$p"
+          done
+          git commit -am "sync: restore pristine vendor for ${{ steps.resolve.outputs.ref }} subtree pull"
+
       - name: Pull upstream
+        if: steps.resolve.outputs.skip != 'true'
         run: scripts/sync-upstream.sh pull "${{ steps.resolve.outputs.ref }}"
 
       - name: Re-apply patches
+        if: steps.resolve.outputs.skip != 'true'
         run: scripts/apply-patches.sh
+        # If a patch no longer applies, this fails loudly and no PR opens.
+        # Regenerate the patch locally (docs/WORKFLOW.md "Patch failure
+        # during sync") and run this workflow again with the same ref.
+
+      - name: Commit patched vendor state
+        if: steps.resolve.outputs.skip != 'true'
+        run: |
+          git add -A
+          git commit -m "sync: vendor ${{ steps.resolve.outputs.ref }}, patch series re-applied"
 
       # ci.yml runs automatically on the PR opened below (build + smoke + all
       # scans). We deliberately don't repeat that work here.
 
       - name: Open PR
+        if: steps.resolve.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -60,4 +103,4 @@ jobs:
             --base main \
             --head "${{ steps.resolve.outputs.branch }}" \
             --title "Upstream sync: ${{ steps.resolve.outputs.ref }}" \
-            --body  "Automated sync of vendor/pi to \`${{ steps.resolve.outputs.ref }}\`. Patch series re-applied. Review the diff and scan results before merging."
+            --body  "Automated sync of vendor/pi to \`${{ steps.resolve.outputs.ref }}\`. Patches reverse-applied before the subtree pull, then re-applied and committed. Review the diff and scan results before merging."
