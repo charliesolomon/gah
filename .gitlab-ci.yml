@@ -1,0 +1,67 @@
+# GAH pipeline for the enterprise GitLab mirror.
+#
+# build  — every push to the default branch and every tag: full build, policy
+#          bundle, smoke test. Proves the mirror is releasable at all times.
+# publish — v* tags only: publishes the built coding-agent (with the policy
+#          pack baked into dist/gah-policy — see patches/0020-bake-policy.patch)
+#          to this project's npm registry.
+#
+# Consumers install with:
+#   npm config set @<root-group>:registry https://<gitlab-host>/api/v4/projects/<id>/packages/npm/
+#   npm config set -- //<gitlab-host>/api/v4/projects/<id>/packages/npm/:_authToken <deploy-token>
+#   npm install -g @<root-group>/gah
+#
+# See docs/GITLAB.md for mirroring setup and the full release runbook.
+
+stages:
+  - build
+  - publish
+
+default:
+  image: node:22
+
+# The npm scope must equal the GitLab root namespace (group) for
+# instance-level installs to resolve. Project-level installs work regardless.
+variables:
+  GAH_NPM_SCOPE: "$CI_PROJECT_ROOT_NAMESPACE"
+
+build:
+  stage: build
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - if: '$CI_COMMIT_TAG =~ /^v/'
+  cache:
+    key:
+      files:
+        - vendor/pi/package-lock.json
+    paths:
+      - vendor/pi/node_modules/
+  script:
+    - cd vendor/pi
+    - npm ci
+    - for p in tui ai agent coding-agent; do npm --workspace packages/$p run build; done
+    - cd ../..
+    - ./scripts/bundle-policy.sh
+    - ./bin/gah --version
+  artifacts:
+    expire_in: 1 week
+    paths:
+      - vendor/pi/packages/coding-agent/dist/
+
+publish:
+  stage: publish
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^v/'
+  needs: ["build"]
+  script:
+    - cd vendor/pi/packages/coding-agent
+    # Rebrand the artifact for our registry; version comes from the tag
+    # (e.g. v0.74.0-gah.1 → 0.74.0-gah.1). Dependencies stay on upstream's
+    # public npm packages at the vendored versions.
+    - npm pkg set name="@${GAH_NPM_SCOPE}/gah" version="${CI_COMMIT_TAG#v}"
+    - npm config set "@${GAH_NPM_SCOPE}:registry" "https://${CI_SERVER_HOST}/api/v4/projects/${CI_PROJECT_ID}/packages/npm/"
+    - npm config set -- "//${CI_SERVER_HOST}/api/v4/projects/${CI_PROJECT_ID}/packages/npm/:_authToken" "${CI_JOB_TOKEN}"
+    # --ignore-scripts is load-bearing: upstream's prepublishOnly runs
+    # clean+build, which would wipe dist/gah-policy and publish an
+    # UNPOLICED artifact. The build job above already produced dist/.
+    - npm publish --ignore-scripts

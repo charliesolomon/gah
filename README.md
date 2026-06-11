@@ -27,6 +27,7 @@ gah/
 ├── ci/scans/                  ← SBOM, CVE, semgrep/CodeQL configs
 ├── docs/WORKFLOW.md           ← upstream sync + patch hygiene
 ├── docs/WINDOWS.md            ← running on Windows (PowerShell)
+├── docs/GITLAB.md             ← distribution via enterprise GitLab (npm registry)
 └── .github/workflows/         ← scheduled upstream sync + scans
 ```
 
@@ -50,6 +51,8 @@ make
 See [docs/WORKFLOW.md](docs/WORKFLOW.md) for the full sync ritual and patch hygiene rules.
 
 Running on Windows? See [docs/WINDOWS.md](docs/WINDOWS.md) — build with plain npm and launch via `bin\gah.ps1` (the Makefile and sync scripts are bash-only).
+
+Installing without a clone? [docs/GITLAB.md](docs/GITLAB.md) covers publishing `@<group>/gah` to an enterprise GitLab npm registry — the policy pack is baked into published artifacts via `patches/0020-bake-policy.patch`, so no wrapper script is needed.
 
 ## Why this shape
 
