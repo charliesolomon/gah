@@ -308,6 +308,25 @@ function migrateLegacyRegisterProviderConfigValues(
 	return migratedConfig ?? config;
 }
 
+// GAH: built-in catalog allowlist. GAH_BUILTIN_MODELS is a comma-separated
+// list of `provider/model-id` globs (e.g. "anthropic/*,amazon-bedrock/anthropic.claude-*").
+// Unset or empty means NO built-in models are exposed — approved endpoints are
+// registered by the GAH policy pack or allowlisted here at deployment time.
+function gahGlobToRegExp(glob: string): RegExp {
+	const escaped = glob.replace(/[.*+?^${}()|[\]\\]/g, (c) => (c === "*" ? ".*" : `\\${c}`));
+	return new RegExp(`^${escaped}$`);
+}
+
+const GAH_BUILTIN_MODEL_PATTERNS = (process.env.GAH_BUILTIN_MODELS ?? "")
+	.split(",")
+	.map((s) => s.trim())
+	.filter(Boolean)
+	.map(gahGlobToRegExp);
+
+function gahAllowsBuiltInModel(provider: string, modelId: string): boolean {
+	return GAH_BUILTIN_MODEL_PATTERNS.some((re) => re.test(`${provider}/${modelId}`));
+}
+
 export type ResolvedRequestAuth =
 	| {
 			ok: true;
@@ -459,7 +478,12 @@ export class ModelRegistry {
 			overrides,
 			modelOverrides,
 			error,
-		} = this.modelsJsonPath ? this.loadCustomModels(this.modelsJsonPath) : emptyCustomModelsResult();
+		} =
+			// GAH: models.json is an arbitrary-endpoint bypass; approved endpoints come
+			// from the policy pack. Deliberate opt-in for local testing only.
+			this.modelsJsonPath && process.env.GAH_ALLOW_MODELS_JSON === "1"
+				? this.loadCustomModels(this.modelsJsonPath)
+				: emptyCustomModelsResult();
 
 		if (error) {
 			this.loadError = error;
@@ -486,7 +510,10 @@ export class ModelRegistry {
 		modelOverrides: Map<string, Map<string, ModelOverride>>,
 	): Model<Api>[] {
 		return getProviders().flatMap((provider) => {
-			const models = getModels(provider as KnownProvider) as Model<Api>[];
+			// GAH: expose only allowlisted built-in models (see GAH_BUILTIN_MODELS above).
+			const models = (getModels(provider as KnownProvider) as Model<Api>[]).filter((m) =>
+				gahAllowsBuiltInModel(provider, m.id),
+			);
 			const providerOverride = overrides.get(provider);
 			const perModelOverrides = modelOverrides.get(provider);
 

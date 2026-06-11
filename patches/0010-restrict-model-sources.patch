@@ -1,0 +1,84 @@
+From ab9d6c4def48167f82b08ffcc6127a30f6161333 Mon Sep 17 00:00:00 2001
+From: csolomon <charliesolomon@gmail.com>
+Date: Thu, 11 Jun 2026 15:35:59 -0700
+Subject: [PATCH] restrict-model-sources: allowlist built-in catalog, gate
+ models.json
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Built-in models are hidden unless matched by GAH_BUILTIN_MODELS
+(comma-separated provider/model-id globs, e.g.
+"anthropic/*,amazon-bedrock/anthropic.claude-opus*"). Unset means no
+built-in models — approved endpoints are registered by the GAH policy
+pack, or allowlisted here at deployment time. Keeping the filter in
+loadBuiltInModels (rather than deleting catalog/provider code) keeps
+the patch one stable hunk and lets deployments keep providers with
+non-apiKey auth (e.g. Bedrock's AWS credential chain) that
+registerProvider can't re-create.
+
+models.json is an arbitrary-endpoint bypass of that posture, so it is
+ignored unless GAH_ALLOW_MODELS_JSON=1 (local testing escape hatch).
+---
+ .../coding-agent/src/core/model-registry.ts   | 31 +++++++++++++++++--
+ 1 file changed, 29 insertions(+), 2 deletions(-)
+
+diff --git a/packages/coding-agent/src/core/model-registry.ts b/packages/coding-agent/src/core/model-registry.ts
+index 00c81576..8c986cb1 100644
+--- a/packages/coding-agent/src/core/model-registry.ts
++++ b/packages/coding-agent/src/core/model-registry.ts
+@@ -308,6 +308,25 @@ function migrateLegacyRegisterProviderConfigValues(
+ 	return migratedConfig ?? config;
+ }
+ 
++// GAH: built-in catalog allowlist. GAH_BUILTIN_MODELS is a comma-separated
++// list of `provider/model-id` globs (e.g. "anthropic/*,amazon-bedrock/anthropic.claude-*").
++// Unset or empty means NO built-in models are exposed — approved endpoints are
++// registered by the GAH policy pack or allowlisted here at deployment time.
++function gahGlobToRegExp(glob: string): RegExp {
++	const escaped = glob.replace(/[.*+?^${}()|[\]\\]/g, (c) => (c === "*" ? ".*" : `\\${c}`));
++	return new RegExp(`^${escaped}$`);
++}
++
++const GAH_BUILTIN_MODEL_PATTERNS = (process.env.GAH_BUILTIN_MODELS ?? "")
++	.split(",")
++	.map((s) => s.trim())
++	.filter(Boolean)
++	.map(gahGlobToRegExp);
++
++function gahAllowsBuiltInModel(provider: string, modelId: string): boolean {
++	return GAH_BUILTIN_MODEL_PATTERNS.some((re) => re.test(`${provider}/${modelId}`));
++}
++
+ export type ResolvedRequestAuth =
+ 	| {
+ 			ok: true;
+@@ -459,7 +478,12 @@ export class ModelRegistry {
+ 			overrides,
+ 			modelOverrides,
+ 			error,
+-		} = this.modelsJsonPath ? this.loadCustomModels(this.modelsJsonPath) : emptyCustomModelsResult();
++		} =
++			// GAH: models.json is an arbitrary-endpoint bypass; approved endpoints come
++			// from the policy pack. Deliberate opt-in for local testing only.
++			this.modelsJsonPath && process.env.GAH_ALLOW_MODELS_JSON === "1"
++				? this.loadCustomModels(this.modelsJsonPath)
++				: emptyCustomModelsResult();
+ 
+ 		if (error) {
+ 			this.loadError = error;
+@@ -486,7 +510,10 @@ export class ModelRegistry {
+ 		modelOverrides: Map<string, Map<string, ModelOverride>>,
+ 	): Model<Api>[] {
+ 		return getProviders().flatMap((provider) => {
+-			const models = getModels(provider as KnownProvider) as Model<Api>[];
++			// GAH: expose only allowlisted built-in models (see GAH_BUILTIN_MODELS above).
++			const models = (getModels(provider as KnownProvider) as Model<Api>[]).filter((m) =>
++				gahAllowsBuiltInModel(provider, m.id),
++			);
+ 			const providerOverride = overrides.get(provider);
+ 			const perModelOverrides = modelOverrides.get(provider);
+ 
+-- 
+2.43.0
+
