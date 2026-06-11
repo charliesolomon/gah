@@ -1,0 +1,49 @@
+{
+	"$comment": "Example GAH providers config. Copy to ~/.gah/providers.json (or point GAH_PROVIDERS_FILE at it) and replace with your approved endpoints. NOTE: providers using cloud credential-chain auth (e.g. amazon-bedrock) are allowlisted via the GAH_BUILTIN_MODELS env var instead, e.g. GAH_BUILTIN_MODELS='amazon-bedrock/anthropic.claude-opus*' — see docs/PROVIDERS.md.",
+	"providers": [
+		{
+			"name": "acme-gateway",
+			"baseUrl": "https://llm-gateway.example.com/v1",
+			"api": "openai-completions",
+			"apiKey": "$ACME_GATEWAY_API_KEY",
+			"models": [
+				{
+					"id": "acme-large",
+					"name": "Acme Large",
+					"reasoning": true,
+					"input": ["text", "image"],
+					"cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
+					"contextWindow": 200000,
+					"maxTokens": 32768
+				},
+				{
+					"id": "acme-mini",
+					"name": "Acme Mini",
+					"reasoning": false,
+					"input": ["text"],
+					"cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
+					"contextWindow": 128000,
+					"maxTokens": 8192
+				}
+			]
+		},
+		{
+			"name": "internal-claude-proxy",
+			"baseUrl": "https://claude-proxy.example.com",
+			"api": "anthropic-messages",
+			"apiKey": "$INTERNAL_PROXY_KEY",
+			"models": [
+				{
+					"id": "claude-opus-4-7",
+					"name": "Claude Opus 4.7 (proxy)",
+					"reasoning": true,
+					"input": ["text", "image"],
+					"cost": { "input": 5, "output": 25, "cacheRead": 0.5, "cacheWrite": 6.25 },
+					"contextWindow": 1000000,
+					"maxTokens": 128000
+				}
+			]
+		}
+	],
+	"keepOAuth": []
+}

@@ -23,10 +23,16 @@ EOF
   exit 1
 fi
 
+# Dev default: expose built-in Anthropic models (patch 0010 hides everything
+# otherwise). Deployments override or unset this; published artifacts have no
+# wrapper and default to deny-all.
+export GAH_BUILTIN_MODELS="${GAH_BUILTIN_MODELS-anthropic/*}"
+
 # --no-extensions disables auto-discovery from ~/.pi/agent and .pi/ ;
 # explicit --extension flags re-add exactly what GAH ships.
 exec node "$PI_CLI" \
   --no-extensions \
   --extension "$POLICY_DIR/policy.ts" \
   --extension "$POLICY_DIR/branding.ts" \
+  --extension "$POLICY_DIR/providers.ts" \
   "$@"

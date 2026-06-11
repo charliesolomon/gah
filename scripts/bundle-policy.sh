@@ -27,6 +27,7 @@ rm -rf "$DIST/gah-policy"
 mkdir -p "$DIST/gah-policy/extensions"
 cp "$PACK"/extensions/*.ts "$DIST/gah-policy/extensions/"
 cp "$PACK/SYSTEM.md" "$DIST/gah-policy/"
+cp "$PACK/providers.example.json" "$DIST/gah-policy/"
 
 echo "✓ policy pack bundled into dist/gah-policy/"
 ls "$DIST/gah-policy" "$DIST/gah-policy/extensions"

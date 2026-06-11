@@ -23,11 +23,19 @@ Run the build first:
     exit 1
 }
 
+# Dev default: expose built-in Anthropic models (patch 0010 hides everything
+# otherwise). Deployments override or unset this; published artifacts have no
+# wrapper and default to deny-all.
+if (-not (Test-Path Env:GAH_BUILTIN_MODELS)) {
+    $env:GAH_BUILTIN_MODELS = "anthropic/*"
+}
+
 # --no-extensions disables auto-discovery from the user-global and project
 # config dirs; explicit --extension flags re-add exactly what GAH ships.
 & node $PiCli `
     --no-extensions `
     --extension (Join-Path $PolicyDir "policy.ts") `
     --extension (Join-Path $PolicyDir "branding.ts") `
+    --extension (Join-Path $PolicyDir "providers.ts") `
     @args
 exit $LASTEXITCODE
