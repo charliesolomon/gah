@@ -5,10 +5,8 @@
  * createAgentSession() options. The SDK does the heavy lifting.
  */
 
-import { existsSync, readdirSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { resolve } from "node:path";
 import { createInterface } from "node:readline";
-import { fileURLToPath } from "node:url";
 import { type ImageContent, modelsAreEqual } from "@earendil-works/pi-ai";
 import { ProcessTerminal, setKeybindings, TUI } from "@earendil-works/pi-tui";
 import chalk from "chalk";
@@ -516,20 +514,7 @@ export async function main(args: string[], options?: MainOptions) {
 	}
 	time("createSessionManager");
 
-	let resolvedExtensionPaths = resolveCliPaths(cwd, parsed.extensions);
-	// GAH: a `gah-policy/extensions/` dir next to the built entry point (created
-	// by the publish pipeline, absent in dev builds) is force-loaded and turns
-	// off extension auto-discovery — the same posture bin/gah enforces with
-	// --no-extensions + explicit --extension flags.
-	const gahPolicyExtDir = resolve(dirname(fileURLToPath(import.meta.url)), "gah-policy", "extensions");
-	if (existsSync(gahPolicyExtDir)) {
-		const baked = readdirSync(gahPolicyExtDir)
-			.filter((f) => /\.(ts|js|mjs)$/.test(f))
-			.sort()
-			.map((f) => resolve(gahPolicyExtDir, f));
-		resolvedExtensionPaths = [...baked, ...(resolvedExtensionPaths ?? [])];
-		parsed.noExtensions = true;
-	}
+	const resolvedExtensionPaths = resolveCliPaths(cwd, parsed.extensions);
 	const resolvedSkillPaths = resolveCliPaths(cwd, parsed.skills);
 	const resolvedPromptTemplatePaths = resolveCliPaths(cwd, parsed.promptTemplates);
 	const resolvedThemePaths = resolveCliPaths(cwd, parsed.themes);
