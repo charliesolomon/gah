@@ -26,6 +26,7 @@ gah/
 ├── scripts/                   ← sync, patch, build helpers
 ├── ci/scans/                  ← SBOM, CVE, semgrep/CodeQL configs
 ├── docs/WORKFLOW.md           ← upstream sync + patch hygiene
+├── docs/WINDOWS.md            ← running on Windows (PowerShell)
 └── .github/workflows/         ← scheduled upstream sync + scans
 ```
 
@@ -47,6 +48,8 @@ make
 ```
 
 See [docs/WORKFLOW.md](docs/WORKFLOW.md) for the full sync ritual and patch hygiene rules.
+
+Running on Windows? See [docs/WINDOWS.md](docs/WINDOWS.md) — build with plain npm and launch via `bin\gah.ps1` (the Makefile and sync scripts are bash-only).
 
 ## Why this shape
 
