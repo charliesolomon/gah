@@ -29,7 +29,10 @@ GAH_ALLOW_TOOLS="bash"
 
 # --- AWS ----------------------------------------------------------------------
 # Profile in ~/.aws/credentials holding this user's IAM keys (Phase 2).
-#AWS_PROFILE="default"
+# REQUIRED for Bedrock models to appear: the agent treats amazon-bedrock as
+# available only when an AWS env var is set (AWS_PROFILE, AWS_ACCESS_KEY_ID/
+# AWS_SECRET_ACCESS_KEY, …) — a credentials file alone is not detected.
+AWS_PROFILE="default"
 
 # --- Optional -----------------------------------------------------------------
 # Approved non-built-in endpoints (docs/PROVIDERS.md, mechanism 2).

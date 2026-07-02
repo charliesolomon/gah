@@ -11,6 +11,12 @@
 #
 set -u
 
+# Already inside tmux (it spawns window commands via the login shell — us):
+# run the launcher directly instead of nesting another tmux.
+if [ -n "${TMUX:-}" ]; then
+	exec /usr/local/bin/gah-launch
+fi
+
 if command -v tmux >/dev/null 2>&1; then
 	exec tmux -f /etc/gah/tmux.conf new-session -A -D -s gah /usr/local/bin/gah-launch
 fi

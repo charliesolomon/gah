@@ -37,8 +37,13 @@ SKILLS_SSH_KEY="${SKILLS_SSH_KEY:-$CONF_DIR/skills-deploy-key}"
 # improvements land by PR merge and local edits never drift. Network failure
 # is non-fatal — the existing checkout keeps working offline.
 
+# Never prompt (fresh accounts have no known_hosts; a hidden host-key prompt
+# would hang the launch until the timeout). BatchMode makes failures fast.
+GIT_SSH_OPTS="-o BatchMode=yes -o StrictHostKeyChecking=accept-new"
 if [ -f "$SKILLS_SSH_KEY" ]; then
-	export GIT_SSH_COMMAND="ssh -i $SKILLS_SSH_KEY -o IdentitiesOnly=yes"
+	export GIT_SSH_COMMAND="ssh -i $SKILLS_SSH_KEY -o IdentitiesOnly=yes $GIT_SSH_OPTS"
+else
+	export GIT_SSH_COMMAND="ssh $GIT_SSH_OPTS"
 fi
 
 if [ -d "$SKILLS_DIR/.git" ]; then
@@ -64,6 +69,11 @@ export GAH_BUILTIN_MODELS="${GAH_BUILTIN_MODELS-}"
 export GAH_ALLOW_TOOLS="${GAH_ALLOW_TOOLS-}"
 [ -n "${AWS_PROFILE:-}" ] && export AWS_PROFILE
 [ -n "${GAH_PROVIDERS_FILE:-}" ] && export GAH_PROVIDERS_FILE
+
+# Staff can't self-update; the build is pinned by the deployment (gah-update).
+# Also stops the update check phoning home to pi.dev. (Env name is upstream's,
+# not rebranded — see issue #2.)
+export PI_SKIP_VERSION_CHECK=1
 
 # --- Launch -------------------------------------------------------------------
 # --no-skills disables auto-discovery (~/.gah/agent/skills, <cwd>/.gah/skills);
