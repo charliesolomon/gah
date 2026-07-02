@@ -63,6 +63,20 @@ else
 		|| warn "skills clone failed — starting without skills"
 fi
 
+# --- Onboarding / setup steps ---------------------------------------------------
+# The skills repo may ship numbered, idempotent setup steps (setup/NN-*.sh)
+# that run in the terminal before the TUI — so secrets (e.g. helpdesk
+# credentials) are collected without ever passing through the model. Steps
+# are agent-authored code, same trust level as the skills themselves; change
+# control is the skills repo's PR gate. Failure is non-fatal.
+
+if [ -d "$SKILLS_DIR/setup" ]; then
+	for step in "$SKILLS_DIR"/setup/[0-9]*.sh; do
+		[ -e "$step" ] || continue
+		bash "$step" || warn "setup step $(basename "$step") failed — continuing"
+	done
+fi
+
 # --- Deployment env -----------------------------------------------------------
 # Export explicitly: `source` does not export, and GAH_BUILTIN_MODELS must be
 # *set* (even if empty) so bin/gah's anthropic/* dev default never applies on
