@@ -34,6 +34,10 @@ if command -v node >/dev/null 2>&1; then
 fi
 if [ "$node_major" -lt "$NODE_MIN_MAJOR" ]; then
 	echo ">>> installing Node ${NODE_MIN_MAJOR}.x (found major: $node_major; upstream PI needs >= 22.19)"
+	# Distro node packages (libnode-dev, libnode72) conflict with NodeSource's
+	# nodejs on Ubuntu 22.04 — purge them first or dpkg fails mid-unpack.
+	apt-get purge -y -qq libnode-dev libnode72 nodejs nodejs-doc 2>/dev/null || true
+	apt-get autoremove -y -qq
 	curl -fsSL "https://deb.nodesource.com/setup_${NODE_MIN_MAJOR}.x" | bash -
 	apt-get install -y -qq nodejs
 fi
