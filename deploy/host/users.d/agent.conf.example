@@ -35,6 +35,10 @@ GAH_ALLOW_TOOLS="bash"
 AWS_PROFILE="default"
 
 # --- Optional -----------------------------------------------------------------
+# Every variable set in this file is exported into the session, so skill
+# scripts can take deployment knobs here, e.g. for the ticket skills:
+#GRACE_TICKETS_DIR="/opt/grace-tickets"
+#GRACE_TICKETS_ENV="$HOME/grace-tickets.env"
 # Approved non-built-in endpoints (docs/PROVIDERS.md, mechanism 2).
 #GAH_PROVIDERS_FILE="/etc/gah/providers.json"
 # Session working directory (default: ~/work).

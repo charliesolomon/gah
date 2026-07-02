@@ -23,8 +23,12 @@ warn() { echo "gah: $*" >&2; }
 owner="$(stat -c %U "$CONF")"
 [ "$owner" = "root" ] || fail "$CONF must be owned by root (found: $owner)"
 
+# set -a: every var the manifest sets is exported — deployment knobs like
+# GRACE_TICKETS_DIR/GRACE_TICKETS_ENV must reach the session and its tools.
+set -a
 # shellcheck source=/dev/null
 source "$CONF"
+set +a
 
 : "${SKILLS_REPO:?SKILLS_REPO not set in $CONF}"
 SKILLS_BRANCH="${SKILLS_BRANCH:-main}"
