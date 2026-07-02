@@ -18,8 +18,15 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 // --- Policy knobs ------------------------------------------------------------
 
 /** Tools the agent may call. Built-ins not in this list are blocked. */
-const ALLOWED_TOOLS = new Set<string>(["read", "grep", "find", "ls", "edit", "write"]);
-// Notably absent: "bash". Re-add it deliberately if a use case justifies it.
+const DEFAULT_ALLOWED_TOOLS = ["read", "grep", "find", "ls", "edit", "write"];
+// Notably absent: "bash". Deployments opt in via GAH_ALLOW_TOOLS — a
+// comma-separated list of extra tools set by a root-owned launcher (see
+// deploy/host/gah-launch), never by end users. Widenings are audit-logged.
+const EXTRA_ALLOWED_TOOLS = (process.env.GAH_ALLOW_TOOLS ?? "")
+	.split(",")
+	.map((t) => t.trim())
+	.filter(Boolean);
+const ALLOWED_TOOLS = new Set<string>([...DEFAULT_ALLOWED_TOOLS, ...EXTRA_ALLOWED_TOOLS]);
 
 /** Write/edit operations targeting these paths are blocked outright. */
 const PROTECTED_PATH_FRAGMENTS = [
@@ -57,6 +64,10 @@ function isProtectedPath(path: string): boolean {
 }
 
 export default function (pi: ExtensionAPI) {
+	if (EXTRA_ALLOWED_TOOLS.length > 0) {
+		audit({ kind: "policy", reason: "allowlist_widened", tools: EXTRA_ALLOWED_TOOLS });
+	}
+
 	pi.on("tool_call", async (event, _ctx) => {
 		// 1. Allowlist
 		if (!ALLOWED_TOOLS.has(event.toolName)) {

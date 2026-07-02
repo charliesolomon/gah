@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+#
+# gah-session — login shell for GAH agent accounts.
+#
+# One persistent tmux session per user: -A attaches if it already exists
+# (dropped Wi-Fi, closed laptop), -D kicks the stale client so the new
+# connection wins. When gah exits, the tmux session ends and SSH closes.
+#
+# Arguments (e.g. `ssh host somecommand` arriving as `-c somecommand`) are
+# deliberately ignored: these accounts exist to run the GAH TUI, nothing else.
+#
+set -u
+
+if command -v tmux >/dev/null 2>&1; then
+	exec tmux -f /etc/gah/tmux.conf new-session -A -D -s gah /usr/local/bin/gah-launch
+fi
+
+# tmux missing (should not happen on a set-up host) — run unwrapped.
+exec /usr/local/bin/gah-launch

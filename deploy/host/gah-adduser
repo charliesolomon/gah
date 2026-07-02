@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+#
+# gah-adduser — create (or complete) a GAH agent account on this host.
+#
+#   gah-adduser <username> [<ssh-public-key-file>]
+#
+# Idempotent: safe to re-run to add a key or regenerate missing pieces.
+# The account's login shell is gah-session, so SSH-ing in lands straight
+# in the GAH TUI — there is no raw shell hand-out.
+#
+set -euo pipefail
+
+[ "$(id -u)" = 0 ] || { echo "gah-adduser must run as root" >&2; exit 1; }
+[ $# -ge 1 ] || { echo "usage: gah-adduser <username> [<ssh-public-key-file>]" >&2; exit 2; }
+
+user="$1"
+pubkey_file="${2:-}"
+
+if ! id -u "$user" >/dev/null 2>&1; then
+	useradd --create-home --shell /usr/local/bin/gah-session --groups gah-agents "$user"
+	echo "✓ created account $user (shell: gah-session)"
+else
+	usermod --shell /usr/local/bin/gah-session --append --groups gah-agents "$user"
+	echo "✓ account $user exists — shell/group ensured"
+fi
+
+home="$(getent passwd "$user" | cut -d: -f6)"
+
+install -d -m 0700 -o "$user" -g "$user" "$home/.ssh"
+if [ -n "$pubkey_file" ]; then
+	[ -f "$pubkey_file" ] || { echo "no such pubkey file: $pubkey_file" >&2; exit 1; }
+	touch "$home/.ssh/authorized_keys"
+	if grep -qxFf "$pubkey_file" "$home/.ssh/authorized_keys" 2>/dev/null; then
+		echo "✓ key already authorized"
+	else
+		cat "$pubkey_file" >>"$home/.ssh/authorized_keys"
+		echo "✓ key added to authorized_keys"
+	fi
+	chown "$user:$user" "$home/.ssh/authorized_keys"
+	chmod 0600 "$home/.ssh/authorized_keys"
+fi
+
+install -d -m 0755 -o "$user" -g "$user" "$home/work"
+
+conf="/etc/gah/users.d/$user.conf"
+if [ ! -f "$conf" ]; then
+	install -m 0644 /etc/gah/users.d/agent.conf.example "$conf"
+	echo "✓ manifest created from template: $conf"
+fi
+
+cat <<EOF
+
+$user: OK
+
+Next steps:
+  1. Review the manifest:            $conf
+  2. Phase 2 — IAM credentials:      $home/.aws/credentials (mode 0600, owner $user)
+  3. Test from a Windows laptop:     ssh $user@\$(hostname -f)
+EOF

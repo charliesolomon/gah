@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+#
+# gah-launch — per-user entry point for GAH sessions on a shared agent host.
+#
+# Reads the root-owned manifest for $USER, syncs the approved skills repo,
+# exports the deployment's policy env, and execs the policed gah wrapper.
+# Users never invoke this with arguments; it is started by gah-session
+# (their login shell) inside tmux.
+#
+set -euo pipefail
+
+GAH_HOME="/opt/gah"
+CONF_DIR="/etc/gah"
+CONF="$CONF_DIR/users.d/$USER.conf"
+
+fail() { echo "gah: $*" >&2; exit 1; }
+warn() { echo "gah: $*" >&2; }
+
+[ -x "$GAH_HOME/bin/gah" ] || fail "no gah build at $GAH_HOME — run setup.sh on this host"
+[ -f "$CONF" ] || fail "no manifest for '$USER' at $CONF — ask the administrator to run gah-adduser $USER"
+
+# The manifest is deployment policy. Refuse to run one an agent could edit.
+owner="$(stat -c %U "$CONF")"
+[ "$owner" = "root" ] || fail "$CONF must be owned by root (found: $owner)"
+
+# shellcheck source=/dev/null
+source "$CONF"
+
+: "${SKILLS_REPO:?SKILLS_REPO not set in $CONF}"
+SKILLS_BRANCH="${SKILLS_BRANCH:-main}"
+SKILLS_SUBDIR="${SKILLS_SUBDIR:-skills}"
+SKILLS_DIR="$HOME/.gah/skills-repo"
+SKILLS_SSH_KEY="${SKILLS_SSH_KEY:-$CONF_DIR/skills-deploy-key}"
+
+# --- Sync the skills checkout -------------------------------------------------
+# The repo is authoritative: every launch hard-resets to origin/<branch>, so
+# improvements land by PR merge and local edits never drift. Network failure
+# is non-fatal — the existing checkout keeps working offline.
+
+if [ -f "$SKILLS_SSH_KEY" ]; then
+	export GIT_SSH_COMMAND="ssh -i $SKILLS_SSH_KEY -o IdentitiesOnly=yes"
+fi
+
+if [ -d "$SKILLS_DIR/.git" ]; then
+	if timeout 30 git -C "$SKILLS_DIR" fetch --quiet origin "$SKILLS_BRANCH"; then
+		git -C "$SKILLS_DIR" checkout --quiet "$SKILLS_BRANCH" 2>/dev/null \
+			|| git -C "$SKILLS_DIR" checkout --quiet -b "$SKILLS_BRANCH" "origin/$SKILLS_BRANCH"
+		git -C "$SKILLS_DIR" reset --hard --quiet "origin/$SKILLS_BRANCH"
+	else
+		warn "skills update failed — continuing with the existing checkout"
+	fi
+else
+	timeout 120 git clone --quiet --branch "$SKILLS_BRANCH" "$SKILLS_REPO" "$SKILLS_DIR" \
+		|| warn "skills clone failed — starting without skills"
+fi
+
+# --- Deployment env -----------------------------------------------------------
+# Export explicitly: `source` does not export, and GAH_BUILTIN_MODELS must be
+# *set* (even if empty) so bin/gah's anthropic/* dev default never applies on
+# this host. Empty = deny-all; the manifest grants what this user may see.
+# IAM remains the hard enforcement layer (docs/PROVIDERS.md).
+
+export GAH_BUILTIN_MODELS="${GAH_BUILTIN_MODELS-}"
+export GAH_ALLOW_TOOLS="${GAH_ALLOW_TOOLS-}"
+[ -n "${AWS_PROFILE:-}" ] && export AWS_PROFILE
+[ -n "${GAH_PROVIDERS_FILE:-}" ] && export GAH_PROVIDERS_FILE
+
+# --- Launch -------------------------------------------------------------------
+# --no-skills disables auto-discovery (~/.gah/agent/skills, <cwd>/.gah/skills);
+# the explicit --skill path below is still loaded — same pinning philosophy as
+# bin/gah uses for extensions. Sessions start in ~/work, not $HOME.
+
+WORKDIR="${WORKDIR:-$HOME/work}"
+mkdir -p "$WORKDIR"
+cd "$WORKDIR"
+
+skill_args=()
+if [ -d "$SKILLS_DIR/$SKILLS_SUBDIR" ]; then
+	skill_args=(--skill "$SKILLS_DIR/$SKILLS_SUBDIR")
+else
+	warn "no skills at $SKILLS_DIR/$SKILLS_SUBDIR — launching without skills"
+fi
+
+exec "$GAH_HOME/bin/gah" --no-skills "${skill_args[@]}"

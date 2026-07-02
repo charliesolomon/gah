@@ -1,0 +1,38 @@
+# /etc/gah/users.d/<username>.conf — per-agent GAH manifest.
+#
+# Sourced by gah-launch at every session start. MUST be owned by root
+# (gah-launch refuses to run otherwise): this file *is* the deployment
+# policy for the user — what skills they get, what models they may see,
+# and which tools beyond the default allowlist they may use.
+
+# --- Skills (required) --------------------------------------------------------
+# Cloned to ~/.gah/skills-repo and hard-reset to origin/<branch> on every
+# launch: the repo is authoritative, local edits never survive. Improvements
+# flow through PRs on the skills repo. Private repos: place a read-only
+# deploy key at /etc/gah/skills-deploy-key (or set SKILLS_SSH_KEY).
+SKILLS_REPO="git@github.com:ORG/skills-repo.git"
+SKILLS_BRANCH="main"
+# Directory inside the repo containing <skill-name>/SKILL.md directories.
+SKILLS_SUBDIR="skills"
+
+# --- Models -------------------------------------------------------------------
+# Comma-separated provider/model-id globs against the built-in catalog
+# (docs/PROVIDERS.md). Unset or empty = deny-all. This gates what the TUI
+# offers; per-user IAM policies remain the hard enforcement layer.
+GAH_BUILTIN_MODELS="amazon-bedrock/anthropic.claude-*"
+
+# --- Tools --------------------------------------------------------------------
+# Extra tools beyond the policy-pack default allowlist (read/grep/find/ls/
+# edit/write). Support-agent skills drive shell scripts, so grant bash here.
+# Every widening is written to the audit log at session start.
+GAH_ALLOW_TOOLS="bash"
+
+# --- AWS ----------------------------------------------------------------------
+# Profile in ~/.aws/credentials holding this user's IAM keys (Phase 2).
+#AWS_PROFILE="default"
+
+# --- Optional -----------------------------------------------------------------
+# Approved non-built-in endpoints (docs/PROVIDERS.md, mechanism 2).
+#GAH_PROVIDERS_FILE="/etc/gah/providers.json"
+# Session working directory (default: ~/work).
+#WORKDIR=""

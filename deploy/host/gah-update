@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+#
+# gah-update — pull the pinned ref and rebuild /opt/gah.
+#
+# Running sessions keep the old build until the agent exits gah and
+# reconnects; no restart is forced.
+#
+set -euo pipefail
+
+GAH_HOME="${GAH_HOME:-/opt/gah}"
+
+[ "$(id -u)" = 0 ] || { echo "gah-update must run as root" >&2; exit 1; }
+[ -d "$GAH_HOME/.git" ] || { echo "no gah checkout at $GAH_HOME — run setup.sh" >&2; exit 1; }
+
+git -C "$GAH_HOME" pull --ff-only
+make -C "$GAH_HOME" install
+make -C "$GAH_HOME" build-all
+make -C "$GAH_HOME" smoke
+echo "gah-update: OK — new sessions get the updated build"

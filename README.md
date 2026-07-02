@@ -23,6 +23,7 @@ gah/
 │   └── package.json
 ├── patches/                   ← discrete patches against vendor/pi
 ├── vendor/pi/                 ← upstream PI (managed by scripts/sync-upstream.sh)
+├── deploy/host/               ← shared SSH agent host (tmux launcher, per-user manifests)
 ├── scripts/                   ← sync, patch, build helpers
 ├── ci/scans/                  ← SBOM, CVE, semgrep/CodeQL configs
 ├── docs/WORKFLOW.md           ← upstream sync + patch hygiene
