@@ -19,7 +19,10 @@ SKILLS_SUBDIR="skills"
 # Comma-separated provider/model-id globs against the built-in catalog
 # (docs/PROVIDERS.md). Unset or empty = deny-all. This gates what the TUI
 # offers; per-user IAM policies remain the hard enforcement layer.
-GAH_BUILTIN_MODELS="amazon-bedrock/anthropic.claude-*"
+# Bedrock note: match the cross-region inference-profile IDs (us.anthropic.*),
+# not bare model IDs — newer Anthropic models reject on-demand invocation by
+# bare ID ("Retry your request with the ID or ARN of an inference profile").
+GAH_BUILTIN_MODELS="amazon-bedrock/us.anthropic.claude-*"
 
 # --- Tools --------------------------------------------------------------------
 # Extra tools beyond the policy-pack default allowlist (read/grep/find/ls/
