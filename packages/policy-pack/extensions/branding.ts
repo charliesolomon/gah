@@ -16,11 +16,24 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SYSTEM_MD_PATH = join(HERE, "..", "SYSTEM.md");
 
+// Keep in sync with policy.ts: the prompt must describe the allowlist policy
+// actually enforces. A static prompt claiming "no bash" while GAH_ALLOW_TOOLS
+// grants it makes the model refuse work it is allowed to do.
+const DEFAULT_ALLOWED_TOOLS = ["read", "grep", "find", "ls", "edit", "write"];
+const EXTRA_ALLOWED_TOOLS = (process.env.GAH_ALLOW_TOOLS ?? "")
+	.split(",")
+	.map((t) => t.trim())
+	.filter(Boolean);
+const ALLOWED_TOOLS = [...DEFAULT_ALLOWED_TOOLS, ...EXTRA_ALLOWED_TOOLS];
+
 export default function (pi: ExtensionAPI) {
 	// Override the system prompt at session start.
 	pi.on("before_agent_start", async (_event, ctx) => {
 		try {
-			const systemMd = readFileSync(SYSTEM_MD_PATH, "utf-8");
+			const systemMd = readFileSync(SYSTEM_MD_PATH, "utf-8").replaceAll(
+				"{{ALLOWED_TOOLS}}",
+				ALLOWED_TOOLS.map((t) => `\`${t}\``).join(", "),
+			);
 			if (ctx.hasUI) ctx.ui.notify("GAH policy + system prompt loaded", "info");
 			return { systemPrompt: systemMd };
 		} catch (err) {

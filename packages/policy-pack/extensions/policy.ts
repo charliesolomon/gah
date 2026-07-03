@@ -22,6 +22,8 @@ const DEFAULT_ALLOWED_TOOLS = ["read", "grep", "find", "ls", "edit", "write"];
 // Notably absent: "bash". Deployments opt in via GAH_ALLOW_TOOLS — a
 // comma-separated list of extra tools set by a root-owned launcher (see
 // deploy/host/gah-launch), never by end users. Widenings are audit-logged.
+// Keep in sync with branding.ts, which renders this same list into the
+// system prompt ({{ALLOWED_TOOLS}} in SYSTEM.md).
 const EXTRA_ALLOWED_TOOLS = (process.env.GAH_ALLOW_TOOLS ?? "")
 	.split(",")
 	.map((t) => t.trim())
