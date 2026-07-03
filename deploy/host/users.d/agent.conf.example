@@ -22,7 +22,11 @@ SKILLS_SUBDIR="skills"
 # Bedrock note: match the cross-region inference-profile IDs (us.anthropic.*),
 # not bare model IDs — newer Anthropic models reject on-demand invocation by
 # bare ID ("Retry your request with the ID or ARN of an inference profile").
-GAH_BUILTIN_MODELS="amazon-bedrock/us.anthropic.claude-*"
+# Enumerate models rather than wildcarding the family: Bedrock model access is
+# granted per model, so a wildcard offers models the account never subscribed
+# to and sessions that pick one fail with an AWS Marketplace error. List only
+# models you have verified invoke successfully.
+GAH_BUILTIN_MODELS="amazon-bedrock/us.anthropic.claude-haiku-4-5-*,amazon-bedrock/us.anthropic.claude-sonnet-4-6"
 
 # --- Tools --------------------------------------------------------------------
 # Extra tools beyond the policy-pack default allowlist (read/grep/find/ls/
