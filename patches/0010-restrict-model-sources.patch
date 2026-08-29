@@ -1,84 +1,195 @@
-From ab9d6c4def48167f82b08ffcc6127a30f6161333 Mon Sep 17 00:00:00 2001
+From 8ad80e06fb6688467495b705706ff66158c29442 Mon Sep 17 00:00:00 2001
 From: csolomon <charliesolomon@gmail.com>
-Date: Thu, 11 Jun 2026 15:35:59 -0700
-Subject: [PATCH] restrict-model-sources: allowlist built-in catalog, gate
- models.json
+Date: Fri, 28 Aug 2026 19:57:13 -0700
+Subject: [PATCH] patch: restrict model sources (deny-all built-in catalog)
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
 
-Built-in models are hidden unless matched by GAH_BUILTIN_MODELS
-(comma-separated provider/model-id globs, e.g.
-"anthropic/*,amazon-bedrock/anthropic.claude-opus*"). Unset means no
-built-in models — approved endpoints are registered by the GAH policy
-pack, or allowlisted here at deployment time. Keeping the filter in
-loadBuiltInModels (rather than deleting catalog/provider code) keeps
-the patch one stable hunk and lets deployments keep providers with
-non-apiKey auth (e.g. Bedrock's AWS credential chain) that
-registerProvider can't re-create.
+Re-authored against v0.84.4. The v0.79.1 version patched three sites in
+model-registry.ts; upstream gutted that file from 37KB to a ~4.5KB
+compatibility facade and moved the logic into model-runtime.ts and
+provider-composer.ts, so none of the old anchors survived.
 
-models.json is an arbitrary-endpoint bypass of that posture, so it is
-ignored unless GAH_ALLOW_MODELS_JSON=1 (local testing escape hatch).
+Two controls, both in ModelRuntime.create():
+
+1. GAH_BUILTIN_MODELS — comma-separated provider/model-id globs. Unset or
+   empty exposes NO built-in models.
+2. GAH_ALLOW_MODELS_JSON must be "1" for models.json to be read at all. That
+   file can define arbitrary provider ids with their own baseUrl/apiKey/
+   headers, and its oauth:"radius" form injects directly into the builtins
+   map, so it is an endpoint bypass rather than a preference.
+
+Placement notes, each load-bearing:
+
+* ModelRuntime.create() is the single constructor every entry point shares —
+  main, the SDK, auth-check and package-manager-cli each build their own
+  runtime. An extension-level control would cover TUI/RPC sessions only and
+  leave `gah auth login <any-provider>` working.
+
+* NOT provider-composer.ts. composeModelProvider() is skipped entirely when a
+  provider has no models.json or extension overlay (the common case), and on
+  any composition error recomposeProvider() falls back to the unfiltered
+  built-in — it fails open.
+
+* The allowlist wraps getModels() and is applied OUTERMOST, after
+  withRemoteCatalog(). That overlay merges models fetched from the remote
+  catalog on every call and did not exist in v0.79.1; filtering before it
+  would let remotely-added models through.
+
+* Gating the models.json PATH rather than ModelConfig.load() also neutralises
+  the radius builtins injection and the re-read inside refresh().
+
+Upstream's --models / enabledModels / /scoped-models are deliberately NOT used
+for this: they scope one session's Ctrl+P set over an intact catalogue, the
+full list stays reachable via /model and RPC, the setting is plain
+user-writable settings.json with no managed tier, and selecting an
+out-of-scope model auto-appends it to the list. Convenience, not a boundary.
+
+The policy itself lives in a new file, src/core/gah-model-policy.ts — new
+files never conflict on sync (patches/README.md).
+
+Verified: with GAH_BUILTIN_MODELS unset, --list-models reports no models;
+with 'anthropic/claude-opus-*' it lists only those.
 ---
- .../coding-agent/src/core/model-registry.ts   | 31 +++++++++++++++++--
- 1 file changed, 29 insertions(+), 2 deletions(-)
+ .../coding-agent/src/core/gah-model-policy.ts | 80 +++++++++++++++++++
+ .../coding-agent/src/core/model-runtime.ts    | 15 +++-
+ 2 files changed, 93 insertions(+), 2 deletions(-)
+ create mode 100644 vendor/pi/packages/coding-agent/src/core/gah-model-policy.ts
 
-diff --git a/packages/coding-agent/src/core/model-registry.ts b/packages/coding-agent/src/core/model-registry.ts
-index 00c81576..8c986cb1 100644
---- a/packages/coding-agent/src/core/model-registry.ts
-+++ b/packages/coding-agent/src/core/model-registry.ts
-@@ -308,6 +308,25 @@ function migrateLegacyRegisterProviderConfigValues(
- 	return migratedConfig ?? config;
- }
- 
-+// GAH: built-in catalog allowlist. GAH_BUILTIN_MODELS is a comma-separated
-+// list of `provider/model-id` globs (e.g. "anthropic/*,amazon-bedrock/anthropic.claude-*").
-+// Unset or empty means NO built-in models are exposed — approved endpoints are
-+// registered by the GAH policy pack or allowlisted here at deployment time.
-+function gahGlobToRegExp(glob: string): RegExp {
+diff --git a/packages/coding-agent/src/core/gah-model-policy.ts b/packages/coding-agent/src/core/gah-model-policy.ts
+new file mode 100644
+index 000000000..9e84dab25
+--- /dev/null
++++ b/packages/coding-agent/src/core/gah-model-policy.ts
+@@ -0,0 +1,80 @@
++/**
++ * GAH: built-in model catalogue policy.
++ *
++ * Two controls, both deliberately enforced here rather than in configuration:
++ *
++ * 1. `GAH_BUILTIN_MODELS` — a comma-separated list of `provider/model-id` globs.
++ *    Unset or empty means NO built-in models are exposed. Approved endpoints are
++ *    registered by the GAH policy pack, or allowlisted here at deployment time.
++ *
++ * 2. `GAH_ALLOW_MODELS_JSON` — must be exactly "1" for `models.json` to be read
++ *    at all. That file can define arbitrary provider ids with their own baseUrl,
++ *    apiKey and headers, so honouring it unconditionally is a straight bypass of
++ *    the approved-provider posture. Opt-in for local testing only.
++ *
++ * Why not configuration: upstream's `--models` / `enabledModels` /
++ * `/scoped-models` look like an allowlist but are not one. They scope a single
++ * session's Ctrl+P cycling set while the full catalogue stays reachable through
++ * the `/model` picker, RPC, and any extension holding `ctx.modelRegistry`. The
++ * setting lives in user-writable settings.json with no managed tier, and
++ * agent-session.ts appends a model to it automatically when the user selects one
++ * outside the scope. It is a convenience, not a boundary.
++ *
++ * Why not an extension: extensions can wrap providers via registerProvider, but
++ * that only covers TUI/RPC sessions. `gah auth …`, the SDK and the package
++ * manager each construct their own ModelRuntime before any extension loads.
++ * ModelRuntime.create() is the one constructor they all share.
++ *
++ * NOTE: the enforcement boundary that actually matters in the Grace deployment
++ * is the per-agent IAM policy (see deploy/host/README.md) — this is
++ * defence in depth and a UI-surface control, not the last line.
++ */
++
++import type { Api, Model, Provider } from "@earendil-works/pi-ai";
++
++function globToRegExp(glob: string): RegExp {
 +	const escaped = glob.replace(/[.*+?^${}()|[\]\\]/g, (c) => (c === "*" ? ".*" : `\\${c}`));
 +	return new RegExp(`^${escaped}$`);
 +}
 +
-+const GAH_BUILTIN_MODEL_PATTERNS = (process.env.GAH_BUILTIN_MODELS ?? "")
-+	.split(",")
-+	.map((s) => s.trim())
-+	.filter(Boolean)
-+	.map(gahGlobToRegExp);
-+
-+function gahAllowsBuiltInModel(provider: string, modelId: string): boolean {
-+	return GAH_BUILTIN_MODEL_PATTERNS.some((re) => re.test(`${provider}/${modelId}`));
++/**
++ * Read on each call rather than cached at module load: the env is set by
++ * gah-launch from a root-owned manifest before exec, but tests and the SDK may
++ * change it between runtimes, and a stale cache here would fail open.
++ */
++function allowPatterns(): RegExp[] {
++	return (process.env.GAH_BUILTIN_MODELS ?? "")
++		.split(",")
++		.map((s) => s.trim())
++		.filter(Boolean)
++		.map(globToRegExp);
 +}
 +
- export type ResolvedRequestAuth =
- 	| {
- 			ok: true;
-@@ -459,7 +478,12 @@ export class ModelRegistry {
- 			overrides,
- 			modelOverrides,
- 			error,
--		} = this.modelsJsonPath ? this.loadCustomModels(this.modelsJsonPath) : emptyCustomModelsResult();
-+		} =
-+			// GAH: models.json is an arbitrary-endpoint bypass; approved endpoints come
-+			// from the policy pack. Deliberate opt-in for local testing only.
-+			this.modelsJsonPath && process.env.GAH_ALLOW_MODELS_JSON === "1"
-+				? this.loadCustomModels(this.modelsJsonPath)
-+				: emptyCustomModelsResult();
++export function gahAllowsBuiltInModel(provider: string, modelId: string): boolean {
++	const patterns = allowPatterns();
++	if (patterns.length === 0) return false; // unset/empty = deny all
++	const reference = `${provider}/${modelId}`;
++	return patterns.some((re) => re.test(reference));
++}
++
++/** True when models.json may be read at all. */
++export function gahAllowsModelsJson(): boolean {
++	return process.env.GAH_ALLOW_MODELS_JSON === "1";
++}
++
++/**
++ * Wrap a provider so its catalogue is filtered by the allowlist.
++ *
++ * getModels is wrapped rather than a snapshot filtered, because the catalogue is
++ * dynamic: withRemoteCatalog() merges models fetched from the remote catalog on
++ * every call. Apply this OUTERMOST — after withRemoteCatalog — or remotely
++ * added models bypass the allowlist. (That overlay did not exist in v0.79.1,
++ * where this control previously lived in model-registry.ts.)
++ */
++export function gahRestrictProvider(provider: Provider): Provider {
++	return {
++		...provider,
++		getModels: (): readonly Model<Api>[] =>
++			provider.getModels().filter((m) => gahAllowsBuiltInModel(provider.id, m.id)),
++	};
++}
+diff --git a/packages/coding-agent/src/core/model-runtime.ts b/packages/coding-agent/src/core/model-runtime.ts
+index 6f4071b60..c31125601 100644
+--- a/packages/coding-agent/src/core/model-runtime.ts
++++ b/packages/coding-agent/src/core/model-runtime.ts
+@@ -40,6 +40,7 @@ import * as builtinProviderCatalog from "@earendil-works/pi-ai/providers/all";
+ import { getAgentDir } from "../config.ts";
+ import { operationSignal, raceWithAbortSignal } from "../utils/abort.ts";
+ import { AuthStorage as DefaultAuthStorage } from "./auth-storage.ts";
++import { gahAllowsModelsJson, gahRestrictProvider } from "./gah-model-policy.ts";
+ import { ModelConfig } from "./model-config.ts";
+ import { FileModelsStore, InMemoryCodingAgentModelsStore } from "./models-store.ts";
+ import {
+@@ -171,8 +172,15 @@ export class ModelRuntime implements Models {
  
- 		if (error) {
- 			this.loadError = error;
-@@ -486,7 +510,10 @@ export class ModelRegistry {
- 		modelOverrides: Map<string, Map<string, ModelOverride>>,
- 	): Model<Api>[] {
- 		return getProviders().flatMap((provider) => {
--			const models = getModels(provider as KnownProvider) as Model<Api>[];
-+			// GAH: expose only allowlisted built-in models (see GAH_BUILTIN_MODELS above).
-+			const models = (getModels(provider as KnownProvider) as Model<Api>[]).filter((m) =>
-+				gahAllowsBuiltInModel(provider, m.id),
-+			);
- 			const providerOverride = overrides.get(provider);
- 			const perModelOverrides = modelOverrides.get(provider);
- 
+ 	static async create(options: CreateModelRuntimeOptions = {}): Promise<ModelRuntime> {
+ 		const credentials = new RuntimeCredentials(options.credentials ?? DefaultAuthStorage.create(options.authPath));
++		// GAH: models.json can define arbitrary provider ids with their own
++		// baseUrl/apiKey/headers, and its `oauth: "radius"` form injects straight
++		// into the builtins map — so it is an endpoint bypass, not a preference.
++		// Gating the PATH (not the loader) also neutralises the radius injection
++		// and the re-read in refresh(). See gah-model-policy.ts.
+ 		const modelsPath =
+-			options.modelsPath === null ? undefined : (options.modelsPath ?? join(getAgentDir(), "models.json"));
++			options.modelsPath === null || !gahAllowsModelsJson()
++				? undefined
++				: (options.modelsPath ?? join(getAgentDir(), "models.json"));
+ 		const config = await ModelConfig.load(modelsPath);
+ 		const modelsStore =
+ 			options.modelsStore ??
+@@ -180,13 +188,16 @@ export class ModelRuntime implements Models {
+ 				? new FileModelsStore(options.modelsStorePath ?? join(dirname(modelsPath), "models-store.json"))
+ 				: new InMemoryCodingAgentModelsStore());
+ 		const builtinModelDataGeneratedAt = builtinProviderCatalog.getBuiltinModelDataGeneratedAt();
++		// GAH: apply the allowlist OUTERMOST — after withRemoteCatalog — so models
++		// the remote catalog adds at call time are filtered too.
+ 		const providers = builtinProviderCatalog
+ 			.builtinProviders()
+ 			.map((provider) =>
+ 				provider.id === "radius"
+ 					? provider
+ 					: withRemoteCatalog(provider, options.catalogBaseUrl, builtinModelDataGeneratedAt),
+-			);
++			)
++			.map(gahRestrictProvider);
+ 		const runtime = new ModelRuntime(
+ 			credentials,
+ 			config,
 -- 
 2.43.0
 

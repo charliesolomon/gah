@@ -1,6 +1,6 @@
-From c2143b84d463c14046707953fb93474b883144d3 Mon Sep 17 00:00:00 2001
+From 4b06713e41bc9ebf6f0877421364db7ac3975aa7 Mon Sep 17 00:00:00 2001
 From: csolomon <charliesolomon@gmail.com>
-Date: Sat, 16 May 2026 13:12:37 -0700
+Date: Fri, 28 Aug 2026 19:52:38 -0700
 Subject: [PATCH] =?UTF-8?q?branding:=20rebrand=20pi=20=E2=86=92=20gah?=
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
@@ -8,10 +8,9 @@ Content-Transfer-Encoding: 8bit
 
 Set piConfig.name='gah' and configDir='.gah' in coding-agent
 package.json. PI's APP_NAME cascade picks this up everywhere:
-banner ('gah v0.74.0'), env vars (GAH_CODING_AGENT_DIR), process
+banner ('gah v0.84.4'), env vars (GAH_CODING_AGENT_DIR), process
 title, User-Agent, debug log filename, slash-command labels, session
-export filename. Global config moves to ~/.gah/agent/ — users will
-need to re-/login.
+export filename. Global config lives in ~/.gah/agent/.
 
 Rename the bin entry from 'pi' to 'gah' for npm-install hygiene
 (GAH itself launches via bin/gah wrapper, so this only matters if
@@ -19,13 +18,16 @@ the package is ever installed standalone).
 
 Replace the startup onboarding hint with a GAH-specific one
 referencing the policy + audit posture.
+
+Regenerated against v0.84.4: the bin target moved from dist/cli.js to
+dist/bundle/cli.js, which is why the v0.79.1 patch no longer applied.
 ---
  packages/coding-agent/package.json                           | 5 +++--
  .../coding-agent/src/modes/interactive/interactive-mode.ts   | 2 +-
  2 files changed, 4 insertions(+), 3 deletions(-)
 
 diff --git a/packages/coding-agent/package.json b/packages/coding-agent/package.json
-index a046a3c9..95fca649 100644
+index 8aa47351d..ceff2f241 100644
 --- a/packages/coding-agent/package.json
 +++ b/packages/coding-agent/package.json
 @@ -4,10 +4,11 @@
@@ -37,16 +39,16 @@ index a046a3c9..95fca649 100644
 +		"configDir": ".gah"
  	},
  	"bin": {
--		"pi": "dist/cli.js"
-+		"gah": "dist/cli.js"
+-		"pi": "dist/bundle/cli.js"
++		"gah": "dist/bundle/cli.js"
  	},
  	"main": "./dist/index.js",
  	"types": "./dist/index.d.ts",
 diff --git a/packages/coding-agent/src/modes/interactive/interactive-mode.ts b/packages/coding-agent/src/modes/interactive/interactive-mode.ts
-index 00183be8..c484a4c4 100644
+index aee28d448..6649ceafe 100644
 --- a/packages/coding-agent/src/modes/interactive/interactive-mode.ts
 +++ b/packages/coding-agent/src/modes/interactive/interactive-mode.ts
-@@ -613,7 +613,7 @@ export class InteractiveMode {
+@@ -1000,7 +1000,7 @@ export class InteractiveMode {
  			);
  			const onboarding = theme.fg(
  				"dim",

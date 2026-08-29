@@ -4,6 +4,7 @@ import { basename, dirname, join, resolve, sep, win32 } from "path";
 import { fileURLToPath } from "url";
 import { spawnProcessSync } from "./utils/child-process.ts";
 import { normalizePath } from "./utils/paths.ts";
+import { stripBom } from "./utils/text.ts";
 
 // =============================================================================
 // Package Detection
@@ -36,6 +37,18 @@ interface SelfUpdateCommandStep {
 
 export interface SelfUpdateCommand extends SelfUpdateCommandStep {
 	steps?: SelfUpdateCommandStep[];
+}
+
+export type SelfUpdatePackageTarget = string | { packageName: string; installSpec?: string };
+
+function normalizeSelfUpdatePackageTarget(target: SelfUpdatePackageTarget): {
+	packageName: string;
+	installSpec: string;
+} {
+	if (typeof target === "string") {
+		return { packageName: target, installSpec: target };
+	}
+	return { packageName: target.packageName, installSpec: target.installSpec ?? target.packageName };
 }
 
 function makeSelfUpdateCommand(
@@ -103,29 +116,38 @@ function getInferredNpmInstall(): { root: string; prefix: string } | undefined {
 function getSelfUpdateCommandForMethod(
 	method: InstallMethod,
 	installedPackageName: string,
-	updatePackageName = installedPackageName,
+	updatePackageTarget: SelfUpdatePackageTarget = installedPackageName,
 	npmCommand?: string[],
 ): SelfUpdateCommand | undefined {
+	const target = normalizeSelfUpdatePackageTarget(updatePackageTarget);
 	switch (method) {
 		case "bun-binary":
 			return undefined;
-		case "pnpm":
+		case "pnpm": {
+			const match = readCommandOutput("pnpm", ["root", "-g"])
+				? undefined
+				: /^(.*[\\/]global[\\/][^\\/]+)[\\/]\.pnpm[\\/]/.exec(getPackageDir());
+			const binDirArgs = match
+				? [`--config.global-bin-dir=${process.env.PNPM_HOME || dirname(dirname(match[1]))}`]
+				: [];
 			return makeSelfUpdateCommand(
 				makeSelfUpdateCommandStep("pnpm", [
 					"install",
 					"-g",
 					"--ignore-scripts",
 					"--config.minimumReleaseAge=0",
-					updatePackageName,
+					...binDirArgs,
+					target.installSpec,
 				]),
-				updatePackageName === installedPackageName
+				target.packageName === installedPackageName
 					? undefined
-					: makeSelfUpdateCommandStep("pnpm", ["remove", "-g", installedPackageName]),
+					: makeSelfUpdateCommandStep("pnpm", ["remove", "-g", ...binDirArgs, installedPackageName]),
 			);
+		}
 		case "yarn":
 			return makeSelfUpdateCommand(
-				makeSelfUpdateCommandStep("yarn", ["global", "add", "--ignore-scripts", updatePackageName]),
-				updatePackageName === installedPackageName
+				makeSelfUpdateCommandStep("yarn", ["global", "add", "--ignore-scripts", target.installSpec]),
+				target.packageName === installedPackageName
 					? undefined
 					: makeSelfUpdateCommandStep("yarn", ["global", "remove", installedPackageName]),
 			);
@@ -136,9 +158,9 @@ function getSelfUpdateCommandForMethod(
 					"-g",
 					"--ignore-scripts",
 					"--minimum-release-age=0",
-					updatePackageName,
+					target.installSpec,
 				]),
-				updatePackageName === installedPackageName
+				target.packageName === installedPackageName
 					? undefined
 					: makeSelfUpdateCommandStep("bun", ["uninstall", "-g", installedPackageName]),
 			);
@@ -152,10 +174,10 @@ function getSelfUpdateCommandForMethod(
 				"-g",
 				"--ignore-scripts",
 				"--min-release-age=0",
-				updatePackageName,
+				target.installSpec,
 			]);
 			const uninstallStep =
-				updatePackageName === installedPackageName
+				target.packageName === installedPackageName
 					? undefined
 					: makeSelfUpdateCommandStep(command, [...prefixArgs, "uninstall", "-g", installedPackageName]);
 			return makeSelfUpdateCommand(installStep, uninstallStep);
@@ -205,7 +227,9 @@ function getGlobalPackageRoots(method: InstallMethod, _packageName: string, npmC
 		}
 		case "pnpm": {
 			const root = readCommandOutput("pnpm", ["root", "-g"]);
-			return root ? [root, dirname(root)] : [];
+			if (root) return [root, dirname(root)];
+			const match = /^(.*[\\/]global[\\/][^\\/]+)[\\/]\.pnpm[\\/]/.exec(getPackageDir());
+			return match ? [match[1]] : [];
 		}
 		case "yarn": {
 			const dir = readCommandOutput("yarn", ["global", "dir"]);
@@ -292,10 +316,10 @@ function isManagedByGlobalPackageManager(method: InstallMethod, packageName: str
 export function getSelfUpdateCommand(
 	packageName: string,
 	npmCommand?: string[],
-	updatePackageName = packageName,
+	updatePackageTarget: SelfUpdatePackageTarget = packageName,
 ): SelfUpdateCommand | undefined {
 	const method = detectInstallMethod();
-	const command = getSelfUpdateCommandForMethod(method, packageName, updatePackageName, npmCommand);
+	const command = getSelfUpdateCommandForMethod(method, packageName, updatePackageTarget, npmCommand);
 	if (!command || !isManagedByGlobalPackageManager(method, packageName, npmCommand) || !isSelfUpdatePathWritable()) {
 		return undefined;
 	}
@@ -305,20 +329,21 @@ export function getSelfUpdateCommand(
 export function getSelfUpdateUnavailableInstruction(
 	packageName: string,
 	npmCommand?: string[],
-	updatePackageName = packageName,
+	updatePackageTarget: SelfUpdatePackageTarget = packageName,
 ): string {
 	const method = detectInstallMethod();
+	const target = normalizeSelfUpdatePackageTarget(updatePackageTarget);
 	if (method === "bun-binary") {
 		return `Download from: https://github.com/earendil-works/pi-mono/releases/latest`;
 	}
-	const command = getSelfUpdateCommandForMethod(method, packageName, updatePackageName, npmCommand);
+	const command = getSelfUpdateCommandForMethod(method, packageName, target, npmCommand);
 	if (command) {
 		if (isManagedByGlobalPackageManager(method, packageName, npmCommand) && !isSelfUpdatePathWritable()) {
 			return `This installation is managed by a global ${method} install, but the install path is not writable. Update it yourself with: ${command.display}`;
 		}
 		return `This installation is not managed by a global ${method} install. Update it with the package manager, wrapper, or source checkout that provides it.`;
 	}
-	return `Update ${updatePackageName} using the package manager, wrapper, or source checkout that provides this installation.`;
+	return `Update ${target.installSpec} using the package manager, wrapper, or source checkout that provides this installation.`;
 }
 
 export function getUpdateInstruction(packageName: string): string {
@@ -337,9 +362,26 @@ export function getUpdateInstruction(packageName: string): string {
 /**
  * Get the base directory for resolving package assets (themes, package.json, README.md, CHANGELOG.md).
  * - For Bun binary: returns the directory containing the executable
- * - For Node.js (dist/): returns __dirname (the dist/ directory)
- * - For tsx (src/): returns parent directory (the package root)
+ * - For Node.js and tsx: returns the package root containing package.json
+ * - Ignores Bun binary metadata copied into dist/ when the package root is available
  */
+export function findNodePackageDir(startDir: string): string {
+	let dir = startDir;
+	while (dir !== dirname(dir)) {
+		if (existsSync(join(dir, "package.json"))) {
+			const parent = dirname(dir);
+			// build:binary places Bun's metadata inside dist/. Node still needs the
+			// package root so its dist-relative asset paths do not become dist/dist/.
+			if (basename(dir) === "dist" && existsSync(join(parent, "package.json"))) {
+				return parent;
+			}
+			return dir;
+		}
+		dir = dirname(dir);
+	}
+	return startDir;
+}
+
 export function getPackageDir(): string {
 	// Allow override via environment variable (useful for Nix/Guix where store paths tokenize poorly)
 	const envDir = process.env.PI_PACKAGE_DIR;
@@ -351,16 +393,7 @@ export function getPackageDir(): string {
 		// Bun binary: process.execPath points to the compiled executable
 		return dirname(process.execPath);
 	}
-	// Node.js: walk up from __dirname until we find package.json
-	let dir = __dirname;
-	while (dir !== dirname(dir)) {
-		if (existsSync(join(dir, "package.json"))) {
-			return dir;
-		}
-		dir = dirname(dir);
-	}
-	// Fallback (shouldn't happen)
-	return __dirname;
+	return findNodePackageDir(__dirname);
 }
 
 /**
@@ -454,7 +487,7 @@ interface PackageJson {
 
 let pkg: PackageJson = {};
 try {
-	pkg = JSON.parse(readFileSync(getPackageJsonPath(), "utf-8")) as PackageJson;
+	pkg = JSON.parse(stripBom(readFileSync(getPackageJsonPath(), "utf-8"))) as PackageJson;
 } catch (e: unknown) {
 	const err = e as NodeJS.ErrnoException;
 	if (err.code !== "ENOENT") throw e;
@@ -477,7 +510,7 @@ export function expandTildePath(path: string): string {
 
 const DEFAULT_SHARE_VIEWER_URL = "https://pi.dev/session/";
 
-/** Get the share viewer URL for a gist ID */
+/** Get the share viewer URL for a gist ID. */
 export function getShareViewerUrl(gistId: string): string {
 	const baseUrl = process.env.PI_SHARE_VIEWER_URL || DEFAULT_SHARE_VIEWER_URL;
 	return `${baseUrl}#${gistId}`;

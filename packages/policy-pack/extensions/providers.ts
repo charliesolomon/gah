@@ -26,7 +26,7 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { getOAuthProviders, unregisterOAuthProvider } from "@earendil-works/pi-ai/oauth";
+import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 const CONFIG_PATH = process.env.GAH_PROVIDERS_FILE ?? join(homedir(), ".gah", "providers.json");
@@ -102,12 +102,21 @@ export default function (pi: ExtensionAPI) {
 
 	// The config file is authoritative: built-in /login flows not explicitly
 	// kept are removed before our providers (and any OAuth they bring) register.
+	//
+	// v0.84.4 removed the global OAuth registry this used to call
+	// (getOAuthProviders / unregisterOAuthProvider); @earendil-works/pi-ai/oauth
+	// is now a type-only entry point, so those imports failed at load. OAuth is
+	// per-provider on Provider.auth.oauth, and the only way to strip it is to
+	// re-register the provider as a native object with that member dropped:
+	// pi.unregisterProvider() is documented as a *restore* of the built-in, and
+	// the config form of registerProvider can only add or replace OAuth, never
+	// remove it (see composeOAuthAuth in provider-composer.ts).
 	const keep = new Set(config.keepOAuth ?? []);
-	for (const oauthProvider of getOAuthProviders()) {
-		if (!keep.has(oauthProvider.id)) {
-			unregisterOAuthProvider(oauthProvider.id);
-			audit({ kind: "oauth_removed", provider: oauthProvider.id });
-		}
+	for (const provider of builtinProviders()) {
+		if (keep.has(provider.id) || !provider.auth?.oauth) continue;
+		const { oauth: _dropped, ...authWithoutOAuth } = provider.auth;
+		pi.registerProvider({ ...provider, auth: authWithoutOAuth });
+		audit({ kind: "oauth_removed", provider: provider.id });
 	}
 
 	for (const entry of config.providers) {

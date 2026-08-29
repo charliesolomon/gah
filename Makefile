@@ -6,7 +6,7 @@
 PI_DIR := vendor/pi
 
 .DEFAULT_GOAL := help
-.PHONY: help install install-hooks build build-all refresh-models smoke patches bundle-policy clean-vendor sync sync-init status patch-new patch-export
+.PHONY: help install install-hooks build build-all build-offline smoke patches bundle-policy clean-vendor sync sync-init status patch-new patch-export
 
 help: ## Show available targets
 	@awk 'BEGIN { FS = ":.*##"; printf "Usage: make <target> [VAR=value]\n\nTargets:\n" } \
@@ -25,39 +25,25 @@ install-hooks: ## Symlink scripts/git-hooks/* into .git/hooks/ (one-time per clo
 build: ## Incremental build of coding-agent (after patch edits)
 	cd $(PI_DIR) && npm --workspace packages/coding-agent run build
 
-build-all: ## Full build chain: tui → ai → agent → coding-agent (offline)
-	@echo ">>> building tui"
-	cd $(PI_DIR) && npm --workspace packages/tui run build
-	@echo ">>> building ai (offline — see refresh-models)"
-	cd $(PI_DIR)/packages/ai && npx tsgo -p tsconfig.build.json
-	cd $(PI_DIR) && for p in agent coding-agent; do \
-	  echo ">>> building $$p" && \
-	  npm --workspace packages/$$p run build || exit 1; \
-	done
+build-all: ## Full build chain (upstream's own script — 9 packages at v0.84.4)
+	@# Run upstream's chain verbatim rather than mirroring it. Ours listed 4
+	@# packages while upstream had grown to 9, so `make build-all` silently built
+	@# a subset — the same class of invisible drift that broke the sync for
+	@# 15 weeks. Deriving it from vendor/pi means it cannot go stale again.
+	@#
+	@# Network note: packages/ai hydrates its model catalogs from live sources
+	@# (models.dev, openrouter, nvidia, vercel) as part of its build. As of
+	@# v0.84.4 those land in src/providers/data/, which upstream gitignores — so
+	@# unlike v0.79.1 this no longer rewrites *tracked* files and no longer
+	@# dirties the vendor tree. Use build-offline to rebuild without re-fetching.
+	cd $(PI_DIR) && npm run build
 
-# packages/ai's own `build` script runs generate-models + generate-image-models,
-# which FETCH live catalogs (models.dev, openrouter, nvidia, vercel) and rewrite
-# two *tracked* files. That makes builds non-reproducible — the same commit
-# builds differently from one day to the next — and it is why `make build-all`
-# broke with nobody touching this repo: models.dev flipped a model's api to
-# "openai-responses" while the pinned generator still stamps the
-# completions-only `supportsReasoningEffort` on it (generate-models.ts:1037).
-# So we compile the committed catalogs instead, and refresh them deliberately.
-#
-# TEMPORARY: upstream v0.84.4 ships its own `build:offline` script. At sync
-# time, replace the tsgo line above with `npm --workspace packages/ai run
-# build:offline` and delete this note. Deliberately kept here rather than in
-# patches/ — a Makefile line has zero merge-conflict surface.
-
-refresh-models: ## Deliberately re-fetch live model catalogs (network), then typecheck
-	cd $(PI_DIR)/packages/ai && npm run generate-models && npm run generate-image-models
-	@echo ">>> typechecking regenerated catalogs"
-	cd $(PI_DIR)/packages/ai && npx tsgo -p tsconfig.build.json --noEmit
-	@echo ""
-	@git diff --stat -- $(PI_DIR)/packages/ai/src/*.generated.ts
-	@echo ""
-	@echo "Review the diff above before committing. A typecheck failure here means"
-	@echo "upstream's generator emitted data its own types reject — do NOT commit."
+build-offline: ## Rebuild without re-fetching model catalogs (needs a prior build-all)
+	@# Upstream's build:offline validates the already-hydrated catalogs instead of
+	@# re-fetching. Fast, and proves the build has no live network dependency once
+	@# the data is present.
+	cd $(PI_DIR)/packages/ai && npm run build:offline
+	cd $(PI_DIR) && npm --workspace packages/coding-agent run build
 
 smoke: ## Quick smoke test of the built binary
 	@./bin/gah --version

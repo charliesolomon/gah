@@ -9,16 +9,35 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PI_CLI="$HERE/vendor/pi/packages/coding-agent/dist/cli.js"
+CA_DIR="$HERE/vendor/pi/packages/coding-agent"
 POLICY_DIR="$HERE/packages/policy-pack/extensions"
 
-if [ ! -f "$PI_CLI" ]; then
+# Resolve the entry point from the package's own `bin` field rather than
+# hardcoding it. Upstream moved this from dist/cli.js to dist/bundle/cli.js in
+# v0.84.4 — a change no patch covers, so apply-patches.sh reported success while
+# the wrapper silently pointed at a file that no longer existed. Read it from
+# package.json and this survives the next move too.
+PI_CLI=""
+if [ -f "$CA_DIR/package.json" ]; then
+  rel="$(node -e "
+    const fs=require('node:fs');
+    const b=JSON.parse(fs.readFileSync('$CA_DIR/package.json','utf8')).bin;
+    console.log(typeof b === 'string' ? b : Object.values(b || {})[0] || '');
+  " 2>/dev/null || true)"
+  [ -n "$rel" ] && PI_CLI="$CA_DIR/$rel"
+fi
+# Fall back to the two known layouts if package.json could not be read.
+for cand in "$PI_CLI" "$CA_DIR/dist/bundle/cli.js" "$CA_DIR/dist/cli.js"; do
+  if [ -n "$cand" ] && [ -f "$cand" ]; then PI_CLI="$cand"; break; fi
+done
+
+if [ -z "$PI_CLI" ] || [ ! -f "$PI_CLI" ]; then
   cat >&2 <<EOF
-gah: PI build is missing at
-  $PI_CLI
+gah: PI build is missing under
+  $CA_DIR/dist/
 
 Run the build first:
-  cd vendor/pi && npm install && npm run build
+  make install && make build-all
 EOF
   exit 1
 fi
