@@ -713,8 +713,18 @@ export async function main(args: string[], options?: MainOptions) {
 	// by the publish pipeline, absent in dev builds) is force-loaded and turns
 	// off extension auto-discovery — the same posture bin/gah enforces with
 	// --no-extensions + explicit --extension flags.
-	const gahPolicyExtDir = resolve(dirname(fileURLToPath(import.meta.url)), "gah-policy", "extensions");
-	if (existsSync(gahPolicyExtDir)) {
+	// Search upward from the running module rather than assuming it sits at the
+	// bundle root: the bundler emits this code into dist/bundle/chunks/, so
+	// import.meta.url is one level deeper than the published gah-policy/ dir.
+	// Getting this wrong fails SILENTLY — existsSync is simply false and the
+	// policy pack never loads — so probe a couple of levels.
+	const gahPolicyStart = dirname(fileURLToPath(import.meta.url));
+	const gahPolicyExtDir = [
+		resolve(gahPolicyStart, "gah-policy", "extensions"),
+		resolve(gahPolicyStart, "..", "gah-policy", "extensions"),
+		resolve(gahPolicyStart, "..", "..", "gah-policy", "extensions"),
+	].find((candidate) => existsSync(candidate));
+	if (gahPolicyExtDir) {
 		const baked = readdirSync(gahPolicyExtDir)
 			.filter((f) => /\.(ts|js|mjs)$/.test(f))
 			.sort()
