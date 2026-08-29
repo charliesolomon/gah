@@ -46,3 +46,39 @@ Scanners are pinned to specific versions to avoid silent behavior drift:
 - `actions/checkout@v4`, `actions/setup-node@v4`
 
 Bump deliberately when needed; expect to do so manually every few months (no Renovate).
+
+## Scan exclusions
+
+Every exclusion is recorded here so it can be reviewed rather than discovered in YAML.
+
+### `vendor/pi/packages/coding-agent/examples/` — Trivy
+
+Upstream ships example extensions with their own nested `package-lock.json`. npm treats
+that directory as a workspace and ignores those lockfiles, so nothing in them is ever
+installed, built, or shipped in GAH. Trivy scanned them anyway and flagged
+`shell-quote` (GHSA-w7jw-789q-3m8p / CVE-2026-9277, critical).
+
+The remediation reached for at the time was to edit the vendored lockfiles by hand
+(commits `173d9e23`, `237d8025`). That put changes into `vendor/pi/` that no patch
+described — which meant the sync workflow could not restore a pristine tree, and
+**every `git subtree pull` from 2026-05-18 onward hit a merge conflict and failed.**
+Fifteen consecutive silent failures, caused by a scanner finding on code we do not ship.
+
+So the exclusion is the fix, and the vendored lockfiles have been restored to pristine
+upstream content. For reference, upstream v0.84.4 carries `shell-quote` 1.10.0 in the
+root lockfile — the real dependency was never vulnerable for long; only the unshipped
+example lagged.
+
+**Rule:** never edit `vendor/pi/` to satisfy a scanner. Exclude the path here, with the
+reasoning written down. `scripts/check-vendor-clean.sh` enforces this in CI.
+
+## Known accepted findings
+
+`npm audit` currently reports high-severity advisories for `undici` and `ws`, both
+reached transitively through upstream dependencies we cannot fix without an `overrides`
+block. This has kept `scan-deps` red on `main` since early July 2026.
+
+Also note `npm audit` resolves against the live GitHub advisory database, so a green run
+can turn red overnight with no code change — CI is not reproducible in time by
+construction. Both points need a deliberate policy decision (accept and document, pin
+overrides, or raise the threshold); the v0.84.4 sync may resolve them upstream.

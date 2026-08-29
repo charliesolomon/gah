@@ -10,6 +10,12 @@ name: upstream-sync
 # Skipping the reverse-apply would merge upstream into a patched tree and
 # leave apply-patches.sh nothing it can do.
 
+concurrency:
+  # A manual dispatch racing the weekly schedule would otherwise produce two
+  # conflicting sync/* branches.
+  group: upstream-sync
+  cancel-in-progress: false
+
 on:
   schedule:
     - cron: "0 12 * * 1" # Mondays 12:00 UTC
@@ -26,6 +32,7 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+      issues: write        # required by the failure-reporting step below
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -45,8 +52,12 @@ jobs:
         run: |
           REF="${{ inputs.ref }}"
           if [ -z "$REF" ]; then
+            # Stable releases only: a bare `sort -V | tail -1` would happily
+            # select a prerelease such as v0.85.0-rc.1.
             REF=$(git ls-remote --tags --refs https://github.com/earendil-works/pi.git 'v*' \
-                  | awk -F/ '{print $NF}' | sort -V | tail -1)
+                  | awk -F/ '{print $NF}' \
+                  | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+                  | sort -V | tail -1)
           fi
           if [ -z "$REF" ]; then
             echo "Could not resolve an upstream release tag" >&2
@@ -104,3 +115,44 @@ jobs:
             --head "${{ steps.resolve.outputs.branch }}" \
             --title "Upstream sync: ${{ steps.resolve.outputs.ref }}" \
             --body  "Automated sync of vendor/pi to \`${{ steps.resolve.outputs.ref }}\`. Patches reverse-applied before the subtree pull, then re-applied and committed. Review the diff and scan results before merging."
+
+      # --- Failure surfacing -------------------------------------------------
+      # Until now this workflow had no failure path whatsoever. It failed 15
+      # consecutive times between 2026-05-18 and 2026-08-28 and nobody knew:
+      # GitHub's only default signal for a failed *scheduled* run is an email to
+      # whoever last edited the workflow file. A silent sync pipeline is worse
+      # than no sync pipeline, because it looks like one.
+      - name: Report failure as an issue
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REF: ${{ steps.resolve.outputs.ref }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          TITLE="upstream-sync failed for ${REF:-unresolved ref}"
+          BODY_FILE="$(mktemp)"
+          {
+            echo "The scheduled upstream sync failed."
+            echo
+            echo "- **Target ref:** \`${REF:-unresolved}\`"
+            echo "- **Run:** ${RUN_URL}"
+            echo
+            echo "Common causes, most likely first:"
+            echo
+            echo "1. **Vendor drift** — something was committed to \`vendor/pi/\` outside"
+            echo "   the patch flow, so reverse-applying the patch series cannot restore a"
+            echo "   pristine tree and \`git subtree pull\` conflicts. Confirm with"
+            echo "   \`scripts/check-vendor-clean.sh\`."
+            echo "2. **A patch no longer applies** — upstream moved the code. Regenerate it"
+            echo "   (docs/WORKFLOW.md, \"Patch failure during sync\"). Never hand-edit a .patch."
+            echo "3. **Build or smoke failure** after the merge."
+            echo
+            echo "Filed automatically on every failed run. Close it once a sync succeeds."
+          } > "$BODY_FILE"
+
+          EXISTING=$(gh issue list --state open --search "$TITLE in:title" --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --body "Failed again: ${RUN_URL}"
+          else
+            gh issue create --title "$TITLE" --body-file "$BODY_FILE"
+          fi

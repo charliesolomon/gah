@@ -27,4 +27,9 @@ fi
 
 echo "→ Discarding working-tree changes in vendor/pi"
 git checkout HEAD -- vendor/pi
+# Also drop untracked spill. .gitignore hides *.orig/*.rej, so a failed patch
+# or merge leaves debris that survives into the NEXT merge and confuses it.
+# node_modules and dist are excluded: they are expensive to rebuild and are
+# not part of the tracked tree.
+git clean -fdq vendor/pi -e node_modules -e dist
 echo "✓ vendor/pi reset to last commit"

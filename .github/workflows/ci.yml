@@ -1,7 +1,14 @@
 name: ci
 
-# Build + smoke test + security scans. Runs on every push to main and on
-# every PR (including sync PRs from .github/workflows/upstream-sync.yml).
+# Build + smoke test + security scans.
+#
+# Triggers: pushes to main, PRs to main, and pushes to sync/** branches.
+# The sync/** trigger is load-bearing: a PR opened by upstream-sync.yml
+# authenticates as secrets.GITHUB_TOKEN, and GitHub deliberately does NOT fire
+# pull_request or push workflows for events created by that token. Without this
+# branch trigger, sync PRs arrive with zero checks. (Branch protection cannot
+# require them either — this repo is on a plan without it — so CI informs the
+# merge decision rather than gating it.)
 #
 # Failure policy:
 #   - npm audit: fail on high/critical
@@ -14,7 +21,7 @@ name: ci
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'sync/**']
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -37,8 +44,23 @@ jobs:
           cache: 'npm'
           cache-dependency-path: vendor/pi/package-lock.json
 
+      # Fail fast on out-of-band vendor edits — the failure mode that silently
+      # broke 15 consecutive upstream syncs. Needs the upstream commit, which
+      # is not in a default clone.
+      - name: Fetch upstream for vendor-drift check
+        run: |
+          git remote get-url pi-upstream >/dev/null 2>&1 \
+            || git remote add pi-upstream https://github.com/earendil-works/pi.git
+          git fetch --quiet --tags pi-upstream
+
+      - name: Check vendor tree matches upstream + patches
+        run: ./scripts/check-vendor-clean.sh
+
       - name: Install deps
-        run: cd vendor/pi && npm install
+        # npm ci, not npm install: the lockfile is the input, never an output.
+        # npm install can silently rewrite it in the runner, which is one of the
+        # ways vendor drift got committed in the first place.
+        run: cd vendor/pi && npm ci
 
       - name: Apply patches
         run: ./scripts/apply-patches.sh
@@ -67,7 +89,8 @@ jobs:
           cache-dependency-path: vendor/pi/package-lock.json
 
       - name: Install deps
-        run: cd vendor/pi && npm install
+        # npm ci, not npm install: the lockfile is the input, never an output.
+        run: cd vendor/pi && npm ci
 
       - name: npm audit (runtime deps)
         run: cd vendor/pi && npm audit --omit=dev --audit-level=high
@@ -80,7 +103,14 @@ jobs:
           severity: CRITICAL,HIGH
           exit-code: '1'
           ignore-unfixed: true
-          skip-dirs: .git
+          # examples/ holds upstream's example extensions. npm treats the dir as
+          # a workspace and ignores its nested lockfile: nothing there is ever
+          # installed or shipped. Scanning it produced findings whose only
+          # available remedy was editing vendor/pi lockfiles by hand — which is
+          # exactly what broke the upstream sync for 15 consecutive weeks. The
+          # correct fix is to not scan an artifact we do not ship.
+          # See ci/scans/README.md.
+          skip-dirs: .git,vendor/pi/packages/coding-agent/examples
 
   scan-source:
     name: source SAST (semgrep)
