@@ -62,7 +62,12 @@ mkdir -p "$OURS" "$THEIRS"
 # Default to the COMMITTED tree: a dirty local build must not read as drift
 # (that is what clean-vendor.sh is for). --worktree checks what you have now.
 if [ "$MODE" = "worktree" ]; then
-	tar -c -C "$REPO_ROOT/$SUBTREE_PREFIX" --exclude=node_modules --exclude=dist . | tar -x -C "$OURS"
+	# Only TRACKED files. Copying the raw directory would sweep in build output
+	# that upstream gitignores — packages/ai/src/providers/data (hydrated model
+	# catalogs), node_modules, dist — and report it as drift. What we are
+	# checking is the content git would carry into a subtree merge.
+	( cd "$REPO_ROOT" && git ls-files -z -- "$SUBTREE_PREFIX" | tar -c --null -T - -f - ) \
+		| tar -x -C "$OURS" --strip-components=2
 else
 	git archive HEAD "$SUBTREE_PREFIX" | tar -x -C "$OURS" --strip-components=2
 fi

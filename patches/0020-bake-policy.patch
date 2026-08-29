@@ -1,24 +1,42 @@
-From 0b295c6db244a9a8ed8410fc581745c6f6323331 Mon Sep 17 00:00:00 2001
+From 050cfa8cb2db25258135693b25793bfa413e2705 Mon Sep 17 00:00:00 2001
 From: csolomon <charliesolomon@gmail.com>
-Date: Thu, 11 Jun 2026 14:45:35 -0700
-Subject: [PATCH] bake-policy: force-load bundled GAH policy in published
- artifacts
+Date: Fri, 28 Aug 2026 20:05:12 -0700
+Subject: [PATCH] bake-policy: force-load bundled GAH policy in published artifacts
 
-A gah-policy/extensions/ dir next to the built entry point (created by
-scripts/bundle-policy.sh in the publish pipeline) is force-loaded and
-disables extension auto-discovery, mirroring what bin/gah does with
---no-extensions + explicit --extension flags. Without this, an
-npm-installed gah would launch upstream PI with no policy at all.
+A `gah-policy/extensions/` directory shipped beside the built entry point
+is force-loaded, and extension auto-discovery is disabled. This gives
+published artifacts the same posture bin/gah enforces in a dev checkout
+(--no-extensions plus explicit --extension flags), so the policy pack is
+not something a user can opt out of by installing the package directly.
 
-Dev builds have no gah-policy dir and behave exactly like upstream.
+The directory is created by scripts/bundle-policy.sh at publish time and is
+absent in dev builds, so the existsSync guard makes this a no-op locally.
 
-Regenerated against v0.79.1 (original was against v0.74.0).
+Regenerated against v0.84.4, with two changes:
+
+1. Context only: main.ts's import block gained setCapabilityOverrides
+   (pi-tui) and normalizeSessionName (./cli/args.ts), which is why the
+   v0.79.1 patch stopped applying. The real anchor -- the resolveCliPaths
+   block -- was untouched.
+
+2. A real fix. v0.84.4 bundles the CLI, and the bundler emits this code into
+   dist/bundle/chunks/, so import.meta.url is one level deeper than the
+   published gah-policy/ directory. The single-candidate lookup resolved to
+   dist/bundle/chunks/gah-policy/extensions, which does not exist -- and the
+   failure mode is SILENT: existsSync returns false and the policy pack
+   simply never loads. Probe a couple of levels up instead of assuming the
+   module sits at the bundle root.
+
+Caught by the fault-injection step in docs/WORKFLOW.md; verified after the
+fix with a probe extension dropped into the baked directory, which loaded
+and ran.
+
 ---
- packages/coding-agent/src/main.ts | 18 +++++++++++++++++-
- 1 file changed, 17 insertions(+), 1 deletion(-)
+ packages/coding-agent/src/main.ts | 28 +++++++++++++++++++++++++++-
+ 1 file changed, 27 insertions(+), 1 deletion(-)
 
 diff --git a/packages/coding-agent/src/main.ts b/packages/coding-agent/src/main.ts
-index 38f95246..705a6ce9 100644
+index e92b49bea..6769849b4 100644
 --- a/packages/coding-agent/src/main.ts
 +++ b/packages/coding-agent/src/main.ts
 @@ -5,7 +5,10 @@
@@ -30,9 +48,9 @@ index 38f95246..705a6ce9 100644
  import { createInterface } from "node:readline";
 +import { fileURLToPath } from "node:url";
  import { type ImageContent, modelsAreEqual } from "@earendil-works/pi-ai";
+ import { setCapabilityOverrides } from "@earendil-works/pi-tui";
  import chalk from "chalk";
- import { type Args, type Mode, parseArgs, printHelp } from "./cli/args.ts";
-@@ -568,7 +571,20 @@ export async function main(args: string[], options?: MainOptions) {
+@@ -705,7 +708,30 @@ export async function main(args: string[], options?: MainOptions) {
  	const trustPromptMode: AppMode = parsed.help || parsed.listModels !== undefined ? "print" : appMode;
  	const projectTrustByCwd = new Map<string, boolean>();
  
@@ -42,8 +60,18 @@ index 38f95246..705a6ce9 100644
 +	// by the publish pipeline, absent in dev builds) is force-loaded and turns
 +	// off extension auto-discovery — the same posture bin/gah enforces with
 +	// --no-extensions + explicit --extension flags.
-+	const gahPolicyExtDir = resolve(dirname(fileURLToPath(import.meta.url)), "gah-policy", "extensions");
-+	if (existsSync(gahPolicyExtDir)) {
++	// Search upward from the running module rather than assuming it sits at the
++	// bundle root: the bundler emits this code into dist/bundle/chunks/, so
++	// import.meta.url is one level deeper than the published gah-policy/ dir.
++	// Getting this wrong fails SILENTLY — existsSync is simply false and the
++	// policy pack never loads — so probe a couple of levels.
++	const gahPolicyStart = dirname(fileURLToPath(import.meta.url));
++	const gahPolicyExtDir = [
++		resolve(gahPolicyStart, "gah-policy", "extensions"),
++		resolve(gahPolicyStart, "..", "gah-policy", "extensions"),
++		resolve(gahPolicyStart, "..", "..", "gah-policy", "extensions"),
++	].find((candidate) => existsSync(candidate));
++	if (gahPolicyExtDir) {
 +		const baked = readdirSync(gahPolicyExtDir)
 +			.filter((f) => /\.(ts|js|mjs)$/.test(f))
 +			.sort()

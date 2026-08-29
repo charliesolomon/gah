@@ -15,7 +15,17 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-DIST="$REPO_ROOT/vendor/pi/packages/coding-agent/dist"
+# 0020-bake-policy resolves the policy dir relative to the running entry point
+# (import.meta.url), so this must land beside cli.js — which upstream moved from
+# dist/ to dist/bundle/ in v0.84.4. Derive it from the package's bin field so it
+# tracks future moves instead of silently bundling into the wrong directory.
+CA_DIR="$REPO_ROOT/vendor/pi/packages/coding-agent"
+CLI_REL="$(node -e "
+  const fs=require('node:fs');
+  const b=JSON.parse(fs.readFileSync('$CA_DIR/package.json','utf8')).bin;
+  console.log(typeof b === 'string' ? b : Object.values(b || {})[0] || 'dist/cli.js');
+" 2>/dev/null || echo dist/cli.js)"
+DIST="$CA_DIR/$(dirname "$CLI_REL")"
 PACK="$REPO_ROOT/packages/policy-pack"
 
 if [ ! -d "$DIST" ]; then
