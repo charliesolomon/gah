@@ -23,6 +23,19 @@ warn() { echo "gah: $*" >&2; }
 owner="$(stat -c %U "$CONF")"
 [ "$owner" = "root" ] || fail "$CONF must be owned by root (found: $owner)"
 
+# tmux passes terminal query replies (DA1/DA2/XTVERSION) through to the active
+# pane as input. With echo on and nothing reading them, the pane prints junk
+# like ^[[>0;10;1c. Clearing afterwards still shows a flash, because the tty
+# echoes each byte the moment it lands — so echo has to be off BEFORE they
+# arrive, i.e. before the skills sync we spend seconds in. The trap guarantees
+# the agent never inherits a terminal with echo disabled.
+_tty_saved=""
+if [ -t 0 ]; then
+	_tty_saved="$(stty -g 2>/dev/null || true)"
+	[ -n "$_tty_saved" ] && trap 'stty "$_tty_saved" 2>/dev/null || true' EXIT INT TERM
+	stty -echo 2>/dev/null || true
+fi
+
 # set -a: every var the manifest sets is exported — deployment knobs like
 # GRACE_TICKETS_DIR/GRACE_TICKETS_ENV must reach the session and its tools.
 set -a
@@ -69,6 +82,15 @@ fi
 # credentials) are collected without ever passing through the model. Steps
 # are agent-authored code, same trust level as the skills themselves; change
 # control is the skills repo's PR gate. Failure is non-fatal.
+
+# Swallow whatever arrived while echo was off, then hand back a clean terminal:
+# the setup steps below are interactive and need echo for the username prompt.
+if [ -t 0 ]; then
+	while IFS= read -r -t 0.2 -n 256 _drain 2>/dev/null; do :; done
+	unset _drain
+	[ -n "$_tty_saved" ] && stty "$_tty_saved" 2>/dev/null || true
+	printf '\033[2J\033[H'
+fi
 
 if [ -d "$SKILLS_DIR/setup" ]; then
 	for step in "$SKILLS_DIR"/setup/[0-9]*.sh; do

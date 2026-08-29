@@ -58,6 +58,7 @@ echo ">>> launchers + config"
 install -m 0755 "$HERE/gah-session" /usr/local/bin/gah-session
 install -m 0755 "$HERE/gah-launch" /usr/local/bin/gah-launch
 install -m 0755 "$HERE/gah-adduser" /usr/local/bin/gah-adduser
+install -m 0755 "$HERE/gah-rmuser" /usr/local/bin/gah-rmuser
 install -m 0755 "$HERE/gah-update" /usr/local/bin/gah-update
 install -d -m 0755 /etc/gah /etc/gah/users.d
 install -m 0644 "$HERE/tmux.conf" /etc/gah/tmux.conf
@@ -76,6 +77,7 @@ Next steps:
   1. (Once) Drop a read-only deploy key for the skills repo at
      /etc/gah/skills-deploy-key (root:gah-agents, mode 0640).
   2. Create agent accounts:  gah-adduser <username> [<pubkey-file>]
+     Remove one cleanly:     gah-rmuser <username> [--keep-home]
   3. Edit each /etc/gah/users.d/<username>.conf (skills repo, models, tools).
   4. Phase 2: place per-user IAM credentials in ~<user>/.aws/credentials.
 EOF
