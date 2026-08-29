@@ -1,0 +1,113 @@
+#!/usr/bin/env bash
+#
+# gah-rmuser — remove a GAH agent account from this host.
+#
+#   gah-rmuser <username> [--keep-home] [--force]
+#
+# The counterpart to gah-adduser. Note this is NOT the same operation as
+# offboarding a departing employee: the documented offboard is
+#
+#     usermod --lock --shell /usr/sbin/nologin <user>
+#
+# which deliberately leaves the home directory, authorized_keys and the
+# manifest in place for audit. That is right for a real person and wrong for a
+# test loop, where leftovers are exactly what makes the next run lie to you.
+# This script is the clean teardown: it removes the manifest, the keys and
+# (unless --keep-home) the home directory.
+#
+# Idempotent: missing pieces are skipped, not treated as errors.
+#
+set -euo pipefail
+
+[ "$(id -u)" = 0 ] || { echo "gah-rmuser must run as root" >&2; exit 1; }
+[ $# -ge 1 ] || { echo "usage: gah-rmuser <username> [--keep-home] [--force]" >&2; exit 2; }
+
+user="$1"; shift
+keep_home=0
+force=0
+while [ $# -gt 0 ]; do
+	case "$1" in
+		--keep-home) keep_home=1; shift ;;
+		--force)     force=1;     shift ;;
+		*) echo "unknown option: $1" >&2; exit 2 ;;
+	esac
+done
+
+# --- Guards. This script's whole job is deletion, so be hard to misuse. ---
+
+case "$user" in
+	root|ubuntu|"")
+		echo "refusing to remove '$user'" >&2; exit 1 ;;
+esac
+
+if ! id -u "$user" >/dev/null 2>&1; then
+	echo "account $user does not exist — nothing to remove"
+	# Still clean a stray manifest, so a half-torn-down state converges.
+	if [ -f "/etc/gah/users.d/$user.conf" ]; then
+		rm -f "/etc/gah/users.d/$user.conf"
+		echo "✓ removed orphaned manifest /etc/gah/users.d/$user.conf"
+	fi
+	exit 0
+fi
+
+# Only ever touch accounts that are actually GAH agents. Without this, a typo
+# could delete a service account that happens to share a prefix.
+if ! id -nG "$user" 2>/dev/null | tr ' ' '\n' | grep -qx gah-agents; then
+	if [ "$force" -eq 0 ]; then
+		echo "refusing: $user is not in the gah-agents group (use --force to override)" >&2
+		exit 1
+	fi
+	echo "! $user is not in gah-agents — proceeding anyway (--force)"
+fi
+
+home="$(getent passwd "$user" | cut -d: -f6)"
+
+# --- Preserve the audit log before anything is destroyed ---
+#
+# ~/.gah/audit.log is the only host-side record of what the session did, so it
+# outlives the account by default.
+if [ -f "$home/.gah/audit.log" ]; then
+	archive="/var/log/gah-audit-$user-$(date +%Y%m%d-%H%M%S).log"
+	cp -p "$home/.gah/audit.log" "$archive"
+	chmod 0600 "$archive"
+	echo "✓ archived audit log → $archive"
+fi
+
+# --- Kill any live session, or userdel refuses ---
+if pgrep -u "$user" >/dev/null 2>&1; then
+	echo "! $user has running processes (an attached tmux session?) — terminating"
+	pkill -u "$user" || true
+	sleep 2
+	pkill -9 -u "$user" 2>/dev/null || true
+fi
+
+# --- Manifest ---
+conf="/etc/gah/users.d/$user.conf"
+if [ -f "$conf" ]; then
+	rm -f "$conf"
+	echo "✓ removed manifest $conf"
+fi
+
+# --- Account ---
+if [ "$keep_home" -eq 1 ]; then
+	userdel "$user"
+	echo "✓ removed account $user (home kept at $home)"
+else
+	userdel --remove "$user" 2>/dev/null || {
+		# --remove fails if the mail spool is missing; the account still goes.
+		userdel "$user"
+		rm -rf "$home"
+	}
+	echo "✓ removed account $user and $home"
+fi
+
+cat <<EOF
+
+$user: REMOVED
+
+Remaining cleanup (not done here — AWS lives outside this host):
+  aws iam list-access-keys --user-name gah-$user
+  aws iam delete-access-key --user-name gah-$user --access-key-id <AKID>
+  aws iam remove-user-from-group --group-name gah-agents --user-name gah-$user
+  aws iam delete-user --user-name gah-$user
+EOF
