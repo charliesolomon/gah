@@ -40,6 +40,7 @@ import * as builtinProviderCatalog from "@earendil-works/pi-ai/providers/all";
 import { getAgentDir } from "../config.ts";
 import { operationSignal, raceWithAbortSignal } from "../utils/abort.ts";
 import { AuthStorage as DefaultAuthStorage } from "./auth-storage.ts";
+import { gahAllowsModelsJson, gahRestrictProvider } from "./gah-model-policy.ts";
 import { ModelConfig } from "./model-config.ts";
 import { FileModelsStore, InMemoryCodingAgentModelsStore } from "./models-store.ts";
 import {
@@ -171,8 +172,15 @@ export class ModelRuntime implements Models {
 
 	static async create(options: CreateModelRuntimeOptions = {}): Promise<ModelRuntime> {
 		const credentials = new RuntimeCredentials(options.credentials ?? DefaultAuthStorage.create(options.authPath));
+		// GAH: models.json can define arbitrary provider ids with their own
+		// baseUrl/apiKey/headers, and its `oauth: "radius"` form injects straight
+		// into the builtins map — so it is an endpoint bypass, not a preference.
+		// Gating the PATH (not the loader) also neutralises the radius injection
+		// and the re-read in refresh(). See gah-model-policy.ts.
 		const modelsPath =
-			options.modelsPath === null ? undefined : (options.modelsPath ?? join(getAgentDir(), "models.json"));
+			options.modelsPath === null || !gahAllowsModelsJson()
+				? undefined
+				: (options.modelsPath ?? join(getAgentDir(), "models.json"));
 		const config = await ModelConfig.load(modelsPath);
 		const modelsStore =
 			options.modelsStore ??
@@ -180,13 +188,16 @@ export class ModelRuntime implements Models {
 				? new FileModelsStore(options.modelsStorePath ?? join(dirname(modelsPath), "models-store.json"))
 				: new InMemoryCodingAgentModelsStore());
 		const builtinModelDataGeneratedAt = builtinProviderCatalog.getBuiltinModelDataGeneratedAt();
+		// GAH: apply the allowlist OUTERMOST — after withRemoteCatalog — so models
+		// the remote catalog adds at call time are filtered too.
 		const providers = builtinProviderCatalog
 			.builtinProviders()
 			.map((provider) =>
 				provider.id === "radius"
 					? provider
 					: withRemoteCatalog(provider, options.catalogBaseUrl, builtinModelDataGeneratedAt),
-			);
+			)
+			.map(gahRestrictProvider);
 		const runtime = new ModelRuntime(
 			credentials,
 			config,
