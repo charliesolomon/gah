@@ -74,7 +74,33 @@ cd vendor/pi && npm ci && cd ../.. && make build-all && make smoke
 # 5. Open a PR; review; merge
 ```
 
-CI does this automatically every Monday — see `.github/workflows/upstream-sync.yml`. The schedule + manual trigger together let you sync proactively for security releases.
+### Merge the sync PR with a merge commit — never squash
+
+This is load-bearing and easy to get wrong from the GitHub UI. `git subtree pull` finds
+its split point by reading the `Squashed 'vendor/pi/' changes from <a>..<b>` line out of
+the last subtree commit message. **Squash-merging a sync PR erases that marker from
+`main` and permanently breaks every future sync.** The one sync that has ever succeeded
+(v0.74.0 → v0.79.1, commit `639e0d7e`) was a true two-parent merge commit; keep it that way.
+
+Branch protection is not available on this repo's plan, so nothing enforces this
+mechanically — and CI cannot be a required check either. It informs the merge decision;
+it does not gate it.
+
+### Verify bake-policy by fault injection
+
+After a sync, confirm `0020-bake-policy` still actually loads the bundled policy — don't
+infer it from the patch applying. Temporarily break the policy pack (e.g. rename
+`SYSTEM.md`) and confirm the binary notices. This check previously existed only in the
+body of commit `639e0d7e`.
+
+### On the automation
+
+`.github/workflows/upstream-sync.yml` attempts this every Monday and opens a PR when it
+succeeds. Be aware of its history: **it failed 15 consecutive times between 2026-05-18 and
+2026-08-28 without ever succeeding, and nothing surfaced that** — a scheduled workflow's
+only default signal is an email to whoever last edited it. It now files an issue on
+failure. Treat a long silence as suspicious rather than as good news, and check
+`gh run list --workflow upstream-sync` periodically.
 
 ## Patch failure during sync
 
@@ -94,7 +120,15 @@ Anything user-visible that lives **outside** the binary (system prompt, banners 
 
 ## Anti-patterns
 
-- Editing files in `vendor/pi/` directly on `main` and committing — these will be silently clobbered by the next subtree pull.
+- **Editing files in `vendor/pi/` directly and committing.** They are *not* silently
+  clobbered by the next subtree pull, as this doc used to claim — they are worse than
+  that. Reverse-applying the patch series cannot undo a change no patch describes, so the
+  pull hits a hard merge conflict and the sync stops dead. This is exactly what happened:
+  a `shell-quote` CVE bump and some incidental lockfile churn committed straight into
+  `vendor/pi` cost 15 consecutive failed syncs. `scripts/check-vendor-clean.sh` now guards
+  this in CI; run it with `--worktree` before you commit.
+- **Editing `vendor/pi/` to satisfy a scanner.** Exclude the path in `ci.yml` with a
+  documented justification instead (see `ci/scans/README.md`).
 - Adding many small patches when one extension would do.
 - Adding new dependencies to `packages/policy-pack/` casually — each one expands the CVE surface we own.
 - Merging upstream `main` instead of a tagged release.

@@ -41,6 +41,7 @@ fi
 git config rerere.enabled true
 
 failed=()
+threeway=()
 for p in "${patches[@]}"; do
   name=$(basename "$p")
   echo "→ Applying $name"
@@ -52,11 +53,28 @@ for p in "${patches[@]}"; do
     # checkout every patch is already present — only a pristine tree
     # (mid-sync) actually needs applying.
     echo "  ✓ already applied — skipping"
+  elif git apply --3way --directory=vendor/pi "$p" 2>/dev/null; then
+    # Context drifted but the change still merges — typically an import block
+    # or a nearby edit upstream. Without this fallback a patch that needed only
+    # a context shift failed outright: at v0.84.4, 0020-bake-policy fails for
+    # exactly that reason while its real anchor is untouched.
+    echo "  ✓ applied via 3-way merge (context moved — consider regenerating)"
+    threeway+=("$name")
   else
     echo "  ✗ does not apply cleanly"
+    # Re-run without silencing stderr so the operator gets hunk-level detail
+    # instead of just a filename.
+    git apply --directory=vendor/pi "$p" 2>&1 | sed 's/^/      /' || true
     failed+=("$name")
   fi
 done
+
+if [ ${#threeway[@]} -ne 0 ]; then
+  echo ""
+  echo "Applied via 3-way merge — regenerate these against the new tree so the"
+  echo "next sync starts from clean context (docs/WORKFLOW.md):"
+  printf '  - %s\n' "${threeway[@]}"
+fi
 
 if [ ${#failed[@]} -ne 0 ]; then
   echo ""
