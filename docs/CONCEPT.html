@@ -75,6 +75,13 @@
   }
   .standfirst strong { color: var(--ink); font-weight: 600; }
 
+  .purpose {
+    font-size: 16.5px; line-height: 1.6; color: var(--ink-2);
+    max-width: 64ch; margin: 22px 0 0; padding-top: 20px;
+    border-top: 1px solid var(--hair-soft);
+  }
+  .purpose b { color: var(--ink); font-weight: 650; }
+
   /* ---------- stages ---------- */
   section.stage { padding: 46px 0; border-bottom: 1px solid var(--hair-soft); }
   section.stage:last-of-type { border-bottom: none; }
@@ -300,14 +307,22 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="eyebrow">A deployment concept for IT teams</div>
+  <div class="eyebrow">A concept paper for IT teams</div>
   <h1>The agent that already knows your estate</h1>
   <p class="standfirst">
-    Most AI assistance offered to IT teams is generic: fluent about technology in
-    general, ignorant of <em>yours</em>. This describes a different shape —
-    <strong>an agent that runs on your technicians' own machines, carries your
-    documented environment with it, and gets measurably better every time someone
-    uses it.</strong>
+    Every IT team knows more than it has written down, and the parts it has written down
+    drift out of date in ways nobody notices until they cost someone an afternoon. General
+    AI assistance does not help much with this: it is fluent about technology in general
+    and ignorant of <em>yours</em>.
+  </p>
+  <p class="purpose">
+    <b>This paper sets out one way to close that gap.</b> It describes a concept — an
+    assistant that carries your organisation's own documented knowledge and your team's own
+    procedures — and an existing, working tool that implements it, which is open and
+    intended to be adapted rather than adopted as-is. It covers the problem, the shape of
+    the solution, how such a system is built and deployed, and a staged way to introduce it
+    to a team without taking on much risk. The specifics of any one organisation are
+    deliberately left out; the shape is what transfers.
   </p>
 </header>
 
@@ -385,8 +400,23 @@
   <h2>Two things: your context, and your procedures</h2>
 
   <p class="lead">
-    The agent — internally, GAH — is a terminal application on a technician's own
-    machine. It combines two things a general assistant lacks.
+    The implementation this paper draws on is <strong>GAH — the Good Agent Harness</strong>,
+    an open project that provides the agent itself along with the machinery to deploy it to
+    a team and govern what it may do. In use it is simply a terminal application a
+    technician opens and talks to.
+  </p>
+
+  <p>
+    It is worth being precise about what GAH is and is not, because it is only half of what
+    makes the result useful. <strong>GAH supplies the vehicle: the agent, the deployment
+    mechanism, and the controls.</strong> It ships with no knowledge of your organisation
+    and no opinion about how your team works — deliberately, since that is the part no
+    external project could get right.
+  </p>
+
+  <p>
+    The other half is yours, and it is what the rest of this section describes: two bodies
+    of material that you write, keep in your own version control, and improve over time.
   </p>
 
   <h3>Your organisational context</h3>
@@ -409,6 +439,11 @@
     <strong>yours</strong>, both are versioned, and both improve without anyone
     reinstalling anything.
   </p>
+
+  <p class="pull">
+    The tool is the vehicle. What your team knows is the cargo — and no two organisations
+    carry the same load.
+  </p>
 </section>
 
 <section class="stage">
@@ -422,7 +457,7 @@
   </p>
 
   <p>
-    <strong>GAH — the Good Agent Harness</strong> — is built on an open agent harness
+    GAH is itself built on an open agent harness
     (<span style="font-family:var(--mono);font-size:.9em">earendil-works/pi</span>): the
     terminal interface, tool use, session handling. That harness is vendored into the
     project rather than merely depended upon.
