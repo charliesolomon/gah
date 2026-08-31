@@ -49,6 +49,15 @@ SKILLS_SUBDIR="${SKILLS_SUBDIR:-skills}"
 SKILLS_DIR="$HOME/.gah/skills-repo"
 SKILLS_SSH_KEY="${SKILLS_SSH_KEY:-$CONF_DIR/skills-deploy-key}"
 
+# An agent's own skills. Deliberately outside the shared checkout, which is
+# hard-reset on every launch: personal work must survive that. MY_SKILLS_REPO is
+# optional — set it to back the directory with the agent's own repository, which
+# makes the work recoverable and lets a useful skill be promoted into the shared
+# set. Unset, it is just a local directory.
+MY_SKILLS_DIR="${MY_SKILLS_DIR:-$HOME/.gah/my-skills}"
+MY_SKILLS_REPO="${MY_SKILLS_REPO:-}"
+MY_SKILLS_BRANCH="${MY_SKILLS_BRANCH:-main}"
+
 # --- Sync the skills checkout -------------------------------------------------
 # The repo is authoritative: every launch hard-resets to origin/<branch>, so
 # improvements land by PR merge and local edits never drift. Network failure
@@ -74,6 +83,24 @@ if [ -d "$SKILLS_DIR/.git" ]; then
 else
 	timeout 120 git clone --quiet --branch "$SKILLS_BRANCH" "$SKILLS_REPO" "$SKILLS_DIR" \
 		|| warn "skills clone failed — starting without skills"
+fi
+
+# --- Sync personal skills (optional) -------------------------------------------
+# Note the asymmetry with the shared checkout above, which is `reset --hard`:
+# here it is `pull --ff-only`, because personal skills are edited in place and
+# uncommitted work must survive a launch. A failure is never fatal — the agent
+# keeps whatever is on disk.
+if [ -n "$MY_SKILLS_REPO" ]; then
+	if [ -d "$MY_SKILLS_DIR/.git" ]; then
+		timeout 30 git -C "$MY_SKILLS_DIR" pull --ff-only --quiet 2>/dev/null \
+			|| warn "personal skills not updated — continuing with the local copy"
+	else
+		timeout 120 git clone --quiet --branch "$MY_SKILLS_BRANCH" \
+			"$MY_SKILLS_REPO" "$MY_SKILLS_DIR" 2>/dev/null \
+			|| warn "personal skills clone failed — continuing without them"
+	fi
+else
+	mkdir -p "$MY_SKILLS_DIR" 2>/dev/null || true
 fi
 
 # --- Onboarding / setup steps ---------------------------------------------------
@@ -124,11 +151,73 @@ WORKDIR="${WORKDIR:-$HOME/work}"
 mkdir -p "$WORKDIR"
 cd "$WORKDIR"
 
+# Skills come from two places, and a personal skill of the same name wins.
+#
+# The harness does NOT deduplicate: loadSourcedSkills() pushes every skill it
+# finds from every --skill path, so passing both directories wholesale would load
+# two skills with the same name and leave the model to guess. Precedence has to
+# be resolved here.
+#
+# It is resolved by selection: --skill accepts an individual skill directory (a
+# directory containing SKILL.md loads exactly that skill and stops), so shared
+# skills that a personal skill shadows are simply never passed. Nothing is copied
+# or symlinked, so paths referenced inside a skill still resolve.
+#
+# A skill's name is its frontmatter `name:` if present, otherwise its directory
+# name — the same rule the loader uses — so shadowing is detected the way the
+# harness would see it.
+skill_name_of() {
+	local dir="$1" file="$1/SKILL.md" name=""
+	[ -f "$file" ] || return 1
+	name=$(awk '
+		/^---[[:space:]]*$/ { fence++; next }
+		fence == 1 && /^name:[[:space:]]*/ {
+			sub(/^name:[[:space:]]*/, "")
+			gsub(/^["'"'"']|["'"'"']$/, "")
+			print; exit
+		}
+		fence > 1 { exit }
+	' "$file" 2>/dev/null)
+	[ -n "$name" ] || name=$(basename "$dir")
+	printf '%s\n' "$name"
+}
+
 skill_args=()
-if [ -d "$SKILLS_DIR/$SKILLS_SUBDIR" ]; then
-	skill_args=(--skill "$SKILLS_DIR/$SKILLS_SUBDIR")
-else
-	warn "no skills at $SKILLS_DIR/$SKILLS_SUBDIR — launching without skills"
+personal_names=" "
+
+# Personal skills first: they are the ones that win, so they define the shadow set.
+if [ -d "$MY_SKILLS_DIR" ]; then
+	for d in "$MY_SKILLS_DIR"/*/; do
+		[ -d "$d" ] || continue
+		d="${d%/}"
+		n=$(skill_name_of "$d") || continue
+		personal_names="${personal_names}${n} "
+		skill_args+=(--skill "$d")
+	done
 fi
+
+if [ -d "$SKILLS_DIR/$SKILLS_SUBDIR" ]; then
+	shared_count=0
+	for d in "$SKILLS_DIR/$SKILLS_SUBDIR"/*/; do
+		[ -d "$d" ] || continue
+		d="${d%/}"
+		n=$(skill_name_of "$d") || continue
+		case "$personal_names" in
+			*" $n "*)
+				# Loud on purpose: a shared skill can carry a fix, and being
+				# shadowed without notice is how that fix goes missing.
+				warn "personal skill '$n' shadows the shared one — the shared version is NOT loaded"
+				continue
+				;;
+		esac
+		skill_args+=(--skill "$d")
+		shared_count=$((shared_count + 1))
+	done
+	[ "$shared_count" -eq 0 ] && warn "no shared skills loaded from $SKILLS_DIR/$SKILLS_SUBDIR"
+else
+	warn "no skills at $SKILLS_DIR/$SKILLS_SUBDIR — launching without shared skills"
+fi
+
+[ ${#skill_args[@]} -eq 0 ] && warn "launching with NO skills at all"
 
 exec "$GAH_HOME/bin/gah" --no-skills "${skill_args[@]}"
