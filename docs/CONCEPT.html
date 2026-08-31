@@ -1,0 +1,916 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Agent That Already Knows Your Estate</title>
+<style>
+  :root {
+    --ink:        #171A19;
+    --ink-2:      #3E4744;
+    --muted:      #6E7975;
+    --hair:       #DDE2DF;
+    --hair-soft:  #ECEFED;
+    --paper:      #F5F6F5;
+    --card:       #FFFFFF;
+    --sunk:       #EDF0EE;
+    --accent:     #1E5F4B;
+    --accent-2:   #63A088;
+    --accent-bg:  #E3EFE9;
+    --amber:      #8A5A1B;
+    --amber-bg:   #F5EDE0;
+    --shadow:     0 1px 2px rgba(23,26,25,.05), 0 12px 30px -22px rgba(23,26,25,.35);
+
+    --serif: Georgia, "Iowan Old Style", "Palatino Linotype", "Times New Roman", serif;
+    --sans:  system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --mono:  ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ink:       #E6EAE8;
+      --ink-2:     #B5BFBB;
+      --muted:     #838E8A;
+      --hair:      #2B332F;
+      --hair-soft: #222925;
+      --paper:     #101413;
+      --card:      #171D1A;
+      --sunk:      #1C2320;
+      --accent:    #6FBFA0;
+      --accent-2:  #3E7B64;
+      --accent-bg: #16261F;
+      --amber:     #D2A163;
+      --amber-bg:  #2A2117;
+      --shadow:    0 1px 2px rgba(0,0,0,.5), 0 12px 30px -22px rgba(0,0,0,.8);
+    }
+  }
+
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 17px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 0 26px 110px; }
+
+  /* ---------- masthead ---------- */
+  header.top { padding: 72px 0 34px; border-bottom: 1px solid var(--hair); margin-bottom: 12px; }
+  .eyebrow {
+    font-family: var(--mono); font-size: 11.5px; letter-spacing: .15em;
+    text-transform: uppercase; color: var(--accent); margin-bottom: 20px;
+  }
+  h1 {
+    font-family: var(--serif); font-weight: 700;
+    font-size: clamp(34px, 6vw, 54px); line-height: 1.08;
+    letter-spacing: -.02em; margin: 0 0 20px; text-wrap: balance;
+  }
+  .standfirst {
+    font-size: 20px; line-height: 1.5; color: var(--ink-2);
+    max-width: 60ch; margin: 0;
+  }
+  .standfirst strong { color: var(--ink); font-weight: 600; }
+
+  /* ---------- stages ---------- */
+  section.stage { padding: 46px 0; border-bottom: 1px solid var(--hair-soft); }
+  section.stage:last-of-type { border-bottom: none; }
+  .stage-num {
+    font-family: var(--mono); font-size: 11.5px; letter-spacing: .14em;
+    text-transform: uppercase; color: var(--accent-2); margin-bottom: 12px;
+  }
+  h2 {
+    font-family: var(--serif); font-weight: 700; font-size: clamp(25px, 3.4vw, 33px);
+    line-height: 1.18; letter-spacing: -.012em; margin: 0 0 18px; text-wrap: balance;
+  }
+  h3 {
+    font-family: var(--sans); font-weight: 650; font-size: 17px;
+    margin: 32px 0 10px; color: var(--ink);
+  }
+  p { max-width: 68ch; margin: 0 0 17px; }
+  .lead { font-size: 18.5px; color: var(--ink-2); }
+  ul, ol { max-width: 68ch; padding-left: 24px; margin: 0 0 17px; }
+  li { margin-bottom: 9px; }
+  strong { font-weight: 650; }
+  em { font-style: italic; }
+  code {
+    font-family: var(--mono); font-size: .87em;
+    background: var(--sunk); padding: 2px 6px; border-radius: 4px;
+  }
+
+  /* ---------- pull quote ---------- */
+  .pull {
+    font-family: var(--serif); font-size: clamp(20px, 2.8vw, 26px);
+    line-height: 1.35; color: var(--accent);
+    border-left: 3px solid var(--accent); padding: 4px 0 4px 24px;
+    margin: 34px 0; max-width: 56ch; font-weight: 400;
+  }
+
+  /* ---------- callout ---------- */
+  .note {
+    background: var(--card); border: 1px solid var(--hair);
+    border-left: 3px solid var(--accent);
+    border-radius: 0 7px 7px 0; padding: 18px 22px; margin: 26px 0;
+    font-size: 16px; color: var(--ink-2);
+  }
+  .note.caution { border-left-color: var(--amber); background: var(--amber-bg); }
+  .note b.t { display: block; color: var(--ink); font-weight: 650; margin-bottom: 6px; font-size: 16px; }
+  .note p { margin: 0 0 10px; max-width: none; }
+  .note p:last-child { margin-bottom: 0; }
+
+  /* ---------- before / after ---------- */
+  .split { display: grid; gap: 16px; margin: 28px 0; }
+  @media (min-width: 700px) { .split { grid-template-columns: 1fr 1fr; } }
+  .col {
+    background: var(--card); border: 1px solid var(--hair);
+    border-radius: 8px; padding: 20px 22px;
+  }
+  .col h4 {
+    margin: 0 0 12px; font-size: 12px; font-family: var(--mono);
+    letter-spacing: .1em; text-transform: uppercase; color: var(--muted); font-weight: 500;
+  }
+  .col.after { border-color: var(--accent-2); }
+  .col.after h4 { color: var(--accent); }
+  .col p { font-size: 15.5px; margin: 0; color: var(--ink-2); }
+  .col .q {
+    font-family: var(--mono); font-size: 13.5px; color: var(--ink);
+    display: block; margin-bottom: 10px; line-height: 1.5;
+  }
+
+  /* ---------- architecture stack ---------- */
+  .stack { margin: 30px 0; }
+  .layer {
+    background: var(--card); border: 1px solid var(--hair);
+    border-radius: 8px; padding: 18px 22px; margin-bottom: 8px;
+    display: grid; gap: 4px 20px;
+  }
+  @media (min-width: 640px) { .layer { grid-template-columns: 190px 1fr; } }
+  .layer.yours { border-color: var(--accent-2); background: var(--accent-bg); }
+  .layer .lname {
+    font-weight: 650; font-size: 15.5px; color: var(--ink);
+  }
+  .layer.yours .lname { color: var(--accent); }
+  .layer .ldesc { font-size: 15px; color: var(--ink-2); }
+  .layer .ltag {
+    font-family: var(--mono); font-size: 10.5px; letter-spacing: .1em;
+    text-transform: uppercase; color: var(--muted); margin-top: 3px;
+  }
+  .layer.yours .ltag { color: var(--accent-2); }
+
+  /* ---------- the loop ---------- */
+  .loop { display: grid; gap: 14px; margin: 30px 0; counter-reset: loopstep; }
+  @media (min-width: 760px) { .loop { grid-template-columns: repeat(4, 1fr); } }
+  .step {
+    background: var(--card); border: 1px solid var(--hair);
+    border-radius: 8px; padding: 18px; position: relative;
+  }
+  .step::before {
+    counter-increment: loopstep; content: counter(loopstep);
+    font-family: var(--mono); font-size: 11px; font-weight: 600;
+    color: var(--card); background: var(--accent);
+    width: 22px; height: 22px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    margin-bottom: 12px;
+  }
+  .step h5 { margin: 0 0 7px; font-size: 15px; font-weight: 650; }
+  .step p { font-size: 14.5px; margin: 0; color: var(--ink-2); }
+  .loop-close {
+    text-align: center; font-family: var(--mono); font-size: 12.5px;
+    letter-spacing: .06em; color: var(--accent); margin: 4px 0 0;
+  }
+
+  /* ---------- phases ---------- */
+  .phase {
+    background: var(--card); border: 1px solid var(--hair);
+    border-radius: 8px; padding: 20px 24px; margin-bottom: 12px;
+    box-shadow: var(--shadow);
+  }
+  .phase-hd { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; margin-bottom: 8px; }
+  .phase-tag {
+    font-family: var(--mono); font-size: 11px; letter-spacing: .08em;
+    text-transform: uppercase; color: var(--card); background: var(--accent);
+    padding: 3px 10px; border-radius: 4px; white-space: nowrap; font-weight: 600;
+  }
+  .phase h4 { margin: 0; font-family: var(--serif); font-size: 19px; font-weight: 700; }
+  .phase p { font-size: 15.5px; margin: 0 0 10px; color: var(--ink-2); }
+  .phase p:last-child { margin-bottom: 0; }
+  .phase .aim {
+    font-size: 14.5px; color: var(--muted); border-top: 1px solid var(--hair-soft);
+    padding-top: 11px; margin-top: 12px;
+  }
+  .phase .aim b { color: var(--accent); font-weight: 650; }
+
+  /* ---------- table ---------- */
+  .tw { overflow-x: auto; margin: 26px 0; border: 1px solid var(--hair); border-radius: 8px; }
+  table { border-collapse: collapse; width: 100%; font-size: 15px; background: var(--card); }
+  th {
+    text-align: left; font-size: 11.5px; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--muted); background: var(--sunk); font-weight: 600;
+    padding: 12px 18px; border-bottom: 1px solid var(--hair); white-space: nowrap;
+  }
+  td { padding: 12px 18px; border-bottom: 1px solid var(--hair-soft); vertical-align: top; color: var(--ink-2); }
+  tr:last-child td { border-bottom: none; }
+  td strong { color: var(--ink); }
+
+  /* ---------- topology diagram ---------- */
+  .topo { display: grid; gap: 12px; margin: 28px 0 8px; }
+  @media (min-width: 780px) { .topo { grid-template-columns: 0.85fr 1.2fr 0.95fr; align-items: stretch; } }
+  .zone {
+    background: var(--card); border: 1px solid var(--hair);
+    border-radius: 8px; padding: 16px 18px;
+  }
+  .zone.server { border-color: var(--accent-2); background: var(--accent-bg); }
+  .zone .zh {
+    font-family: var(--mono); font-size: 10.5px; letter-spacing: .11em;
+    text-transform: uppercase; color: var(--muted); margin-bottom: 4px;
+  }
+  .zone.server .zh { color: var(--accent); }
+  .zone .zt { font-weight: 650; font-size: 15px; margin-bottom: 10px; }
+  .zone ul { margin: 0; padding-left: 17px; }
+  .zone li { font-size: 14px; margin-bottom: 5px; color: var(--ink-2); }
+  .zone .none {
+    font-size: 14px; color: var(--accent); font-weight: 600;
+    background: var(--accent-bg); border-radius: 5px; padding: 8px 10px; margin-top: 4px;
+  }
+  .zone.server .none { background: var(--card); }
+  .link {
+    font-family: var(--mono); font-size: 11px; letter-spacing: .06em;
+    color: var(--accent); text-align: center; padding: 4px 0;
+  }
+  .topo-cap {
+    font-size: 13.5px; color: var(--muted); text-align: center;
+    margin: 0 0 26px; max-width: none;
+  }
+
+  pre.code {
+    background: var(--sunk); border: 1px solid var(--hair);
+    border-radius: 8px; padding: 16px 18px; overflow-x: auto;
+    font-family: var(--mono); font-size: 13.5px; line-height: 1.6;
+    color: var(--ink); margin: 22px 0;
+  }
+  pre.code .k { color: var(--accent); font-weight: 600; }
+  pre.code .c { color: var(--muted); }
+
+  .facts { display: grid; gap: 12px; margin: 26px 0; }
+  @media (min-width: 640px) { .facts { grid-template-columns: repeat(4, 1fr); } }
+  .fact {
+    background: var(--card); border: 1px solid var(--hair);
+    border-radius: 8px; padding: 16px 18px; text-align: center;
+  }
+  .fact .n {
+    font-family: var(--serif); font-size: 30px; font-weight: 700;
+    color: var(--accent); line-height: 1.1; display: block;
+  }
+  .fact .l {
+    font-size: 13px; color: var(--muted); margin-top: 6px; display: block; line-height: 1.35;
+  }
+  .repo {
+    font-family: var(--mono); font-size: 14px; background: var(--sunk);
+    border: 1px solid var(--hair); border-radius: 7px;
+    padding: 12px 16px; margin: 20px 0; color: var(--ink-2); overflow-x: auto;
+  }
+  .repo b { color: var(--ink); font-weight: 600; }
+
+  footer {
+    margin-top: 56px; padding-top: 24px; border-top: 1px solid var(--hair);
+    font-size: 14.5px; color: var(--muted); max-width: 68ch;
+  }
+
+  /* ---------- print ---------- */
+  @media print {
+    :root {
+      --paper: #fff; --card: #fff; --ink: #000; --ink-2: #222;
+      --muted: #555; --hair: #bbb; --hair-soft: #ddd; --sunk: #f2f2f2;
+      --accent: #1a4d3d; --accent-bg: #fff; --shadow: none;
+    }
+    body { font-size: 11.5pt; }
+    .wrap { max-width: none; padding: 0; }
+    header.top { padding-top: 0; }
+    section.stage { padding: 22px 0; page-break-inside: avoid; }
+    .phase, .note, .layer, .step { page-break-inside: avoid; }
+    h1 { font-size: 26pt; }
+    h2 { font-size: 16pt; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="top">
+  <div class="eyebrow">A deployment concept for IT teams</div>
+  <h1>The agent that already knows your estate</h1>
+  <p class="standfirst">
+    Most AI assistance offered to IT teams is generic: fluent about technology in
+    general, ignorant of <em>yours</em>. This describes a different shape —
+    <strong>an agent that runs on your technicians' own machines, carries your
+    documented environment with it, and gets measurably better every time someone
+    uses it.</strong>
+  </p>
+</header>
+
+<section class="stage">
+  <div class="stage-num">Stage one · the problem</div>
+  <h2>Your best documentation lives in three people's heads</h2>
+
+  <p class="lead">
+    Every IT team has the same asymmetry. The senior technician can tell you which
+    switch serves that room, why the printer on the second floor is on a static
+    lease, and which of two identical-looking sites uses the older firmware — instantly,
+    from memory.
+  </p>
+
+  <p>
+    None of that is written down in a form anyone else can use quickly. Some of it is
+    written down and wrong. Most of it was true when it was written and has drifted
+    since.
+  </p>
+
+  <p>The cost shows up in ordinary moments:</p>
+  <ul>
+    <li>A newer technician spends forty minutes establishing something a colleague knows cold.</li>
+    <li>The one person who knows is on leave, at another site, or in a meeting.</li>
+    <li>A ticket gets solved correctly, and the reasoning evaporates the moment it closes.</li>
+    <li>Someone follows the documentation and it is out of date, so next time they don't bother.</li>
+  </ul>
+
+  <p>
+    That last one matters most. <strong>Documentation that has burned you once stops
+    being consulted</strong>, which means it stops being corrected, which guarantees it
+    keeps being wrong. Every team has a wiki in this condition.
+  </p>
+</section>
+
+<section class="stage">
+  <div class="stage-num">Stage two · why not a general assistant</div>
+  <h2>The value isn't the model. It's your context.</h2>
+
+  <p class="lead">
+    A general-purpose assistant is genuinely good at explaining a protocol or drafting a
+    script. It knows nothing about your naming conventions, your site layout, your
+    ticket queues, or the exception someone made three years ago that everything now
+    depends on.
+  </p>
+
+  <p>
+    So the useful question is not <em>“can a model help with IT work?”</em> — it plainly
+    can — but <em>“how does a model come to know what our team knows?”</em>
+  </p>
+
+  <div class="split">
+    <div class="col">
+      <h4>Generic assistant</h4>
+      <span class="q">“How should I troubleshoot an access point that's offline?”</span>
+      <p>Returns a competent, general procedure. Correct, and no faster than what the
+         technician already knows.</p>
+    </div>
+    <div class="col after">
+      <h4>Context-aware agent</h4>
+      <span class="q">“What do we know about the access points at the north site?”</span>
+      <p>Answers from your documented estate — models, firmware, addressing, the
+         standing exceptions and why they exist.</p>
+    </div>
+  </div>
+
+  <p class="pull">
+    The second question is the one technicians actually ask each other. It has never
+    had a good answer that wasn't a person.
+  </p>
+</section>
+
+<section class="stage">
+  <div class="stage-num">Stage three · what it is</div>
+  <h2>Two things: your context, and your procedures</h2>
+
+  <p class="lead">
+    The agent — internally, GAH — is a terminal application on a technician's own
+    machine. It combines two things a general assistant lacks.
+  </p>
+
+  <h3>Your organisational context</h3>
+  <p>
+    The documented facts of your estate: sites, networks, equipment inventories,
+    conventions, people and their roles. Not pasted into a prompt each time — carried by
+    the agent as a matter of course, so a technician can simply ask.
+  </p>
+
+  <h3>Your skills</h3>
+  <p>
+    A skill is a packaged procedure: how <em>your</em> team triages a ticket, drafts a
+    reply, checks the status of a device, writes an article. Each declares what it is
+    for and precisely which tools and data it may touch. Staff invoke them by name or
+    just describe what they want.
+  </p>
+
+  <p>
+    Neither is exotic. What makes the combination valuable is that both are
+    <strong>yours</strong>, both are versioned, and both improve without anyone
+    reinstalling anything.
+  </p>
+</section>
+
+<section class="stage">
+  <div class="stage-num">Stage four · the architecture</div>
+  <h2>An open harness underneath, your policy on top</h2>
+
+  <p class="lead">
+    The design question for anything like this is where the boundary sits between what
+    you build and what you inherit. Build too much and you maintain an agent framework
+    forever. Build too little and you cannot make it safe for your environment.
+  </p>
+
+  <p>
+    <strong>GAH — the Good Agent Harness</strong> — is built on an open agent harness
+    (<span style="font-family:var(--mono);font-size:.9em">earendil-works/pi</span>): the
+    terminal interface, tool use, session handling. That harness is vendored into the
+    project rather than merely depended upon.
+    Upstream improvements can be pulled in deliberately, reviewed as a normal change,
+    and pinned. On top of that sits a layer that is entirely yours.
+  </p>
+
+  <div class="stack">
+    <div class="layer yours">
+      <div>
+        <div class="lname">Deployment policy</div>
+        <div class="ltag">yours</div>
+      </div>
+      <div class="ldesc">
+        Per-user configuration held centrally: which models may be used, which skills a
+        given person receives, which credentials are present, and whether a capability is
+        read-only or permitted to change something. Staff cannot self-modify what they
+        have been granted.
+      </div>
+    </div>
+    <div class="layer yours">
+      <div>
+        <div class="lname">Skills &amp; context</div>
+        <div class="ltag">yours</div>
+      </div>
+      <div class="ldesc">
+        A shared set maintained centrally, refreshed on every launch so a correction
+        reaches everyone without anyone acting — plus an optional personal set each
+        technician can extend, which the refresh never overwrites.
+      </div>
+    </div>
+    <div class="layer">
+      <div>
+        <div class="lname">Open agent harness</div>
+        <div class="ltag">inherited · vendored</div>
+      </div>
+      <div class="ldesc">
+        Terminal interface, tool execution, conversation and session management. Tracked
+        upstream so improvements arrive, held at a reviewed version so they arrive on
+        your schedule.
+      </div>
+    </div>
+  </div>
+
+  <p>
+    The separation is the point. <strong>You inherit the parts that are hard and generic,
+    and own the parts that are specific and consequential</strong> — access, safety, and
+    what your team is actually asked to do.
+  </p>
+
+  <div class="note caution">
+    <b class="t">Safety is a property of the layer you own</b>
+    <p>
+      Because the policy layer is yours, capabilities can be split rather than granted
+      wholesale. Asking what a device's configuration is and changing that configuration
+      are different permissions, even where they use the same underlying tool. A team can
+      be given the first for months before anyone considers the second.
+    </p>
+    <p>
+      Equally, actions taken on your systems can be attributed to the person who took
+      them rather than to a shared robot identity — which matters the first time you need
+      to know who changed something.
+    </p>
+  </div>
+</section>
+
+<section class="stage">
+  <div class="stage-num">Stage five · what already exists</div>
+  <h2>This is a working system, not a proposal</h2>
+
+  <p class="lead">
+    The concept above is described from a running implementation. The harness is public;
+    the skills and organisational context are private, because they are specific to one
+    organisation — but their <em>shape</em> is worth showing, because it is the part
+    another team would rebuild.
+  </p>
+
+  <div class="repo">
+    <b>Good Agent Harness</b> &nbsp;·&nbsp; github.com/charliesolomon/gah<br>
+    built on &nbsp;<b>earendil-works/pi</b>&nbsp; · vendored, tracked, pinned
+  </div>
+
+  <div class="facts">
+    <div class="fact"><span class="n">22</span><span class="l">skills in the working library</span></div>
+    <div class="fact"><span class="n">~4,100</span><span class="l">lines of skill definition</span></div>
+    <div class="fact"><span class="n">28</span><span class="l">tool wrapper scripts</span></div>
+    <div class="fact"><span class="n">10</span><span class="l">organisational context documents</span></div>
+  </div>
+
+  <h3>What a skill actually looks like</h3>
+  <p>
+    A skill is a Markdown file with a short header. The header is the whole security
+    model — everything below it is prose telling the agent how your team does the thing.
+  </p>
+
+  <pre class="code"><span class="c">---</span>
+<span class="k">name:</span> ticket-triage
+<span class="k">description:</span> Analyze open support tickets and provide triage recommendations
+<span class="k">allowed-tools:</span> Bash(~/ops/bin/ticket-triage.sh:*), Bash(~/ops/bin/day-of-week.sh:*)
+<span class="c">---</span>
+
+<span class="c"># ...instructions, examples, and rules follow in plain Markdown</span></pre>
+
+  <p>
+    <code>name</code> and <code>description</code> are how the agent decides the skill is
+    relevant to what someone asked. <code>allowed-tools</code> is the hard boundary: this
+    skill may run those two scripts and nothing else. It cannot read arbitrary files, call
+    other systems, or reach for a tool nobody granted it.
+  </p>
+
+  <div class="note">
+    <b class="t">Why the tools are wrapper scripts rather than raw commands</b>
+    <p>
+      Every external system is reached through a small script rather than by giving the
+      agent direct command access. That keeps credentials and connection details out of
+      the skill definitions entirely — the skill knows a script exists, not how it
+      authenticates — and it collapses permissions to one clear grant per skill instead of
+      a sprawl of patterns.
+    </p>
+    <p>
+      It also makes the read/write split practical: where a script exposes named
+      operations, a skill can be granted the ones that only read and denied the ones that
+      change something, using the same underlying tool.
+    </p>
+  </div>
+
+  <h3>What the context covers</h3>
+  <p>
+    Ten Markdown documents, versioned like code and reviewed like code. Generically, they
+    hold:
+  </p>
+  <ul>
+    <li><strong>People and structure</strong> — staff and leadership, roles and titles,
+        contact details, which site someone works from, who escalates to whom</li>
+    <li><strong>Sites and networks</strong> — locations and their abbreviations, network
+        topology, addressing</li>
+    <li><strong>Equipment inventories</strong> — the managed estate, model by model, with
+        the standing exceptions and the reasons for them</li>
+    <li><strong>Working conventions</strong> — how the ticket system is actually used,
+        priority definitions, tone and escalation expectations</li>
+    <li><strong>Time-based facts</strong> — the recurring annual calendar, historical
+        baselines to compare current activity against</li>
+  </ul>
+
+  <p>
+    This is the part that makes the difference between a competent general assistant and
+    one that can answer <em>“who owns this, where is it, and what did we decide about it
+    last year?”</em> It is also, deliberately, the least exotic part of the system: plain
+    Markdown that a person can read, correct, and review.
+  </p>
+
+  <h3>Proven against real work</h3>
+  <p>
+    The library has been exercised against live ticket queues and live infrastructure —
+    triaging real tickets, answering real questions about the estate, and running
+    unattended on a schedule as well as interactively. The skills that survived are the
+    ones that earned their place; several early ones were removed for being clever rather
+    than useful.
+  </p>
+
+  <p class="pull">
+    The hard part was never the agent. It was writing down what the team already knew, in
+    a form something else could use.
+  </p>
+</section>
+
+<section class="stage">
+  <div class="stage-num">Stage six · getting it onto machines</div>
+  <h2>Deployment is a push, not a project</h2>
+
+  <p class="lead">
+    Nothing about this requires visiting desks. The agent is delivered the same way you
+    already deliver software to managed machines: a script pushed through your endpoint
+    management platform, or a global policy applied to the relevant group.
+  </p>
+
+  <p>
+    A technician sees a shortcut appear. They click it, and they are in. There is no
+    per-machine configuration to get wrong, no runtime for staff to install, and nothing
+    they need to keep up to date — updates arrive when they next open it.
+  </p>
+
+  <p>
+    Removal is the same operation in reverse, which is worth saying plainly: piloting
+    this with one person costs one push and can be undone with another.
+  </p>
+
+  <h3>One topology that works</h3>
+  <p>
+    The obvious next question is what actually lands on the endpoint. In the running
+    implementation, the answer is: <strong>a shortcut, and nothing else.</strong> The agent
+    itself runs in a session on a server the technician connects to.
+  </p>
+
+  <div class="topo">
+    <div class="zone">
+      <div class="zh">Endpoint</div>
+      <div class="zt">Staff machine</div>
+      <ul>
+        <li>A shortcut that opens a terminal session</li>
+      </ul>
+      <div class="none">No runtime. No credentials. No data at rest.</div>
+    </div>
+    <div class="zone server">
+      <div class="zh">Server</div>
+      <div class="zt">Where the agent runs</div>
+      <ul>
+        <li>The agent session itself</li>
+        <li>Skills and organisational context, checked out and refreshed at launch</li>
+        <li>The wrapper scripts that reach other systems — executed here</li>
+        <li>Credentials, held per user and readable only by that user</li>
+      </ul>
+    </div>
+    <div class="zone">
+      <div class="zh">Elsewhere</div>
+      <div class="zt">Sources &amp; systems</div>
+      <ul>
+        <li><strong>The model provider you choose</strong></li>
+        <li>Version control holding skills and context</li>
+        <li>Ticketing system</li>
+        <li>Infrastructure and management APIs</li>
+      </ul>
+    </div>
+  </div>
+  <p class="topo-cap">
+    endpoint → server over an ordinary remote session &nbsp;·&nbsp; server → version
+    control at launch &nbsp;·&nbsp; server → systems via wrapper scripts &nbsp;·&nbsp;
+    server → model provider
+  </p>
+
+  <p>Three consequences follow, and they are the reason for the shape:</p>
+  <ul>
+    <li><strong>Nothing sensitive is on the laptop.</strong> A lost or replaced machine is a
+        hardware event, not a security one. No credential rotation, no data to wipe.</li>
+    <li><strong>One place to update.</strong> Skills and context are refreshed when a session
+        starts, so a correction reaches everyone the next time they open it — with no
+        redeployment and nothing for staff to install.</li>
+    <li><strong>Network access lives in one place.</strong> The server already has reach into
+        internal systems, so endpoints need no new firewall exceptions or VPN paths just to
+        make the agent useful.</li>
+    <li><strong>The model is reached from your side.</strong> The server holds the provider
+        credentials and makes the calls, so staff machines never hold those either — and the
+        traffic leaves from infrastructure you control.</li>
+  </ul>
+
+  <h3>“So which model do we use?”</h3>
+  <p>
+    Whichever you decide. The agent is not tied to a particular model or vendor — the
+    provider is a configuration choice, and a reversible one. Teams pick differently for
+    good reasons: an existing cloud agreement, a procurement preference, where the data is
+    permitted to go, or simply cost.
+  </p>
+  <p>
+    Two details make that choice manageable rather than merely possible:
+  </p>
+  <ul>
+    <li><strong>It is set centrally, per person.</strong> Model access is part of the same
+        per-user configuration that governs skills and credentials — not something staff
+        select, and not something they can widen.</li>
+    <li><strong>Models are named explicitly, never by wildcard.</strong> A provider adding
+        or renaming a model cannot silently change what your team is using, or quietly move
+        you onto something you have not evaluated or budgeted for.</li>
+  </ul>
+  <p>
+    Because the agent runs on your server, the provider is called from your infrastructure
+    under your account. Changing provider later is a configuration change on one machine —
+    not a redeployment, and nothing staff would notice beyond the answers.
+  </p>
+
+  <div class="note caution">
+    <b class="t">This is one deployment, not a requirement</b>
+    <p>
+      A server session happens to answer several problems at once, which is why it was
+      chosen — but nothing in the concept depends on it. The agent could run locally on each
+      machine, or in a container per user, and the trade-offs simply move: local execution
+      removes a dependency and a network hop, at the cost of putting credentials and
+      updates back onto endpoints.
+    </p>
+    <p>
+      The parts worth carrying across any topology are the principles rather than the
+      boxes: <em>keep credentials off endpoints, keep skills and context in version control,
+      and refresh them at launch so nobody is running a stale copy.</em>
+    </p>
+  </div>
+</section>
+
+<section class="stage">
+  <div class="stage-num">Stage seven · the part that compounds</div>
+  <h2>It improves because people use it</h2>
+
+  <p class="lead">
+    This is the difference between a tool that plateaus and one that appreciates, and it
+    turns the documentation problem from Stage One inside out.
+  </p>
+
+  <p>
+    When a technician asks the agent about part of the estate and the answer is thin,
+    wrong, or missing, they have found a documentation gap <em>at the exact moment it
+    costs them something</em> — which is the only moment anyone is genuinely motivated to
+    fix it. And because the agent can also write documentation, fixing it is the next
+    sentence rather than a separate task for later.
+  </p>
+
+  <div class="loop">
+    <div class="step">
+      <h5>Someone asks</h5>
+      <p>A technician working a ticket asks about a site, a device, a convention.</p>
+    </div>
+    <div class="step">
+      <h5>The agent answers from your documentation</h5>
+      <p>Fully, partly, or not at all — and it says which.</p>
+    </div>
+    <div class="step">
+      <h5>The gap is visible</h5>
+      <p>A missing or stale answer is now a concrete, named gap rather than a vague sense that the wiki is bad.</p>
+    </div>
+    <div class="step">
+      <h5>They fix it from the agent</h5>
+      <p>The correction is proposed as a normal reviewed change, in their name, without leaving what they were doing.</p>
+    </div>
+  </div>
+  <p class="loop-close">→ and every later question, by anyone, is answered from the better version</p>
+
+  <p>
+    Two things follow, and they are the strongest arguments for the whole approach.
+  </p>
+
+  <p>
+    <strong>Documentation becomes a by-product of support work</strong> rather than a
+    project that competes with it. Nobody has to schedule a documentation sprint that
+    gets cancelled when something breaks.
+  </p>
+
+  <p>
+    <strong>The gaps get prioritised by real demand.</strong> The articles that get
+    written are the ones technicians actually needed while solving actual tickets — which
+    is a far better signal than any roadmap drawn up in advance about what documentation
+    would be valuable.
+  </p>
+
+  <p class="pull">
+    Solving a ticket and improving the documentation stop being two competing activities.
+  </p>
+</section>
+
+<section class="stage">
+  <div class="stage-num">Stage eight · a suggested rollout</div>
+  <h2>Earn trust in stages</h2>
+
+  <p class="lead">
+    A sensible deployment does not begin by handing every capability to every technician.
+    The following shape lets a team build confidence in something that reads before it is
+    trusted with something that writes.
+  </p>
+
+  <div class="phase">
+    <div class="phase-hd"><span class="phase-tag">Phase 1</span><h4>Prove it privately</h4></div>
+    <p>
+      One person — whoever will own it — runs the full set against real work. Every
+      capability is on the table, because the aim is to find what is genuinely useful and
+      what merely sounds useful before anyone else's time is spent.
+    </p>
+    <div class="aim"><b>Aim:</b> a defensible answer to “which of these actually helps?”</div>
+  </div>
+
+  <div class="phase">
+    <div class="phase-hd"><span class="phase-tag">Phase 2</span><h4>One technician, reading only</h4></div>
+    <p>
+      A single experienced technician gets it on their real working machine, with a
+      deliberately narrow set: questions about the estate, questions about tickets. Almost
+      nothing that changes anything.
+    </p>
+    <p>
+      Restraint here is a feature. The first impression you want is <em>“this knows things
+      I would have had to go and look up”</em> — and that impression is available entirely
+      from read-only capability, at essentially no risk.
+    </p>
+    <div class="aim"><b>Aim:</b> the assistant proves it holds more context than a person can.</div>
+  </div>
+
+  <div class="phase">
+    <div class="phase-hd"><span class="phase-tag">Phase 3</span><h4>Iterate on real feedback</h4></div>
+    <p>
+      Fix what that technician found awkward, add the capabilities they asked for, and
+      remove whatever went unused. This is where a deliberate handful of write
+      capabilities is introduced — the ones that act as the person, on things they already
+      have authority over: responding on their own tickets, publishing a correction to the
+      documentation.
+    </p>
+    <div class="aim"><b>Aim:</b> a set shaped by one real user rather than by anticipation.</div>
+  </div>
+
+  <div class="phase">
+    <div class="phase-hd"><span class="phase-tag">Phase 4</span><h4>Roll out to the team</h4></div>
+    <p>
+      The whole team receives the set that survived Phase 3, pushed the same way as the
+      pilot. The first user becomes the internal advocate, which is worth considerably
+      more than an announcement.
+    </p>
+    <div class="aim"><b>Aim:</b> everyday use, and the improvement loop running across the team.</div>
+  </div>
+
+  <div class="phase">
+    <div class="phase-hd"><span class="phase-tag">Phase 5</span><h4>Move from asked-for to automatic</h4></div>
+    <p>
+      Only once a capability has proved itself on demand should it be made to happen on
+      its own. A useful example: matching a new ticket to a relevant documentation article
+      — first as something a technician asks for, and only later as something attached to
+      every new ticket automatically.
+    </p>
+    <div class="aim"><b>Aim:</b> the assistant contributes without being invoked — having earned it.</div>
+  </div>
+
+  <div class="note">
+    <b class="t">Why this order, rather than a faster one</b>
+    <p>
+      An answer a technician asked for and found unhelpful is ignored and costs nothing.
+      The same weak answer, published automatically onto every ticket, is noise on the
+      team's primary working surface — and noise is very difficult to withdraw once people
+      have learned to skip past it. Reading first is not caution for its own sake; it is
+      the cheapest way to find out whether the thing is any good.
+    </p>
+  </div>
+</section>
+
+<section class="stage">
+  <div class="stage-num">Stage nine · where it goes</div>
+  <h2>What the second year looks like</h2>
+
+  <p class="lead">
+    The early value is retrieval — the estate becomes answerable. What follows is broader,
+    and mostly falls out of having context and procedures in one place.
+  </p>
+
+  <div class="tw">
+  <table>
+    <thead><tr><th>Direction</th><th>What it looks like in practice</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><strong>Onboarding</strong></td>
+        <td>A new technician asks the agent the questions they would otherwise queue up for a
+            colleague, and is productive in weeks rather than months. Their questions also
+            surface the gaps that long-serving staff no longer notice.</td>
+      </tr>
+      <tr>
+        <td><strong>Consistency</strong></td>
+        <td>A procedure captured as a skill is performed the same way by everyone, including
+            at 4pm on a Friday. Improvements to it apply to the whole team at once.</td>
+      </tr>
+      <tr>
+        <td><strong>Scheduled work</strong></td>
+        <td>The same skills a technician invokes by hand can run unattended — classification,
+            reporting, routine checks — so automation and human use share one definition
+            rather than drifting apart.</td>
+      </tr>
+      <tr>
+        <td><strong>Institutional memory</strong></td>
+        <td>Reasoning that used to close with the ticket accumulates instead. Departures stop
+            being knowledge losses.</td>
+      </tr>
+      <tr>
+        <td><strong>Wider capability</strong></td>
+        <td>Read-only access to more systems, then — deliberately, and later — the ability to
+            change things, one capability at a time and always attributable to a person.</td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p>
+    None of this requires a large team or a research budget. It requires documentation
+    that is worth reading, a way of getting it in front of people at the moment they need
+    it, and enough discipline to let capability follow demonstrated value rather than
+    lead it.
+  </p>
+
+  <p class="pull">
+    The aim is not an assistant that knows about IT. It is one that knows about
+    <em>your</em> IT — and knows more of it each month than it did the month before.
+  </p>
+</section>
+
+<footer>
+  This document describes a deployment concept and a suggested phasing. It is deliberately
+  independent of any particular organisation, ticketing system, or endpoint management
+  platform — the shape holds regardless of which you use.
+</footer>
+
+</div>
+</body>
+</html>

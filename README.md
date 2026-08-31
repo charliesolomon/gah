@@ -30,6 +30,7 @@ gah/
 ├── docs/WINDOWS.md            ← running on Windows (PowerShell)
 ├── docs/GITLAB.md             ← distribution via enterprise GitLab (npm registry)
 ├── docs/PROVIDERS.md          ← inference-provider restriction + approved endpoints
+├── docs/CONCEPT.html         ← the concept, for a non-technical audience (standalone, offline)
 └── .github/workflows/         ← scheduled upstream sync + scans
 ```
 
