@@ -743,6 +743,36 @@
     not a redeployment, and nothing staff would notice beyond the answers.
   </p>
 
+  <h3>The terminal is not the only front door</h3>
+  <p>
+    The topology settles two things independently: <em>where the agent runs</em>, and
+    <em>how people reach it</em>. Everything above concerns the first. The second is a
+    separate choice, and a terminal session is simply what this implementation happens to
+    use.
+  </p>
+  <p>
+    A browser interface reaching the same server-side agent would change nothing
+    architecturally — same skills, same context, same credentials, same controls, same
+    single place to update — while removing the one thing that puts some people off before
+    they have tried it. Not every technician is at home on a command line, and for a tool
+    whose entire value depends on people choosing to use it, that is not a small
+    consideration.
+  </p>
+  <p>
+    <strong>This has not been built.</strong> It is worth mentioning because it is nearer
+    than it sounds: the underlying harness already supports running as a server that
+    authenticated clients connect to over a defined protocol. A web front end would be
+    another client of that server rather than a second system — and both could exist at
+    once, for the same team, talking to the same agent. Someone who prefers the terminal
+    keeps it; someone who does not, never sees it.
+  </p>
+  <p>
+    That is the more general point, and it applies well beyond the interface: the pieces
+    here are deliberately separable. Where it runs, how people reach it, which model
+    answers, and what any given person is permitted to do are four independent decisions,
+    and none of them is load-bearing for the others.
+  </p>
+
   <div class="note caution">
     <b class="t">This is one deployment, not a requirement</b>
     <p>
