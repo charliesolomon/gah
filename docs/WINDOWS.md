@@ -76,11 +76,14 @@ If the vendor APIs are unreachable, copy `packages/ai/src/providers/data/`
 prebuild-install -r napi || node-gyp rebuild
 ```
 
-Usually this is the certificate problem above — `prebuild-install` cannot reach
-GitHub releases, so it falls back to compiling from source, which needs Visual
-Studio Build Tools and Python. Fix the proxy settings first.
+This is almost always the certificate problem above, not a missing toolchain —
+`prebuild-install` cannot reach GitHub releases, so it falls back to compiling
+from source, which needs Visual Studio Build Tools and Python. **Confirmed on a
+managed Win11 machine:** with `--use-system-ca` and the proxy variables set,
+`npm install` completes normally and `canvas` installs from its prebuilt binary,
+with no build tools present. Fix the proxy settings first.
 
-If it still fails, skip it:
+If it still fails after that, skip it:
 
 ```powershell
 npm install --ignore-scripts
