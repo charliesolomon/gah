@@ -21,12 +21,34 @@ stay on Linux/macOS (see [WORKFLOW.md](WORKFLOW.md)).
 git clone git@github.com:charliesolomon/gah.git
 cd gah\vendor\pi
 npm install
-foreach ($p in 'tui','ai','agent','coding-agent') { npm --workspace packages/$p run build }
+npm run build
 ```
+
+`npm run build` is upstream's own build chain — nine packages in dependency
+order (tui, telemetry, ai, agent, session-backends/sqlite-node, protocol,
+client, server, coding-agent). It is what `make build-all` invokes, so there is
+nothing make does here that npm does not.
+
+> **Do not hand-list the packages.** An earlier version of this page named four
+> of them explicitly. Upstream grew to nine, the list was never updated, and the
+> build appeared to succeed while producing a partial result. `npm run build`
+> cannot drift, because it comes from the vendored tree itself. The Makefile
+> was corrected for exactly this reason — see the note on `build-all`.
 
 This is the PowerShell equivalent of `make sync-init` minus the vendoring,
 which is already in git. There is nothing to apply from `patches/` — the
 vendored tree is committed with patches applied.
+
+### Rebuilding after a change
+
+```powershell
+cd vendor\pi
+npm --workspace packages/coding-agent run build   # incremental — make build
+npm run build:offline                             # full, skips model-catalog fetch
+```
+
+`packages/ai` hydrates model catalogs over the network during a normal build;
+`build:offline` reuses what is already there.
 
 ## Run
 

@@ -30,29 +30,40 @@ gah/
 ├── docs/WINDOWS.md            ← running on Windows (PowerShell)
 ├── docs/GITLAB.md             ← distribution via enterprise GitLab (npm registry)
 ├── docs/PROVIDERS.md          ← inference-provider restriction + approved endpoints
+├── docs/CONCEPT.html         ← the concept, for a non-technical audience (standalone, offline)
 └── .github/workflows/         ← scheduled upstream sync + scans
 ```
 
 ## Quick start
 
+**Building and running needs only Node and npm — on any platform.** The vendored
+tree is committed with patches applied, so a fresh clone builds directly:
+
 ```bash
-# First-time setup: vendor PI, apply patches, install deps, build chain
-make sync-init REF=v0.74.0
+cd vendor/pi && npm install && npm run build     # upstream's own 9-package chain
+cd ../.. && ./bin/gah                            # bin\gah.ps1 on Windows
+```
 
-# Smoke test, then launch
-make smoke
-./bin/gah
+`npm run build` is what `make build-all` invokes. Prefer it: it comes from the
+vendored tree, so it cannot fall out of step with upstream the way a hand-kept
+package list does.
 
-# Subsequent syncs
-make sync REF=v0.75.0
+**Maintaining the fork uses make, and is bash-only** (Linux/macOS). This is the
+part make actually earns — REF validation, the patch series, git hooks, policy
+bundling:
 
-# See all commands
-make
+```bash
+make sync-init REF=v0.84.4   # first-time vendor + install + build
+make sync REF=v0.85.0        # pull upstream, re-apply patches, rebuild
+make patches                 # re-apply patches/
+make install-hooks           # one-time per clone
+make                         # see all targets
 ```
 
 See [docs/WORKFLOW.md](docs/WORKFLOW.md) for the full sync ritual and patch hygiene rules.
 
-Running on Windows? See [docs/WINDOWS.md](docs/WINDOWS.md) — build with plain npm and launch via `bin\gah.ps1` (the Makefile and sync scripts are bash-only).
+Running on Windows? See [docs/WINDOWS.md](docs/WINDOWS.md). Building and running
+work normally; only the sync and patch targets stay on Linux/macOS.
 
 Installing without a clone? [docs/GITLAB.md](docs/GITLAB.md) covers publishing `@<group>/gah` to an enterprise GitLab npm registry — the policy pack is baked into published artifacts via `patches/0020-bake-policy.patch`, so no wrapper script is needed.
 
