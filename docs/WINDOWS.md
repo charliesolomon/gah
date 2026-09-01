@@ -151,6 +151,12 @@ Set `GAH_SKILLS_DIR` permanently so it survives new shells:
 [Environment]::SetEnvironmentVariable('GAH_SKILLS_DIR', (Resolve-Path ..\my-org-skills\skills).Path, 'User')
 ```
 
+The first launch runs the repository's `setup\NN-*.ps1` steps in the terminal
+before the agent starts, so expect prompts for your inference endpoint and its
+API key. They are idempotent — later launches skip them once the config exists.
+If the scaffold wrote `~\.gah\agent\models.json`, GAH ignores it unless you
+also set `GAH_ALLOW_MODELS_JSON=1` (see [PROVIDERS.md](PROVIDERS.md)).
+
 See [SKILLS.md](SKILLS.md) for what belongs in that repository.
 
 `bin\gah.ps1` is the PowerShell twin of `bin/gah`: it launches PI with

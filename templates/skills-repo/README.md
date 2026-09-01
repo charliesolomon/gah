@@ -45,7 +45,7 @@ belongs upstream rather than here.
 ## Setup steps
 
 `setup/NN-*.sh` (and `.ps1` on Windows) run before the agent starts, in numeric
-order, on every launch. They are the place for anything that must happen outside
+order, on every launch — found next to `skills/`, so keep them there. They are the place for anything that must happen outside
 the model's context — collecting a credential, writing a config file.
 
 Keep them **idempotent**: they run every time, so each should exit immediately

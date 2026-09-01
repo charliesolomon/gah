@@ -118,6 +118,26 @@ export GAH_BUILTIN_MODELS="${GAH_BUILTIN_MODELS-anthropic/*}"
 skill_args=()
 [ -n "${GAH_SKILLS_DIR:-}" ] && [ -d "${GAH_SKILLS_DIR:-}" ] && skill_args=(--skill "$GAH_SKILLS_DIR")
 
+# --- Onboarding / setup steps -------------------------------------------------
+# The skills repo may ship numbered, idempotent setup steps (setup/NN-*.sh) that
+# run in the terminal before the TUI, so secrets are collected without ever
+# passing through the model. They live next to skills/ in the repo `gah init`
+# scaffolds, so they are found relative to GAH_SKILLS_DIR's parent -- which also
+# means a bare --skill run loads no setup steps, having no repo to find them in.
+#
+# Steps are agent-authored code, same trust level as the skills themselves;
+# change control is the skills repo's review. Failure is non-fatal, matching
+# deploy/host/gah-launch. GAH_SKIP_SETUP=1 skips them.
+if [ -n "${GAH_SKILLS_DIR:-}" ] && [ -z "${GAH_SKIP_SETUP:-}" ]; then
+  setup_dir="$(dirname "$GAH_SKILLS_DIR")/setup"
+  if [ -d "$setup_dir" ]; then
+    for step in "$setup_dir"/[0-9]*.sh; do
+      [ -e "$step" ] || continue
+      bash "$step" || echo "gah: setup step $(basename "$step") failed - continuing" >&2
+    done
+  fi
+fi
+
 exec node "$PI_CLI" \
   --no-extensions \
   "${skill_args[@]}" \

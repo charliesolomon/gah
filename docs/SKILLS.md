@@ -89,7 +89,18 @@ set `GAH_ALLOW_NO_SKILLS=1`.
 `setup/NN-*.sh` (`.ps1` on Windows) run in numeric order before the agent
 starts. They are for work that must happen outside the model's context:
 collecting a credential, writing a config file. They run on **every** launch, so
-each must be idempotent — exit immediately once its work is done.
+each must be idempotent — exit immediately once its work is done. A step that
+fails is reported and skipped; the session still starts.
+
+They are found **next to** the skills directory — `GAH_SKILLS_DIR/../setup` —
+which is the layout `gah init` scaffolds. A run that passes `--skill <path>`
+without `GAH_SKILLS_DIR` therefore runs no setup steps, having no repository to
+locate them in. `GAH_SKIP_SETUP=1` skips them explicitly.
+
+Steps are agent-authored code at the same trust level as the skills beside them;
+the skills repo's review is the change control. Guard anything interactive on a
+terminal being present (`[ -t 0 ]`, or `[Environment]::UserInteractive`) so an
+unattended launch skips the prompt rather than hanging on it.
 
 The two shipped in the scaffold configure an OpenAI-compatible endpoint and
 collect its API key. Delete them if your deployment gets its models another way.

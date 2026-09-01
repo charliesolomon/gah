@@ -94,6 +94,31 @@ if (-not (Test-Path Env:GAH_BUILTIN_MODELS)) {
     $env:GAH_BUILTIN_MODELS = "anthropic/*"
 }
 
+# --- Onboarding / setup steps ----------------------------------------------
+# The skills repo may ship numbered, idempotent setup steps (setup\NN-*.ps1)
+# that run in the terminal before the TUI, so secrets are collected without ever
+# passing through the model. They live next to skills\ in the repo `gah init`
+# scaffolds, so they are found relative to GAH_SKILLS_DIR's parent -- which also
+# means a bare --skill run loads no setup steps, having no repo to find them in.
+#
+# Steps are agent-authored code, same trust level as the skills themselves;
+# change control is the skills repo's review. Failure is non-fatal, matching
+# deploy/host/gah-launch. GAH_SKIP_SETUP=1 skips them.
+if ($env:GAH_SKILLS_DIR -and -not $env:GAH_SKIP_SETUP) {
+    $SetupDir = Join-Path (Split-Path -Parent $env:GAH_SKILLS_DIR) 'setup'
+    if (Test-Path $SetupDir) {
+        $steps = Get-ChildItem -Path $SetupDir -Filter '*.ps1' -File |
+                 Where-Object { $_.Name -match '^[0-9]' } | Sort-Object Name
+        foreach ($step in $steps) {
+            # & runs the step in its own scope, so an `exit` inside it ends the
+            # step rather than this launcher. ErrorActionPreference is Stop, so
+            # a throwing step needs catching or it would take the session down.
+            try { & $step.FullName }
+            catch { [Console]::Error.WriteLine("gah: setup step $($step.Name) failed - continuing") }
+        }
+    }
+}
+
 # --no-extensions disables auto-discovery from the user-global and project
 # config dirs; explicit --extension flags re-add exactly what GAH ships.
 & node $PiCli `
