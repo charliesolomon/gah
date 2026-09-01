@@ -15,6 +15,23 @@ SKILLS_BRANCH="main"
 # Directory inside the repo containing <skill-name>/SKILL.md directories.
 SKILLS_SUBDIR="skills"
 
+# --- Personal skills (optional) -----------------------------------------------
+# The agent's own skills, loaded alongside the shared set and taking precedence
+# over it: if a personal skill has the same name as a shared one, the shared
+# version is not loaded and the launcher says so at startup.
+#
+# The directory defaults to ~/.gah/my-skills and is never hard-reset, unlike the
+# shared checkout — uncommitted work there survives a launch. Setting a repo
+# backs it up, makes it reviewable, and lets a skill that proves useful be
+# promoted into the shared set; the launcher then updates it with --ff-only
+# rather than reset --hard, for the same reason.
+#
+# NOTE: the shared deploy key is scoped to the skills repo only, so a personal
+# repo needs its own credential.
+#MY_SKILLS_REPO="git@github.com:ORG/agent-skills.git"
+#MY_SKILLS_BRANCH="main"
+#MY_SKILLS_DIR="$HOME/.gah/my-skills"
+
 # --- Models -------------------------------------------------------------------
 # Comma-separated provider/model-id globs against the built-in catalog
 # (docs/PROVIDERS.md). Unset or empty = deny-all. This gates what the TUI
