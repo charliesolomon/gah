@@ -51,7 +51,7 @@ Schema and a worked example: [`packages/policy-pack/providers.example.json`](../
 | Surface | Disposition |
 |---|---|
 | Built-in catalog (~15 providers) | Hidden unless `GAH_BUILTIN_MODELS` matches (patch 0010) |
-| `~/.gah/agent/models.json` | Ignored unless `GAH_ALLOW_MODELS_JSON=1` — local-testing escape hatch (patch 0010) |
+| `~/.gah/agent/models.json` | Read unless `GAH_ALLOW_MODELS_JSON` is set to anything but `1` (patch 0010). `bin/gah` and `bin\gah.ps1` default it **on**, since a workstation exists to point at its user's endpoint. `deploy/host/gah-launch` defaults it **off** and exports it either way, so a user's own environment cannot switch it on — models.json carries its own `baseUrl` and `apiKey`, so honouring one there would route around this table entirely. |
 | `pi.registerProvider()` from extensions | Only GAH's own extensions load (`--no-extensions` + explicit list / baked `gah-policy`) |
 | Built-in OAuth `/login` flows | Removed when a providers file is present, except `keepOAuth` entries |
 | Stray env API keys (`OPENAI_API_KEY`, …) | Inert — keys only matter for models that exist in the registry |

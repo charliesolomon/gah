@@ -11,6 +11,72 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CA_DIR="$HERE/vendor/pi/packages/coding-agent"
 POLICY_DIR="$HERE/packages/policy-pack/extensions"
+TEMPLATE_DIR="$HERE/templates/skills-repo"
+
+# --- gah init --------------------------------------------------------------
+# Handled before the build check on purpose: a new deployment scaffolds its
+# skills repo first, and should not need a built PI to do it. Also breaks the
+# circularity of a launcher that refuses to start without skills.
+if [ "${1:-}" = "init" ]; then
+  target="${2:-}"
+  [ -n "$target" ] || { echo "usage: gah init <directory>" >&2; exit 2; }
+  [ -d "$TEMPLATE_DIR" ] || { echo "gah: template missing at $TEMPLATE_DIR" >&2; exit 1; }
+  if [ -e "$target" ] && [ -n "$(ls -A "$target" 2>/dev/null)" ]; then
+    echo "gah: $target exists and is not empty — refusing to overwrite" >&2
+    exit 1
+  fi
+  mkdir -p "$target"
+  cp -R "$TEMPLATE_DIR/." "$target/"
+  chmod +x "$target"/setup/*.sh 2>/dev/null || true
+  cat <<EOF
+
+Created a skills repository in $target
+
+  skills/     onboarding and skill-authoring, to start with
+  setup/      steps that run before each session
+  context/    what your organization knows
+
+Next:
+  cd $target && git init && git add . && git commit -m "Initial skills repo"
+
+Then point a session at it:
+  GAH_SKILLS_DIR=$(cd "$target" && pwd)/skills gah
+
+EOF
+  exit 0
+fi
+
+# --- skills are required ---------------------------------------------------
+# GAH exists to run skills; a session with none is a misconfiguration, not a
+# lighter mode. Without this the policy layer loads with nothing to govern and
+# the agent declines ordinary work, because the system prompt is written around
+# skills that are not there. A deployment launcher (deploy/host/gah-launch) may
+# satisfy this itself by cloning SKILLS_REPO and passing --skill.
+#
+# Only --skill counts. --no-skills means "do not auto-discover", not "I want
+# none" -- gah-launch passes it on every launch to pin the loaded set, so
+# honouring it here would exempt the shared host from the check entirely.
+skills_configured=0
+case " $* " in *" --skill "*) skills_configured=1 ;; esac
+[ -n "${GAH_ALLOW_NO_SKILLS:-}" ] && skills_configured=1
+if [ -n "${GAH_SKILLS_DIR:-}" ] && [ -d "$GAH_SKILLS_DIR" ]; then skills_configured=1; fi
+if [ "$skills_configured" -eq 0 ]; then
+  cat >&2 <<EOF
+GAH works with your organization's shared agents and skills.
+Set them up using:
+
+  gah init <directory>
+
+Then start a session with:
+
+  GAH_SKILLS_DIR=<directory>/skills gah
+
+Or pass one directly for a single run:  gah --skill <path>
+
+To start a deliberately empty session:   GAH_ALLOW_NO_SKILLS=1 gah
+EOF
+  exit 1
+fi
 
 # Resolve the entry point from the package's own `bin` field rather than
 # hardcoding it. Upstream moved this from dist/cli.js to dist/bundle/cli.js in
@@ -47,10 +113,41 @@ fi
 # wrapper and default to deny-all.
 export GAH_BUILTIN_MODELS="${GAH_BUILTIN_MODELS-anthropic/*}"
 
+# Workstation default: read ~/.gah/agent/models.json. A workstation exists to
+# point at whatever endpoint its user has, so requiring an opt-out variable only
+# produced a config file that was written, then silently ignored. Deployments
+# set this explicitly -- deploy/host/gah-launch defaults it to deny, because on
+# a shared host models.json IS the way around the built-in allowlist.
+export GAH_ALLOW_MODELS_JSON="${GAH_ALLOW_MODELS_JSON-1}"
+
 # --no-extensions disables auto-discovery from ~/.pi/agent and .pi/ ;
 # explicit --extension flags re-add exactly what GAH ships.
+skill_args=()
+[ -n "${GAH_SKILLS_DIR:-}" ] && [ -d "${GAH_SKILLS_DIR:-}" ] && skill_args=(--skill "$GAH_SKILLS_DIR")
+
+# --- Onboarding / setup steps -------------------------------------------------
+# The skills repo may ship numbered, idempotent setup steps (setup/NN-*.sh) that
+# run in the terminal before the TUI, so secrets are collected without ever
+# passing through the model. They live next to skills/ in the repo `gah init`
+# scaffolds, so they are found relative to GAH_SKILLS_DIR's parent -- which also
+# means a bare --skill run loads no setup steps, having no repo to find them in.
+#
+# Steps are agent-authored code, same trust level as the skills themselves;
+# change control is the skills repo's review. Failure is non-fatal, matching
+# deploy/host/gah-launch. GAH_SKIP_SETUP=1 skips them.
+if [ -n "${GAH_SKILLS_DIR:-}" ] && [ -z "${GAH_SKIP_SETUP:-}" ]; then
+  setup_dir="$(dirname "$GAH_SKILLS_DIR")/setup"
+  if [ -d "$setup_dir" ]; then
+    for step in "$setup_dir"/[0-9]*.sh; do
+      [ -e "$step" ] || continue
+      bash "$step" || echo "gah: setup step $(basename "$step") failed - continuing" >&2
+    done
+  fi
+fi
+
 exec node "$PI_CLI" \
   --no-extensions \
+  "${skill_args[@]}" \
   --extension "$POLICY_DIR/policy.ts" \
   --extension "$POLICY_DIR/branding.ts" \
   --extension "$POLICY_DIR/providers.ts" \

@@ -24,12 +24,14 @@ gah/
 ├── patches/                   ← discrete patches against vendor/pi
 ├── vendor/pi/                 ← upstream PI (managed by scripts/sync-upstream.sh)
 ├── deploy/host/               ← shared SSH agent host (tmux launcher, per-user manifests)
+├── templates/skills-repo/     ← scaffold written by `gah init` (your org's skills repo)
 ├── scripts/                   ← sync, patch, build helpers
 ├── ci/scans/                  ← SBOM, CVE, semgrep/CodeQL configs
 ├── docs/WORKFLOW.md           ← upstream sync + patch hygiene
 ├── docs/WINDOWS.md            ← running on Windows (PowerShell)
 ├── docs/GITLAB.md             ← distribution via enterprise GitLab (npm registry)
 ├── docs/PROVIDERS.md          ← inference-provider restriction + approved endpoints
+├── docs/SKILLS.md             ← the skills repository: gah init, layout, rollout
 ├── docs/CONCEPT.html         ← the concept, for a non-technical audience (standalone, offline)
 └── .github/workflows/         ← scheduled upstream sync + scans
 ```
@@ -41,8 +43,15 @@ tree is committed with patches applied, so a fresh clone builds directly:
 
 ```bash
 cd vendor/pi && npm install && npm run build     # upstream's own 9-package chain
-cd ../.. && ./bin/gah                            # bin\gah.ps1 on Windows
+cd ../..
+./bin/gah init ../my-org-skills                  # once per organization
+GAH_SKILLS_DIR=../my-org-skills/skills ./bin/gah # bin\gah.ps1 on Windows
 ```
+
+**GAH works with your organization's shared agents and skills**, so it will not
+start without them — a session with no skills is a misconfiguration, not a
+lighter mode. `gah init` scaffolds the repository those live in; put it under
+source control and share it with the team. See [docs/SKILLS.md](docs/SKILLS.md).
 
 `npm run build` is what `make build-all` invokes. Prefer it: it comes from the
 vendored tree, so it cannot fall out of step with upstream the way a hand-kept

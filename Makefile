@@ -46,8 +46,10 @@ build-offline: ## Rebuild without re-fetching model catalogs (needs a prior buil
 	cd $(PI_DIR) && npm --workspace packages/coding-agent run build
 
 smoke: ## Quick smoke test of the built binary
-	@./bin/gah --version
-	@./bin/gah --list-models >/dev/null 2>&1 && echo "list-models OK"
+# GAH_ALLOW_NO_SKILLS: this exercises the harness, not an organization's skills
+# repo, so it opts out of the check bin/gah makes for one.
+	@GAH_ALLOW_NO_SKILLS=1 ./bin/gah --version
+	@GAH_ALLOW_NO_SKILLS=1 ./bin/gah --list-models >/dev/null 2>&1 && echo "list-models OK"
 	@echo "smoke: OK"
 
 patches: ## Re-apply patches in patches/

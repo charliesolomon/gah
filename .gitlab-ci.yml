@@ -42,7 +42,8 @@ build:
     - for p in tui ai agent coding-agent; do npm --workspace packages/$p run build; done
     - cd ../..
     - ./scripts/bundle-policy.sh
-    - ./bin/gah --version
+    # harness check, not an organization's skills repo -- see docs/SKILLS.md
+    - GAH_ALLOW_NO_SKILLS=1 ./bin/gah --version
   artifacts:
     expire_in: 1 week
     paths:
