@@ -51,5 +51,7 @@ the model's context — collecting a credential, writing a config file.
 Keep them **idempotent**: they run every time, so each should exit immediately
 once its work is done.
 
-The two shipped here configure an OpenAI-compatible endpoint and collect its API
-key. Delete them if your deployment gets its models another way.
+The one shipped here configures an OpenAI-compatible endpoint — base URL,
+provider id, model ids and API key — and writes `~/.gah/agent/models.json`,
+readable only by you. Models work on the first launch. Delete it if your
+deployment gets its models another way.

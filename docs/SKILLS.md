@@ -32,8 +32,7 @@ skills/
   onboarding/SKILL.md        answers "what can I do with this?" from the loaded set
   skill-authoring/SKILL.md   how to write the next one
 setup/
-  10-create-models-json.sh   .ps1 alongside each .sh
-  20-collect-api-key.sh
+  10-configure-inference.sh  .ps1 alongside each .sh
 context/
   README.md
 ```
@@ -102,8 +101,17 @@ the skills repo's review is the change control. Guard anything interactive on a
 terminal being present (`[ -t 0 ]`, or `[Environment]::UserInteractive`) so an
 unattended launch skips the prompt rather than hanging on it.
 
-The two shipped in the scaffold configure an OpenAI-compatible endpoint and
-collect its API key. Delete them if your deployment gets its models another way.
+The one shipped in the scaffold configures an OpenAI-compatible endpoint: it
+asks for the base URL, provider id, model ids and API key, then writes them to
+`~/.gah/agent/models.json` with owner-only permissions. That file is read by
+default on a workstation, so models work on the first launch — no second step,
+no environment variable, no `/login`.
+
+The key goes straight into that file rather than somewhere adjacent. Keeping it
+out of the config reads as the safer choice, but it left the user with a config
+that was written and then ignored, and a failure that named neither the file nor
+the fix. One prompt and one file is the version people actually get working.
+Delete the step if your deployment gets its models another way.
 
 ## How this tends to roll out
 

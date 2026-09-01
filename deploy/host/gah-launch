@@ -133,6 +133,10 @@ fi
 # IAM remains the hard enforcement layer (docs/PROVIDERS.md).
 
 export GAH_BUILTIN_MODELS="${GAH_BUILTIN_MODELS-}"
+# Empty = models.json is ignored. Exported even when unset so a user's own
+# environment cannot switch it on: models.json carries its own baseUrl and
+# apiKey, so honouring one here would route around the allowlist entirely.
+export GAH_ALLOW_MODELS_JSON="${GAH_ALLOW_MODELS_JSON-}"
 export GAH_ALLOW_TOOLS="${GAH_ALLOW_TOOLS-}"
 [ -n "${AWS_PROFILE:-}" ] && export AWS_PROFILE
 [ -n "${GAH_PROVIDERS_FILE:-}" ] && export GAH_PROVIDERS_FILE

@@ -113,6 +113,13 @@ fi
 # wrapper and default to deny-all.
 export GAH_BUILTIN_MODELS="${GAH_BUILTIN_MODELS-anthropic/*}"
 
+# Workstation default: read ~/.gah/agent/models.json. A workstation exists to
+# point at whatever endpoint its user has, so requiring an opt-out variable only
+# produced a config file that was written, then silently ignored. Deployments
+# set this explicitly -- deploy/host/gah-launch defaults it to deny, because on
+# a shared host models.json IS the way around the built-in allowlist.
+export GAH_ALLOW_MODELS_JSON="${GAH_ALLOW_MODELS_JSON-1}"
+
 # --no-extensions disables auto-discovery from ~/.pi/agent and .pi/ ;
 # explicit --extension flags re-add exactly what GAH ships.
 skill_args=()

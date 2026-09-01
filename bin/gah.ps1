@@ -94,6 +94,11 @@ if (-not (Test-Path Env:GAH_BUILTIN_MODELS)) {
     $env:GAH_BUILTIN_MODELS = "anthropic/*"
 }
 
+# Workstation default: read ~\.gah\agent\models.json. See bin/gah for why.
+if (-not (Test-Path Env:GAH_ALLOW_MODELS_JSON)) {
+    $env:GAH_ALLOW_MODELS_JSON = "1"
+}
+
 # --- Onboarding / setup steps ----------------------------------------------
 # The skills repo may ship numbered, idempotent setup steps (setup\NN-*.ps1)
 # that run in the terminal before the TUI, so secrets are collected without ever

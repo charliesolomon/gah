@@ -154,8 +154,9 @@ Set `GAH_SKILLS_DIR` permanently so it survives new shells:
 The first launch runs the repository's `setup\NN-*.ps1` steps in the terminal
 before the agent starts, so expect prompts for your inference endpoint and its
 API key. They are idempotent — later launches skip them once the config exists.
-If the scaffold wrote `~\.gah\agent\models.json`, GAH ignores it unless you
-also set `GAH_ALLOW_MODELS_JSON=1` (see [PROVIDERS.md](PROVIDERS.md)).
+The step writes `~\.gah\agent\models.json` with your key in it, restricted to
+your user, and `bin\gah.ps1` reads it by default — so models work on the first
+launch with nothing further to set (see [PROVIDERS.md](PROVIDERS.md)).
 
 See [SKILLS.md](SKILLS.md) for what belongs in that repository.
 
