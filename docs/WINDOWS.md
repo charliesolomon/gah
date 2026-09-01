@@ -134,10 +134,24 @@ npm run build:offline                             # full, skips model-catalog fe
 
 ## Run
 
+GAH will not start without your organization's skills. If someone has already
+set up a skills repository, clone it and point at it; if you are the first,
+create one:
+
 ```powershell
 cd ..\..
+.\bin\gah.ps1 init ..\my-org-skills          # only if one does not exist yet
+$env:GAH_SKILLS_DIR = '..\my-org-skills\skills'
 .\bin\gah.ps1
 ```
+
+Set `GAH_SKILLS_DIR` permanently so it survives new shells:
+
+```powershell
+[Environment]::SetEnvironmentVariable('GAH_SKILLS_DIR', (Resolve-Path ..\my-org-skills\skills).Path, 'User')
+```
+
+See [SKILLS.md](SKILLS.md) for what belongs in that repository.
 
 `bin\gah.ps1` is the PowerShell twin of `bin/gah`: it launches PI with
 `--no-extensions` plus the policy-pack extensions explicitly, so the policy
@@ -162,6 +176,7 @@ Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 The equivalent of `make smoke`:
 
 ```powershell
+$env:GAH_ALLOW_NO_SKILLS = '1'   # this checks the harness, not your skills repo
 .\bin\gah.ps1 --version
 .\bin\gah.ps1 --list-models | Out-Null; if ($?) { "list-models OK" }
 ```

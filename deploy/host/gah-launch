@@ -218,6 +218,16 @@ else
 	warn "no skills at $SKILLS_DIR/$SKILLS_SUBDIR — launching without shared skills"
 fi
 
-[ ${#skill_args[@]} -eq 0 ] && warn "launching with NO skills at all"
+# Refuse rather than warn. A session with no skills is a misconfiguration: the
+# system prompt is written around skills that are not there, so the agent
+# declines ordinary work and the user cannot tell why. The warnings above say
+# which half failed -- the clone, or the repo's contents.
+if [ ${#skill_args[@]} -eq 0 ]; then
+	fail "no skills loaded, refusing to launch.
+  Shared repo:   $SKILLS_REPO (branch $SKILLS_BRANCH, subdir $SKILLS_SUBDIR)
+  Clone target:  $SKILLS_DIR
+Check the warnings above: either the clone failed or the repo has no skills.
+To start a deliberately empty session:  GAH_ALLOW_NO_SKILLS=1 $GAH_HOME/bin/gah --no-skills"
+fi
 
 exec "$GAH_HOME/bin/gah" --no-skills "${skill_args[@]}"
