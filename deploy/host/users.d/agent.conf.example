@@ -49,6 +49,9 @@ GAH_BUILTIN_MODELS="amazon-bedrock/us.anthropic.claude-haiku-4-5-*,amazon-bedroc
 # Extra tools beyond the policy-pack default allowlist (read/grep/find/ls/
 # edit/write). Support-agent skills drive shell scripts, so grant bash here.
 # Every widening is written to the audit log at session start.
+# The model is offered exactly the allowed set (read, grep, find, ls, edit,
+# write by default), so a tool absent here is one it never sees. Shells are
+# off by default: "bash" here, "powershell" on a Windows workstation.
 GAH_ALLOW_TOOLS="bash"
 
 # Hosts this session may open HTTP connections to (patch 0011). Comma-separated

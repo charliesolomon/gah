@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+#
+# check-tool-surface.sh — assert that the model is offered exactly the tools the
+# policy allows.
+#
+# The allowlist in policy.ts is only half of the control: upstream decides which
+# registered tools are *active*, and by default that is read/bash/edit/write.
+# Until #35, GAH blocked bash but still offered it, and allowed ls but never
+# offered it. Nothing in a normal session shows the offered set, so this runs
+# bin/gah in print mode against scripts/mock-openai.mjs, which records the tool
+# definitions in each request, and compares.
+#
+# Needs a built bin/gah and a free localhost port. No real endpoint, no keys.
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$REPO_ROOT"
+
+PORT="${MOCK_PORT:-47391}"
+WORK="$(mktemp -d)"
+trap 'kill "$MOCK_PID" 2>/dev/null || true; rm -rf "$WORK"' EXIT
+
+mkdir -p "$WORK/agent"
+cat > "$WORK/agent/models.json" <<JSON
+{ "providers": { "mock": { "name": "mock", "api": "openai-completions",
+  "baseUrl": "http://127.0.0.1:$PORT/v1", "apiKey": "x",
+  "models": [ { "id": "m1", "input": ["text"] } ] } } }
+JSON
+
+MOCK_LOG="$WORK/requests.log" MOCK_PORT="$PORT" node scripts/mock-openai.mjs >"$WORK/mock.out" 2>&1 &
+MOCK_PID=$!
+for _ in $(seq 1 50); do grep -q listening "$WORK/mock.out" 2>/dev/null && break; sleep 0.1; done
+
+# Runs one print-mode prompt through bin/gah and prints the tool names the
+# mock saw, comma-joined. Extra args go to bin/gah.
+offered() {
+	: > "$WORK/requests.log"
+	GAH_CODING_AGENT_DIR="$WORK/agent" GAH_ALLOW_MODELS_JSON=1 GAH_BUILTIN_MODELS='' \
+	GAH_ALLOWED_HOSTS=127.0.0.1 GAH_ALLOW_NO_SKILLS=1 GAH_AUDIT_LOG="$WORK/audit.log" \
+		timeout 90 ./bin/gah -p --no-session --model mock/m1 "$@" "hi" >/dev/null 2>&1 || true
+	[ -s "$WORK/requests.log" ] || { echo "(no request reached the mock)"; return; }
+	node -e 'const l=require("fs").readFileSync(process.argv[1],"utf8").trim().split("\n").pop();console.log(JSON.parse(l).tools.join(","))' "$WORK/requests.log"
+}
+
+fail=0
+check() {
+	local label="$1" expected="$2" got="$3"
+	if [ "$got" = "$expected" ]; then
+		echo "✓ $label: $got"
+	else
+		echo "✗ $label: expected [$expected], got [$got]" >&2
+		fail=1
+	fi
+}
+
+check "default launch offers exactly the allowlist" "read,grep,find,ls,edit,write" "$(offered)"
+check "GAH_ALLOW_TOOLS=bash adds bash, nothing else" "read,grep,find,ls,edit,write,bash" "$(GAH_ALLOW_TOOLS=bash offered)"
+# --tools restricts which tools are registered at all, so the policy can only
+# activate what is left: the flag can narrow the set but never widen it past
+# the allowlist (bash is dropped, grep/find/ls cannot be added back).
+check "--tools narrows but cannot widen past the policy" "read,edit,write" "$(offered --tools read,bash,edit,write)"
+
+grep -q '"reason":"active_tools"' "$WORK/audit.log" && echo "✓ active tool set is audited" || { echo "✗ no active_tools audit line" >&2; fail=1; }
+
+[ "$fail" -eq 0 ] && echo "tool surface: OK"
+exit "$fail"

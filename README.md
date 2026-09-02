@@ -94,7 +94,7 @@ Installing without a clone? [docs/GITLAB.md](docs/GITLAB.md) covers publishing `
 
 Three concerns drove the design:
 
-- **Blast radius** — disabled features should not be reachable. Policy-pack extensions enforce a tool allowlist (no `bash` by default), gate writes to protected paths, and audit-log every tool call. Code-level removals of unwanted providers/tools are done as patches.
+- **Blast radius** — disabled features should not be reachable. Policy-pack extensions enforce a tool allowlist (no shell by default: neither `bash` nor `powershell`), offer the model exactly that set, gate writes to protected paths, and audit-log every tool call. Code-level removals of unwanted providers/tools are done as patches.
 - **Vulnerability assessment** — `ci/scans/` runs SBOM generation, dependency CVE checks, and source scans on every PR and nightly. CI fails loudly so audits aren't a project.
 - **Upstream sync** — additive customization in `packages/policy-pack/` has zero conflict surface. Patches in `patches/` are small and rebaseable individually. Sync ritual is `pull → apply → test → ship`.
 
