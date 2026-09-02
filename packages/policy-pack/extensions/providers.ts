@@ -19,6 +19,12 @@
  * re-created through registerProvider — allowlist those via GAH_BUILTIN_MODELS
  * instead and restrict to specific model ids there.
  *
+ * The OAuth-removal loop below re-registers built-ins as native provider
+ * objects taken from pi-ai, i.e. upstream's raw catalogue. That is safe only
+ * because the runtime re-applies the allowlist to anything registered under a
+ * built-in id (patch 0010, re-authored 2026-09-02); before that patch this loop
+ * reopened every OAuth-capable built-in whenever a providers file was present.
+ *
  * See providers.example.json (next to this package's SYSTEM.md) for a worked
  * example and docs/PROVIDERS.md for the full reference.
  */
