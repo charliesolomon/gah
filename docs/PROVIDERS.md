@@ -6,12 +6,18 @@ that: **deny all by default**, with two deployment-controlled mechanisms to
 expose approved endpoints.
 
 Enforced by `patches/0010-restrict-model-sources.patch` (vendor) +
-`packages/policy-pack/extensions/providers.ts` (policy pack).
+`packages/policy-pack/extensions/providers.ts` (policy pack). Since
+`patches/0030-offline-model-data.patch` the built-in catalogue itself is no
+longer upstream's: a build ships only the providers seeded from
+[`packages/policy-pack/model-data/`](../packages/policy-pack/model-data/README.md)
+(currently `amazon-bedrock` and `anthropic`) and an empty list for every other
+provider, with no network access during the build.
 
 ## Mechanism 1 — `GAH_BUILTIN_MODELS`: allowlist built-in models
 
-Comma-separated `provider/model-id` globs, matched against PI's built-in
-catalog. Unset or empty = no built-in models at all.
+Comma-separated `provider/model-id` globs, matched against the built-in
+catalog GAH ships. Unset or empty = no built-in models at all. A glob for a
+provider that is not seeded matches nothing, however it is spelled.
 
 ```bash
 # Specific Bedrock models only (Bedrock keeps its native AWS credential chain)
@@ -50,7 +56,7 @@ Schema and a worked example: [`packages/policy-pack/providers.example.json`](../
 
 | Surface | Disposition |
 |---|---|
-| Built-in catalog (~15 providers) | Hidden unless `GAH_BUILTIN_MODELS` matches (patch 0010) |
+| Built-in catalog | Only seeded providers have any models (patch 0030); those are hidden unless `GAH_BUILTIN_MODELS` matches (patch 0010) |
 | `~/.gah/agent/models.json` | Read unless `GAH_ALLOW_MODELS_JSON` is set to anything but `1` (patch 0010). `bin/gah` and `bin\gah.ps1` default it **on**, since a workstation exists to point at its user's endpoint. `deploy/host/gah-launch` defaults it **off** and exports it either way, so a user's own environment cannot switch it on — models.json carries its own `baseUrl` and `apiKey`, so honouring one there would route around this table entirely. |
 | `pi.registerProvider()` from extensions | Only GAH's own extensions load (`--no-extensions` + explicit list / baked `gah-policy`) |
 | Built-in OAuth `/login` flows | Removed when a providers file is present, except `keepOAuth` entries |

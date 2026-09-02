@@ -32,7 +32,7 @@ This vendors upstream PI under `vendor/pi/` via `git subtree --squash`, applies 
 
 ## Build artifacts
 
-The PI build regenerates some **tracked** source files in `vendor/pi/` (e.g. `packages/ai/src/models.generated.ts`, which is rebuilt from live provider catalogs). These are not changes we want to commit and not changes we want to merge.
+Upstream's build regenerates some **tracked** source files in `vendor/pi/` (e.g. `packages/ai/src/models.generated.ts`, rebuilt from live provider catalogs). GAH's build does not — `0030-offline-model-data` swaps that fetch for a seed step that only writes the gitignored `packages/ai/src/providers/data/` — but `npm run generate:models` and `make refresh-model-data` still do, and those are not changes we want to commit or merge.
 
 - `scripts/sync-upstream.sh pull` auto-runs `scripts/clean-vendor.sh` before pulling.
 - Run `./scripts/clean-vendor.sh` manually whenever `git status` shows working-tree noise in `vendor/pi/` you didn't author.

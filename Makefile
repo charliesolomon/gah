@@ -6,7 +6,7 @@
 PI_DIR := vendor/pi
 
 .DEFAULT_GOAL := help
-.PHONY: help install install-hooks build build-all build-offline smoke patches bundle-policy clean-vendor sync sync-init status patch-new patch-export
+.PHONY: help install install-hooks build build-all build-offline smoke refresh-model-data patches bundle-policy clean-vendor sync sync-init status patch-new patch-export
 
 help: ## Show available targets
 	@awk 'BEGIN { FS = ":.*##"; printf "Usage: make <target> [VAR=value]\n\nTargets:\n" } \
@@ -31,17 +31,17 @@ build-all: ## Full build chain (upstream's own script — 9 packages at v0.84.4)
 	@# a subset — the same class of invisible drift that broke the sync for
 	@# 15 weeks. Deriving it from vendor/pi means it cannot go stale again.
 	@#
-	@# Network note: packages/ai hydrates its model catalogs from live sources
-	@# (models.dev, openrouter, nvidia, vercel) as part of its build. As of
-	@# v0.84.4 those land in src/providers/data/, which upstream gitignores — so
-	@# unlike v0.79.1 this no longer rewrites *tracked* files and no longer
-	@# dirties the vendor tree. Use build-offline to rebuild without re-fetching.
+	@# No network: 0030-offline-model-data replaces upstream's catalogue fetch
+	@# with scripts/gah-model-data.ts, which seeds src/providers/data/ from
+	@# packages/policy-pack/model-data and ships every other provider empty.
+	@# Refresh the seed with `make refresh-model-data` (that step does fetch).
 	cd $(PI_DIR) && npm run build
 
-build-offline: ## Rebuild without re-fetching model catalogs (needs a prior build-all)
-	@# Upstream's build:offline validates the already-hydrated catalogs instead of
-	@# re-fetching. Fast, and proves the build has no live network dependency once
-	@# the data is present.
+build-offline: ## Rebuild reusing src/providers/data as-is (needs a prior build-all)
+	@# Upstream's build:offline validates whatever is in src/providers/data
+	@# instead of re-materialising it. Since 0030 a normal build-all is offline
+	@# too; this only skips the seed step, and is what you want after
+	@# `npm run hydrate:model-data` to build against a full hydration.
 	cd $(PI_DIR)/packages/ai && npm run build:offline
 	cd $(PI_DIR) && npm --workspace packages/coding-agent run build
 
@@ -50,7 +50,27 @@ smoke: ## Quick smoke test of the built binary
 # repo, so it opts out of the check bin/gah makes for one.
 	@GAH_ALLOW_NO_SKILLS=1 ./bin/gah --version
 	@GAH_ALLOW_NO_SKILLS=1 ./bin/gah --list-models >/dev/null 2>&1 && echo "list-models OK"
+	@# 0030: the shipped catalogue must be exactly the seed — nothing fetched,
+	@# nothing dropped. Non-empty data files in dist vs. the seed directory.
+	@shipped=$$(cd $(PI_DIR)/packages/ai/dist/providers/data && for f in *.json; do [ "$$(cat $$f)" != "{}" ] && echo $$f; done | sort); \
+	seeded=$$(ls packages/policy-pack/model-data/*.json | xargs -n1 basename | sort); \
+	if [ "$$shipped" != "$$seeded" ]; then \
+	  echo "smoke: shipped model data differs from packages/policy-pack/model-data" >&2; \
+	  echo "  shipped: $$shipped" >&2; echo "  seeded:  $$seeded" >&2; exit 1; \
+	fi; echo "model data == seed OK"
 	@echo "smoke: OK"
+
+refresh-model-data: ## Re-hydrate the seeded providers from the vendor APIs (network) into packages/policy-pack/model-data
+	@# The one step in this repo that talks to the model vendors. Hydrates every
+	@# provider upstream-style, then copies back only the files the seed already
+	@# carries. Adding a provider is a deliberate manual copy -- see the README.
+	cd $(PI_DIR) && npm run hydrate:model-data
+	@for f in packages/policy-pack/model-data/*.json; do \
+	  name=$$(basename $$f); \
+	  cp "$(PI_DIR)/packages/ai/src/providers/data/$$name" "$$f" && echo "✓ refreshed $$name"; \
+	done
+	@git diff --stat -- packages/policy-pack/model-data
+	@echo "Review the diff like any policy change, then: make build-all"
 
 patches: ## Re-apply patches in patches/
 	./scripts/apply-patches.sh
