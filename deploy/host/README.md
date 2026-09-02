@@ -55,7 +55,8 @@ Then per component:
    Creates the account (login shell `gah-session`), authorizes the key,
    and drops a manifest at `/etc/gah/users.d/jsmith.conf` from the
    [template](users.d/agent.conf.example) — review it: skills repo/branch,
-   `GAH_BUILTIN_MODELS` globs, `GAH_ALLOW_TOOLS`.
+   `GAH_BUILTIN_MODELS` globs, `GAH_ALLOWED_HOSTS` (the Bedrock endpoint for
+   the region; nothing else is reachable), `GAH_ALLOW_TOOLS`.
 3. **fd and ripgrep**: `setup.sh` installs the `fd-find` and `ripgrep`
    packages system-wide, so no per-user copy is needed and nothing is
    downloaded at runtime (docs/SUPPLY-CHAIN.md).

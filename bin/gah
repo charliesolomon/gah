@@ -120,6 +120,13 @@ export GAH_BUILTIN_MODELS="${GAH_BUILTIN_MODELS-anthropic/*}"
 # a shared host models.json IS the way around the built-in allowlist.
 export GAH_ALLOW_MODELS_JSON="${GAH_ALLOW_MODELS_JSON-1}"
 
+# Workstation default: no egress restriction. Patch 0011 refuses any HTTP
+# request whose host is not in GAH_ALLOWED_HOSTS, and unset means deny-all;
+# a workstation points at whatever endpoint its user has, so the wrapper opts
+# out with `*`. Set it to lock a workstation down (docs/PROVIDERS.md), e.g.
+# GAH_ALLOWED_HOSTS='api.anthropic.com,platform.claude.com' for Anthropic OAuth.
+export GAH_ALLOWED_HOSTS="${GAH_ALLOWED_HOSTS-*}"
+
 # --no-extensions disables auto-discovery from ~/.pi/agent and .pi/ ;
 # explicit --extension flags re-add exactly what GAH ships.
 skill_args=()

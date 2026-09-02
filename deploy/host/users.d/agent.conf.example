@@ -51,6 +51,12 @@ GAH_BUILTIN_MODELS="amazon-bedrock/us.anthropic.claude-haiku-4-5-*,amazon-bedroc
 # Every widening is written to the audit log at session start.
 GAH_ALLOW_TOOLS="bash"
 
+# Hosts this session may open HTTP connections to (patch 0011). Comma-separated
+# hostname globs; empty = none, so inference stops working. Bedrock needs its
+# regional runtime endpoint. Add sts.amazonaws.com if the credentials assume a
+# role; `*.amazonaws.com` covers both. See docs/PROVIDERS.md.
+GAH_ALLOWED_HOSTS="bedrock-runtime.us-west-1.amazonaws.com"
+
 # --- AWS ----------------------------------------------------------------------
 # Profile in ~/.aws/credentials holding this user's IAM keys (Phase 2).
 # REQUIRED for Bedrock models to appear: the agent treats amazon-bedrock as
