@@ -26,7 +26,7 @@
  * tsgo runs. Nothing that loads at runtime can supply them.
  */
 
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -35,7 +35,6 @@ import {
 	type ModelDataStructure,
 	readModelDataProviderIds,
 	validateGeneratedModelData,
-	validateModelDataDirectory,
 } from "./model-data.ts";
 
 const packageRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -108,27 +107,29 @@ function main(): void {
 		}
 	}
 
-	const providersDir = join(packageRoot, "src", "providers");
-	const dataDir = join(providersDir, "data");
-	const stagingRoot = mkdtempSync(join(providersDir, ".model-generation-"));
-	try {
-		const stagedDataDir = join(stagingRoot, "data");
-		mkdirSync(stagedDataDir);
-		for (const [filename, content] of Object.entries(fileContents)) {
-			writeFileSync(join(stagedDataDir, filename), content);
-		}
-		writeFileSync(
-			join(stagedDataDir, MODEL_DATA_MANIFEST_FILE),
-			`${JSON.stringify(createModelDataManifest(structure, fileContents, new Date().toISOString()))}\n`,
-		);
-		validateModelDataDirectory(structure, stagedDataDir);
-
-		rmSync(dataDir, { recursive: true, force: true });
-		renameSync(stagedDataDir, dataDir);
-		validateGeneratedModelData(packageRoot);
-	} finally {
-		rmSync(stagingRoot, { recursive: true, force: true });
+	// Written in place: no staging directory, no directory rename, no recursive
+	// delete. Upstream's generator stages under a mkdtemp directory and swaps it
+	// in, and this script did the same at first -- on a managed Windows machine
+	// the final rmSync of the staging directory failed with EPERM (antivirus
+	// holding a handle on files it had just scanned is the usual cause). The
+	// output here is deterministic, so there is nothing to roll back to: a run
+	// that fails is simply re-run.
+	const dataDir = join(packageRoot, "src", "providers", "data");
+	mkdirSync(dataDir, { recursive: true });
+	for (const [filename, content] of Object.entries(fileContents)) {
+		writeFileSync(join(dataDir, filename), content);
 	}
+	writeFileSync(
+		join(dataDir, MODEL_DATA_MANIFEST_FILE),
+		`${JSON.stringify(createModelDataManifest(structure, fileContents, new Date().toISOString()))}\n`,
+	);
+	// A previous hydration may have left provider files this tree no longer
+	// expects; check:model-data treats an extra file as an error.
+	for (const entry of readdirSync(dataDir)) {
+		if (entry === MODEL_DATA_MANIFEST_FILE || !entry.endsWith(".json") || entry in fileContents) continue;
+		unlinkSync(join(dataDir, entry));
+	}
+	validateGeneratedModelData(packageRoot);
 
 	const empty = providerIds.length - seeded.length;
 	console.log(

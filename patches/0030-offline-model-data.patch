@@ -1,65 +1,25 @@
-From 5a762151ae80a88f973e845da2fa4655f4472269 Mon Sep 17 00:00:00 2001
+From cd6ea3c35f47444b714be5643832a055dba5d773 Mon Sep 17 00:00:00 2001
 From: csolomon <charliesolomon@gmail.com>
-Date: Tue, 1 Sep 2026 21:24:18 -0700
+Date: Wed, 2 Sep 2026 09:35:10 -0700
 Subject: [PATCH] offline-model-data: build without the vendor catalogue fetch
 
-packages/ai's build ran generate-models --strict, which hydrates the model
-catalogue from ~20 vendor APIs and makes any single failure fatal. GAH
-denies that catalogue at runtime (0010-restrict-model-sources), so a fresh
-clone paid for a fetch it could not use -- and behind a filtering proxy
-could not build at all (#14, #15). build:offline was no escape: it
-validates a hydration a clone does not have, because upstream gitignores
-packages/ai/src/providers/data/ while tracking the 39 shards that import it.
-
-Three changes, one concern:
-
-1. scripts/gah-model-data.ts (new file, never conflicts) materialises
-   src/providers/data/ with no network: every provider shard the tracked
-   aggregator imports gets a data file, copied verbatim from a seed
-   directory when one has it and an empty catalogue ({}) otherwise, plus
-   the manifest check:model-data expects. The seed is $GAH_MODEL_DATA_DIR,
-   else <gah checkout>/packages/policy-pack/model-data, else none. A seed
-   file with no matching shard fails the build rather than being ignored,
-   so an upstream provider rename is heard about.
-
-2. scripts/model-data.ts: readProviderStructure no longer rejects a
-   provider file with zero models. An empty catalogue is the intended
-   state for every provider GAH does not seed; the check existed to catch
-   a botched hydration, which the generator still guards with --strict.
-
-3. package.json: `build` runs gah:model-data instead of generate-models.
-   generate-models, hydrate-model-data and build:offline are untouched so
-   maintainers can still hydrate with network to refresh the seed.
-
-Why the seed exists at all, rather than shipping everything empty as #15
-sketched: the shared host allowlists amazon-bedrock/us.anthropic.* out of
-the built-in catalogue (deploy/host/users.d/agent.conf.example), and
-Bedrock's AWS credential-chain auth cannot be re-created through
-registerProvider, so those models must exist in the built-in data for the
-allowlist to match anything. GAH_BUILTIN_MODELS still filters at runtime;
-seeding a provider exposes nothing by itself.
-
-Why a patch and not a policy-pack extension: the data files are imported
-by the provider shards at compile time and must exist before tsgo runs;
-nothing that loads at runtime can supply them. Kept small on purpose --
-generate-models.ts (3000 lines, rewritten every release) is not touched.
-
-Verified from a clean data directory with globalThis.fetch stubbed to
-throw: the full nine-package `npm run build` completes in ~10s;
-dist/providers/data holds two non-empty files (amazon-bedrock, anthropic)
-and 37 `{}`; --list-models shows the seeded models under their allowlists
-and nothing for an emptied provider. Upstream's catalogue-content tests
-(providers.test.ts, model-catalog-types.test.ts) assume a full hydration
-and fail against the emptied providers; this repo's CI does not run them,
-and they pass again after `npm run hydrate:model-data`.
+Re-authored 2026-09-02: gah-model-data.ts now writes src/providers/data/
+in place instead of staging under a mkdtemp directory and swapping it in.
+On a managed Windows machine the final rmSync of the staging directory
+failed with EPERM ("Permission denied: ...\.model-generation-XXXX"),
+which is what antivirus holding a handle on just-scanned files looks like.
+The output is deterministic so there is nothing to roll back to; stale
+provider files from an earlier hydration are unlinked individually, and
+the result is validated the same way. No directory rename or recursive
+delete remains in the step.
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_011it956DeV4unyWw5VyvkDD
 ---
  packages/ai/package.json              |   3 +-
- packages/ai/scripts/gah-model-data.ts | 146 ++++++++++++++++++++++++++
+ packages/ai/scripts/gah-model-data.ts | 147 ++++++++++++++++++++++++++
  packages/ai/scripts/model-data.ts     |   3 +-
- 3 files changed, 150 insertions(+), 2 deletions(-)
+ 3 files changed, 151 insertions(+), 2 deletions(-)
  create mode 100644 vendor/pi/packages/ai/scripts/gah-model-data.ts
 
 diff --git a/packages/ai/package.json b/packages/ai/package.json
@@ -78,10 +38,10 @@ index b6e7336e4..4aee98ca7 100644
  		"prepublishOnly": "npm run clean && npm run build"
 diff --git a/packages/ai/scripts/gah-model-data.ts b/packages/ai/scripts/gah-model-data.ts
 new file mode 100644
-index 000000000..8b5e3fe4d
+index 000000000..1636fc2a2
 --- /dev/null
 +++ b/packages/ai/scripts/gah-model-data.ts
-@@ -0,0 +1,146 @@
+@@ -0,0 +1,147 @@
 +#!/usr/bin/env node
 +
 +/**
@@ -110,7 +70,7 @@ index 000000000..8b5e3fe4d
 + * tsgo runs. Nothing that loads at runtime can supply them.
 + */
 +
-+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
++import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 +import { dirname, join, resolve } from "node:path";
 +import { fileURLToPath } from "node:url";
 +import {
@@ -119,7 +79,6 @@ index 000000000..8b5e3fe4d
 +	type ModelDataStructure,
 +	readModelDataProviderIds,
 +	validateGeneratedModelData,
-+	validateModelDataDirectory,
 +} from "./model-data.ts";
 +
 +const packageRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -192,27 +151,29 @@ index 000000000..8b5e3fe4d
 +		}
 +	}
 +
-+	const providersDir = join(packageRoot, "src", "providers");
-+	const dataDir = join(providersDir, "data");
-+	const stagingRoot = mkdtempSync(join(providersDir, ".model-generation-"));
-+	try {
-+		const stagedDataDir = join(stagingRoot, "data");
-+		mkdirSync(stagedDataDir);
-+		for (const [filename, content] of Object.entries(fileContents)) {
-+			writeFileSync(join(stagedDataDir, filename), content);
-+		}
-+		writeFileSync(
-+			join(stagedDataDir, MODEL_DATA_MANIFEST_FILE),
-+			`${JSON.stringify(createModelDataManifest(structure, fileContents, new Date().toISOString()))}\n`,
-+		);
-+		validateModelDataDirectory(structure, stagedDataDir);
-+
-+		rmSync(dataDir, { recursive: true, force: true });
-+		renameSync(stagedDataDir, dataDir);
-+		validateGeneratedModelData(packageRoot);
-+	} finally {
-+		rmSync(stagingRoot, { recursive: true, force: true });
++	// Written in place: no staging directory, no directory rename, no recursive
++	// delete. Upstream's generator stages under a mkdtemp directory and swaps it
++	// in, and this script did the same at first -- on a managed Windows machine
++	// the final rmSync of the staging directory failed with EPERM (antivirus
++	// holding a handle on files it had just scanned is the usual cause). The
++	// output here is deterministic, so there is nothing to roll back to: a run
++	// that fails is simply re-run.
++	const dataDir = join(packageRoot, "src", "providers", "data");
++	mkdirSync(dataDir, { recursive: true });
++	for (const [filename, content] of Object.entries(fileContents)) {
++		writeFileSync(join(dataDir, filename), content);
 +	}
++	writeFileSync(
++		join(dataDir, MODEL_DATA_MANIFEST_FILE),
++		`${JSON.stringify(createModelDataManifest(structure, fileContents, new Date().toISOString()))}\n`,
++	);
++	// A previous hydration may have left provider files this tree no longer
++	// expects; check:model-data treats an extra file as an error.
++	for (const entry of readdirSync(dataDir)) {
++		if (entry === MODEL_DATA_MANIFEST_FILE || !entry.endsWith(".json") || entry in fileContents) continue;
++		unlinkSync(join(dataDir, entry));
++	}
++	validateGeneratedModelData(packageRoot);
 +
 +	const empty = providerIds.length - seeded.length;
 +	console.log(
