@@ -60,7 +60,9 @@ jobs:
         # npm ci, not npm install: the lockfile is the input, never an output.
         # npm install can silently rewrite it in the runner, which is one of the
         # ways vendor drift got committed in the first place.
-        run: cd vendor/pi && npm ci
+        # --ignore-scripts: no install script in the tree is needed to build or
+        # run gah (docs/SUPPLY-CHAIN.md "Install time").
+        run: cd vendor/pi && npm ci --ignore-scripts
 
       - name: Apply patches
         run: ./scripts/apply-patches.sh
@@ -94,7 +96,7 @@ jobs:
 
       - name: Install deps
         # npm ci, not npm install: the lockfile is the input, never an output.
-        run: cd vendor/pi && npm ci
+        run: cd vendor/pi && npm ci --ignore-scripts
 
       - name: npm audit (runtime deps)
         run: cd vendor/pi && npm audit --omit=dev --audit-level=high

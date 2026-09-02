@@ -90,7 +90,7 @@ gah: PI build is missing at
   $PiCli
 
 Run the build first:
-  cd vendor\pi; npm install
+  cd vendor\pi; npm install --ignore-scripts
   foreach (`$p in 'tui','ai','agent','coding-agent') { npm --workspace packages/`$p run build }
 "@)
     exit 1

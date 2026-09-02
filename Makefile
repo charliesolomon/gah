@@ -14,7 +14,10 @@ help: ## Show available targets
 	      $(MAKEFILE_LIST)
 
 install: ## Install npm deps in vendor/pi (run after first sync-init)
-	cd $(PI_DIR) && npm install
+	@# --ignore-scripts: none of the five install scripts in the tree is needed to
+	@# build or run gah, and one (canvas) downloads a binary from GitHub at install
+	@# time. See docs/SUPPLY-CHAIN.md "Install time".
+	cd $(PI_DIR) && npm install --ignore-scripts
 
 install-tools: ## Install pinned, SHA-256-verified fd + ripgrep into ~/.gah/agent/bin (see docs/SUPPLY-CHAIN.md)
 	@# 0013-offline-runtime removed upstream's runtime download of these; the
@@ -108,7 +111,7 @@ sync: ## Pull upstream, re-apply patches, rebuild. Usage: make sync REF=v0.85.0
 	./scripts/sync-upstream.sh pull $(REF)
 	./scripts/apply-patches.sh
 	git add -A && git commit -m "sync: vendor $(REF), patch series re-applied"
-	cd $(PI_DIR) && npm ci
+	cd $(PI_DIR) && npm ci --ignore-scripts
 	$(MAKE) build-all
 	$(MAKE) smoke
 	@echo ""

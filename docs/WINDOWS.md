@@ -21,7 +21,7 @@ network-caused and neither error message says so.
 
 ## Network requirements
 
-`npm install` is the only step that needs the network — the build itself makes
+`npm install --ignore-scripts` is the only step that needs the network — the build itself makes
 no calls since `0030-offline-model-data` (see below) — and the one install
 failure that remains does not report itself as a network problem.
 
@@ -83,31 +83,18 @@ now materialises `packages/ai/src/providers/data/` from
 with an empty catalogue. No vendor host needs to be reachable. If a build
 still reports a fetch, it is an install script, not the catalog.
 
-### Native modules
+### Install scripts are skipped
 
-`npm install` may fail building `canvas`:
-
-```
-prebuild-install -r napi || node-gyp rebuild
-```
-
-This is almost always the certificate problem above, not a missing toolchain —
-`prebuild-install` cannot reach GitHub releases, so it falls back to compiling
-from source, which needs Visual Studio Build Tools and Python. **Confirmed on a
-managed Win11 machine:** with `--use-system-ca` and the proxy variables set,
-`npm install` completes normally and `canvas` installs from its prebuilt binary,
-with no build tools present. Fix the proxy settings first.
-
-If it still fails after that, skip it:
-
-```powershell
-npm install --ignore-scripts
-```
-
-`canvas` is a devDependency of `packages/ai` used by exactly one file —
-`scripts/generate-test-image.ts`, a test-fixture generator. It is not needed to
-build or run gah. `--ignore-scripts` also skips the root `prepare: husky` hook
-install, which is bash-only and irrelevant here.
+Always install with `--ignore-scripts`. Five packages in upstream's tree run
+code during `npm install`, and none of it is needed to build or run gah
+(docs/SUPPLY-CHAIN.md, "Install time"). The one that mattered on Windows was
+`canvas`, a devDependency of `packages/ai` used by a single test-fixture
+script: its install script downloads a prebuilt binary from GitHub releases
+and, when that fails behind a proxy, falls back to compiling from source with
+Visual Studio Build Tools and Python. Skipping scripts removes that download
+and that fallback. It also skips upstream's `prepare: husky` hook, which is
+bash-only and irrelevant here, and silences newer npm's `allow-scripts`
+warning about unapproved install scripts.
 
 **Do not use `--omit=dev`** — the compilers (`typescript`, `@typescript/native-preview`,
 `esbuild`, `shx`, `tsx`) are devDependencies, so omitting them breaks the build.
@@ -117,7 +104,7 @@ install, which is bash-only and irrelevant here.
 ```powershell
 git clone git@github.com:charliesolomon/gah.git
 cd gah\vendor\pi
-npm install
+npm install --ignore-scripts
 npm run build
 ```
 
@@ -158,7 +145,7 @@ cd ..\..                              # repo root
 node scripts\install-tools.mjs
 ```
 
-Needs the same proxy environment as `npm install`. Nothing else in a session
+Needs the same proxy environment as the install. Nothing else in a session
 reaches the internet except the inference endpoint.
 
 **No internet on the target machine?** On any connected machine, from a clone:

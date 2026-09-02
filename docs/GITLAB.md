@@ -62,7 +62,7 @@ GitHub → GitLab only.
 
 `.gitlab-ci.yml` is already in the repo, so the mirror picks it up as-is:
 
-- **build** (default branch + `v*` tags): `npm ci`, build the four
+- **build** (default branch + `v*` tags): `npm ci --ignore-scripts`, build the four
   workspaces, `bundle-policy.sh`, smoke test. Keeps the mirror provably
   releasable.
 - **publish** (`v*` tags only): renames the package to

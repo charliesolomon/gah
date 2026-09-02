@@ -73,7 +73,7 @@ git commit -am "sync: restore pristine vendor"
 git add -A && git commit -m "sync: vendor v0.80.0, patch series re-applied"
 
 # 4. Rebuild + smoke; deps may have changed
-cd vendor/pi && npm ci && cd ../.. && make build-all && make smoke
+cd vendor/pi && npm ci --ignore-scripts && cd ../.. && make build-all && make smoke
 
 # 5. Open a PR; review; merge
 ```

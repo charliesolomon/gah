@@ -30,6 +30,20 @@ artifacts and the SDK path alike. One layer down, `GAH_ALLOWED_HOSTS`
 the deployment has not named, so the contract holds even for code paths this
 page does not list.
 
+## Install time
+
+`npm install` is the one step that runs third-party code on the machine before
+anything is built, through packages' install scripts. Upstream's tree has five
+(as of v0.84.4): `canvas` (downloads a prebuilt binary from GitHub releases, or
+compiles from source), `esbuild` (validates a binary that already arrives as an
+optional package), `protobufjs` (generates helper files), `ssh2` (builds an
+optional native addon, via an example extension that is never shipped) and a
+no-op in `@google/genai`. None is needed to build or run gah — verified by a
+fresh clone with `npm ci --ignore-scripts`, a full build, and the tool-surface
+check — so every documented install and every CI job passes `--ignore-scripts`.
+The two deprecation notices npm prints (`prebuild-install`, `node-domexception`)
+are transitive to those same upstream dependencies and are not ours to fix.
+
 ## fd and ripgrep
 
 The agent's `find` and `grep` tools shell out to `fd` and `rg` and fail without

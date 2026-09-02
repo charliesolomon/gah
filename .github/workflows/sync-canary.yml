@@ -90,7 +90,7 @@ jobs:
 
       - name: Install deps
         id: install
-        run: cd vendor/pi && npm ci
+        run: cd vendor/pi && npm ci --ignore-scripts
 
       - name: Build full chain
         id: build
