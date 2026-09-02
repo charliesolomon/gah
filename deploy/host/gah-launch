@@ -147,9 +147,10 @@ export GAH_ALLOWED_HOSTS="${GAH_ALLOWED_HOSTS-}"
 [ -n "${GAH_PROVIDERS_FILE:-}" ] && export GAH_PROVIDERS_FILE
 
 # Staff can't self-update; the build is pinned by the deployment (gah-update).
-# Also stops the update check phoning home to pi.dev. (Env name is upstream's,
-# not rebranded — see issue #2.)
-export PI_SKIP_VERSION_CHECK=1
+# Redundant since 0013-offline-runtime forces offline mode in the binary, kept
+# as a belt-and-braces statement of intent. GAH_* names are mirrored onto
+# upstream's PI_* by the binary (patch 0002).
+export GAH_SKIP_VERSION_CHECK=1
 
 # --- Launch -------------------------------------------------------------------
 # --no-skills disables auto-discovery (~/.gah/agent/skills, <cwd>/.gah/skills);
