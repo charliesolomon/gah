@@ -19,6 +19,7 @@ gah/
 │   ├── extensions/
 │   ├── skills/
 │   ├── prompts/
+│   ├── model-data/            ← the only built-in model data a build ships
 │   ├── SYSTEM.md              ← system-prompt override
 │   └── package.json
 ├── patches/                   ← discrete patches against vendor/pi
@@ -39,7 +40,10 @@ gah/
 ## Quick start
 
 **Building and running needs only Node and npm — on any platform.** The vendored
-tree is committed with patches applied, so a fresh clone builds directly:
+tree is committed with patches applied, so a fresh clone builds directly, and
+nothing after `npm install` touches the network: the model catalogue is seeded
+from [`packages/policy-pack/model-data/`](packages/policy-pack/model-data/README.md)
+(patch 0030) instead of being fetched from vendor APIs.
 
 ```bash
 cd vendor/pi && npm install && npm run build     # upstream's own 9-package chain

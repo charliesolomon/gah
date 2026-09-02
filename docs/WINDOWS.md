@@ -21,8 +21,9 @@ network-caused and neither error message says so.
 
 ## Network requirements
 
-The build is not self-contained, and neither failure below reports itself as a
-network problem.
+`npm install` is the only step that needs the network — the build itself makes
+no calls since `0030-offline-model-data` (see below) — and the one install
+failure that remains does not report itself as a network problem.
 
 ### Node does not trust the Windows certificate store
 
@@ -40,33 +41,28 @@ $env:HTTP_PROXY   = "http://your-proxy:8080"
 ```
 
 `--use-system-ca` needs Node ≥22.15 and, importantly, applies to **child
-processes** — which is what `prebuild-install`, `node-gyp` and the model-catalog
-hydration are. Persist it with `setx NODE_OPTIONS "--use-system-ca"`.
+processes** — which is what `prebuild-install` and `node-gyp` are. Persist it
+with `setx NODE_OPTIONS "--use-system-ca"`.
 
 `npm config set cafile` is *not* sufficient: it governs npm's own registry
 traffic and does not reach install scripts. Do not reach for
 `npm config set strict-ssl false` — it works by disabling certificate
 verification for everything on the machine.
 
-### The build hydrates model catalogs from the internet
+### The build no longer fetches model catalogs
 
-`packages/ai`'s build runs `generate-models --strict`, which fetches provider
-catalogs from roughly twenty vendor APIs (`api.anthropic.com`, `api.cerebras.ai`,
-`api.deepseek.com`, `api.fireworks.ai`, `api.groq.com`,
-`api.individual.githubcopilot.com`, `ai-gateway.vercel.sh`, and others).
-`--strict` makes any single failure fatal. If your proxy allowlists by host,
-those need to be reachable.
+Upstream's `packages/ai` build runs `generate-models --strict`, which fetches
+provider catalogs from roughly twenty vendor APIs and makes any single failure
+fatal — behind a host-allowlisting proxy that was the wall every fresh clone
+hit ([#14](https://github.com/charliesolomon/gah/issues/14),
+[#15](https://github.com/charliesolomon/gah/issues/15)).
 
-> **`npm run build:offline` is not a way around this on a fresh clone.** It runs
-> `check:model-data`, which requires catalogs a clone does not contain —
-> `packages/ai/src/providers/data/` is gitignored, so git carries 39 provider
-> shards and none of the JSON they import. "Offline" means *reuse an existing
-> hydration*, not *build without network*.
-
-If the vendor APIs are unreachable, copy `packages/ai/src/providers/data/`
-(656K, 39 files) from a machine that has built successfully, then
-`npm run build:offline` genuinely works offline. Tracked in
-[#15](https://github.com/charliesolomon/gah/issues/15).
+`patches/0030-offline-model-data.patch` replaces that step. `npm run build`
+now materialises `packages/ai/src/providers/data/` from
+[`packages/policy-pack/model-data/`](../packages/policy-pack/model-data/README.md)
+— the two providers GAH actually exposes — and ships every other provider
+with an empty catalogue. No vendor host needs to be reachable. If a build
+still reports a fetch, it is an install script, not the catalog.
 
 ### Native modules
 
@@ -126,11 +122,11 @@ vendored tree is committed with patches applied.
 ```powershell
 cd vendor\pi
 npm --workspace packages/coding-agent run build   # incremental — make build
-npm run build:offline                             # full, skips model-catalog fetch
+npm run build:offline                             # full, reuses src/providers/data as-is
 ```
 
-`packages/ai` hydrates model catalogs over the network during a normal build;
-`build:offline` reuses what is already there.
+Both are offline. `build:offline` only skips re-seeding `packages/ai`'s model
+data from `packages/policy-pack/model-data/`, which a normal build does anyway.
 
 ## Run
 
