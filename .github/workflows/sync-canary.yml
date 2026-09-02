@@ -1,0 +1,169 @@
+name: sync-canary
+
+# Daily early warning: does upstream PI `main` still take our patch series and
+# build? Nothing is committed or pushed — the whole run happens on a throwaway
+# branch inside the runner and is discarded with it.
+#
+# upstream-sync.yml does the real sync weekly, against release tags. Waiting
+# for it means discovering patch rot at sync time, which is the worst moment
+# to find it; the canary moves that discovery to a quiet daily window and
+# names the step that broke (subtree pull, patch apply, install, build, or
+# smoke) together with the upstream SHA it was testing.
+#
+# Failure surfacing is deliberate, not default: a scheduled workflow's only
+# built-in signal is an email to whoever last edited it, and that is how the
+# weekly sync failed 15 times in a row without anyone noticing. A failing run
+# files (or comments on) an issue; a passing run closes it.
+
+concurrency:
+  group: sync-canary
+  cancel-in-progress: true
+
+on:
+  schedule:
+    - cron: "0 13 * * *" # daily 13:00 UTC, after ci.yml's usual idle window
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Upstream PI ref to test against (default: main)"
+        required: false
+        default: "main"
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  canary:
+    runs-on: ubuntu-latest
+    env:
+      UPSTREAM_REF: ${{ inputs.ref || 'main' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # git subtree pull locates its split point from the last squash
+          # commit's message, so it needs the full history.
+          fetch-depth: 0
+
+      - name: Configure git identity (throwaway commits only)
+        run: |
+          git config user.name  "gah-canary"
+          git config user.email "gah-canary@users.noreply.github.com"
+          git checkout -b canary/upstream
+
+      - name: Resolve upstream SHA
+        id: resolve
+        run: |
+          git remote add pi-upstream https://github.com/earendil-works/pi.git
+          git fetch --quiet --tags pi-upstream
+          SHA=$(git rev-parse --verify "pi-upstream/${UPSTREAM_REF}" 2>/dev/null \
+             || git rev-parse --verify "refs/tags/${UPSTREAM_REF}" 2>/dev/null \
+             || git rev-parse --verify "${UPSTREAM_REF}")
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "Testing upstream ${UPSTREAM_REF} at $SHA (currently vendored: $(sed -n 's/^sha=//p' .sync-state))"
+
+      - name: Restore pristine vendor (reverse-apply patches)
+        id: reverse
+        run: |
+          for p in $(ls patches/[0-9]*.patch | sort -r); do
+            echo "→ Reversing $p"
+            git apply -R --directory=vendor/pi "$p"
+          done
+          git commit -qam "canary: restore pristine vendor"
+
+      - name: Subtree pull upstream
+        id: pull
+        run: scripts/sync-upstream.sh pull "${UPSTREAM_REF}"
+
+      - name: Re-apply patches
+        id: patches
+        run: scripts/apply-patches.sh
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          # After the pull, so the cache key reflects upstream's lockfile.
+          cache-dependency-path: vendor/pi/package-lock.json
+
+      - name: Install deps
+        id: install
+        run: cd vendor/pi && npm ci
+
+      - name: Build full chain
+        id: build
+        run: make build-all
+
+      - name: Smoke test
+        id: smoke
+        run: make smoke
+
+      # --- Reporting ---------------------------------------------------------
+      - name: Job summary
+        if: always()
+        env:
+          SHA: ${{ steps.resolve.outputs.sha }}
+        run: |
+          failed=""
+          for step in reverse pull patches install build smoke; do
+            case "$step" in
+              reverse) o="${{ steps.reverse.outcome }}" ;;
+              pull)    o="${{ steps.pull.outcome }}" ;;
+              patches) o="${{ steps.patches.outcome }}" ;;
+              install) o="${{ steps.install.outcome }}" ;;
+              build)   o="${{ steps.build.outcome }}" ;;
+              smoke)   o="${{ steps.smoke.outcome }}" ;;
+            esac
+            if [ "$o" = "failure" ]; then failed="$step"; break; fi
+          done
+          echo "failed=$failed" >> "$GITHUB_ENV"
+          {
+            echo "## sync-canary: upstream \`${UPSTREAM_REF}\` @ \`${SHA:-unresolved}\`"
+            echo
+            if [ -z "$failed" ]; then
+              echo "✅ Patch series applies, full chain builds, smoke passes."
+            else
+              echo "❌ Broke at step **$failed**."
+              echo
+              case "$failed" in
+                reverse) echo "Reverse-applying the patch series failed on our own tree: vendor drift. Run \`scripts/check-vendor-clean.sh\`." ;;
+                pull)    echo "\`git subtree pull\` conflicted. Usually vendor drift; otherwise upstream rewrote history under the subtree." ;;
+                patches) echo "A patch no longer applies to upstream. Regenerate it against the new tree (docs/WORKFLOW.md, \"Patch failure during sync\")." ;;
+                install) echo "\`npm ci\` failed on upstream's lockfile — a new native dependency, or a Node floor bump." ;;
+                build)   echo "The patched tree does not build. Check whether a patch still applies but no longer type-checks, or whether the model-data seed lost a provider shard." ;;
+                smoke)   echo "The build succeeded but the binary misbehaves — \`--version\`, \`--list-models\`, or the seeded-catalogue check." ;;
+              esac
+            fi
+            echo
+            echo "Nothing was committed or pushed; this run is discarded."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: File or update the canary issue
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SHA: ${{ steps.resolve.outputs.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          TITLE="sync-canary: upstream ${UPSTREAM_REF} breaks the patch series or build"
+          LINE="Failed at **${failed:-unknown}** against \`${SHA:-unresolved}\` — ${RUN_URL}"
+          EXISTING=$(gh issue list --state open --search "$TITLE in:title" --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --body "$LINE"
+          else
+            gh issue create --title "$TITLE" --body "$(printf '%s\n\nThe daily canary reverse-applies the patch series, pulls upstream `%s` as a subtree, re-applies the patches, and runs the full build and smoke on a throwaway branch. It commits nothing. See the run'"'"'s job summary for which step broke and what that usually means.\n\nFiled automatically; closed automatically once a run passes.' "$LINE" "$UPSTREAM_REF")"
+          fi
+
+      - name: Close the canary issue on recovery
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SHA: ${{ steps.resolve.outputs.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          TITLE="sync-canary: upstream ${UPSTREAM_REF} breaks the patch series or build"
+          for n in $(gh issue list --state open --search "$TITLE in:title" --json number --jq '.[].number'); do
+            gh issue close "$n" --comment "Passing again against \`${SHA}\` — ${RUN_URL}"
+          done

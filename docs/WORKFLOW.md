@@ -102,6 +102,15 @@ only default signal is an email to whoever last edited it. It now files an issue
 failure. Treat a long silence as suspicious rather than as good news, and check
 `gh run list --workflow upstream-sync` periodically.
 
+`.github/workflows/sync-canary.yml` is the early warning in front of it. Every day at
+13:00 UTC it runs the same sequence against upstream **`main`** — reverse-apply, subtree
+pull, re-apply, `npm ci`, `make build-all`, `make smoke` — on a throwaway branch inside the
+runner, commits nothing, and names the step that broke in its job summary. A failing run
+files (or comments on) an issue titled `sync-canary: …`; the next passing run closes it. So
+patch rot shows up within a day of upstream introducing it, in a quiet window, instead of at
+the next tagged release. Run it by hand against any ref with
+`gh workflow run sync-canary.yml -f ref=<tag-or-sha>`.
+
 ## Patch failure during sync
 
 `apply-patches.sh` will list any patches that don't apply cleanly. To repair:
