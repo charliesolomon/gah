@@ -25,24 +25,43 @@ network-caused and neither error message says so.
 no calls since `0030-offline-model-data` (see below) — and the one install
 failure that remains does not report itself as a network problem.
 
-### Node does not trust the Windows certificate store
+### Corporate proxy and CA trust: the environment to set
 
-Node ships its own CA bundle and ignores the Windows store, so a TLS-inspecting
-proxy — whose CA Windows, Chrome and Edge already trust — is invisible to it.
-Every HTTPS call made by npm, by install scripts, and by the build then fails
-certificate validation.
+Two things go wrong behind a corporate proxy, and neither reports itself as a
+network problem. Node ships its own CA bundle and ignores the Windows store, so
+a TLS-inspecting proxy — whose CA Windows, Chrome and Edge already trust — is
+invisible to it and every HTTPS call fails certificate validation. And Node's
+built-in `fetch` ignores `HTTPS_PROXY` unless told to honour it, so anything an
+install script fetches goes direct and hangs or is refused.
 
-Set this before anything else:
+The expected set, to be confirmed on a machine behind the proxy
+([#14](https://github.com/charliesolomon/gah/issues/14)):
+
+| Variable | Value | What it does |
+|---|---|---|
+| `NODE_OPTIONS` | `--use-system-ca --use-env-proxy` | `--use-system-ca` makes Node trust the Windows certificate store, so the proxy's CA is accepted. `--use-env-proxy` makes Node's own `fetch` route through `HTTPS_PROXY`. |
+| `HTTPS_PROXY` | `http://your-proxy:8080` | The proxy for HTTPS traffic — npm, install scripts, and anything Node fetches once `--use-env-proxy` is set. |
+
+Set them before anything else:
 
 ```powershell
-$env:NODE_OPTIONS = "--use-system-ca"        # Node reads the Windows trust store
+$env:NODE_OPTIONS = "--use-system-ca --use-env-proxy"
 $env:HTTPS_PROXY  = "http://your-proxy:8080"
-$env:HTTP_PROXY   = "http://your-proxy:8080"
 ```
 
-`--use-system-ca` needs Node ≥22.15 and, importantly, applies to **child
-processes** — which is what `prebuild-install` and `node-gyp` are. Persist it
-with `setx NODE_OPTIONS "--use-system-ca"`.
+Both `NODE_OPTIONS` flags apply to **child processes** — which is what
+`prebuild-install` and `node-gyp` are — which is why they go in `NODE_OPTIONS`
+rather than on a single command line. Persist them with
+`setx NODE_OPTIONS "--use-system-ca --use-env-proxy"` and
+`setx HTTPS_PROXY "http://your-proxy:8080"`.
+
+Version floors: `--use-system-ca` needs Node ≥22.15; `--use-env-proxy` needs
+Node ≥22.21 or ≥24.5 (on older Node, `NODE_USE_ENV_PROXY=1` is the same
+switch where it exists, and an unknown flag in `NODE_OPTIONS` makes every
+`node` invocation exit immediately — check `node --version` first).
+
+`HTTP_PROXY` should not be needed: nothing in the install or build fetches
+over plain HTTP. Add it only if a proxy log shows a refused plain-HTTP request.
 
 `npm config set cafile` is *not* sufficient: it governs npm's own registry
 traffic and does not reach install scripts. Do not reach for
