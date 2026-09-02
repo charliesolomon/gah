@@ -53,7 +53,8 @@ house rules live: tone, format, "always cite the ticket number", "show me the
 draft and stop". A template can name a skill ("use the ticket-brief skill and
 give me five lines"), so nobody has to learn skill names.
 
-Three neutral starters ship here: `/summarize`, `/draft-email`, `/handoff`.
+Three neutral starters ship here: `/summarize`, `/draft-email`, `/rrr` (a
+pirate's stanza about the working directory — the one to try first).
 Replace them with your routine — a `/morning` for the start of a shift, a
 `/brief <ticket>` in your fixed format. People can also keep personal ones in
 `~/.gah/agent/prompts/`; those load alongside the shared set and are not

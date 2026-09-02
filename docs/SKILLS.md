@@ -103,8 +103,9 @@ so templates ride the same PR review as skills. Upstream's discovery of a
 person's own `~/.gah/agent/prompts/` is deliberately left on: personal templates
 are text the person could have typed, so there is nothing to pin.
 
-`gah init` ships three neutral starters — `/summarize`, `/draft-email`,
-`/handoff` — meant to be replaced by the organisation's routine (`/morning`,
+`gah init` ships three neutral starters — `/summarize`, `/draft-email`, and
+`/rrr`, a pirate's stanza about the working directory that proves the
+mechanism in ten seconds — meant to be replaced by the organisation's routine (`/morning`,
 `/brief <ticket>`, …). Format and argument syntax are upstream's:
 [prompt-templates.md](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/prompt-templates.md).
 
