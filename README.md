@@ -49,6 +49,7 @@ from [`packages/policy-pack/model-data/`](packages/policy-pack/model-data/README
 ```bash
 cd vendor/pi && npm install && npm run build     # upstream's own 9-package chain
 cd ../..
+node scripts/install-tools.mjs                   # fd + ripgrep, pinned and verified (or: apt install fd-find ripgrep)
 ./bin/gah init ../my-org-skills                  # once per organization
 GAH_SKILLS_DIR=../my-org-skills/skills ./bin/gah # bin\gah.ps1 on Windows
 ```

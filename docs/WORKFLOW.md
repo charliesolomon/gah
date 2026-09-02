@@ -13,9 +13,13 @@ We are aggressive about pushing things into (1). The PI extension API can replac
 
 ```bash
 make sync-init REF=v0.74.0   # or `main` to track tip; release tags recommended
+make install-tools            # fd + ripgrep for the find/grep tools — GAH never downloads them at runtime
 make smoke                    # confirm bin/gah runs
 make install-hooks            # (optional) symlink the pre-push smoke gate
 ```
+
+`make install-tools` needs the network once; for a machine without it, stage the
+archives elsewhere and install with `--from` — see [SUPPLY-CHAIN.md](SUPPLY-CHAIN.md).
 
 This vendors upstream PI under `vendor/pi/` via `git subtree --squash`, applies our patch series, installs npm deps, builds the full dependency chain (tui → ai → agent → coding-agent), and produces a runnable `bin/gah` launcher that loads `packages/policy-pack/` as the only extension source.
 
