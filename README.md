@@ -64,6 +64,10 @@ source control and share it with the team. See [docs/SKILLS.md](docs/SKILLS.md).
 vendored tree, so it cannot fall out of step with upstream the way a hand-kept
 package list does.
 
+`./bin/gah --help` is GAH's own page: what this session may use (tools, models,
+hosts, skills) and the options that still mean something under policy. Upstream's
+full reference is `--help --verbose`.
+
 The agent's find and grep tools need `fd` and `ripgrep`, and GAH never downloads
 them at runtime (patch 0013). Install them from your package manager, or pinned
 and checksum-verified with `node scripts/install-tools.mjs` — offline variants

@@ -58,6 +58,8 @@ fi
 # honouring it here would exempt the shared host from the check entirely.
 skills_configured=0
 case " $* " in *" --skill "*) skills_configured=1 ;; esac
+# --help and --version answer without a skills repo; they start nothing.
+case " $* " in *" --help "*|*" -h "*|*" --version "*|*" -v "*) skills_configured=1 ;; esac
 [ -n "${GAH_ALLOW_NO_SKILLS:-}" ] && skills_configured=1
 if [ -n "${GAH_SKILLS_DIR:-}" ] && [ -d "$GAH_SKILLS_DIR" ]; then skills_configured=1; fi
 if [ "$skills_configured" -eq 0 ]; then

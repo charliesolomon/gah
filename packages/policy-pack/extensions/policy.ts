@@ -29,6 +29,9 @@ const EXTRA_ALLOWED_TOOLS = (process.env.GAH_ALLOW_TOOLS ?? "")
 	.map((t) => t.trim())
 	.filter(Boolean);
 const ALLOWED_TOOLS = new Set<string>([...DEFAULT_ALLOWED_TOOLS, ...EXTRA_ALLOWED_TOOLS]);
+// The binary's --help page reports the tools this policy actually enforces.
+// Extensions load before help prints, so this single source reaches it.
+process.env.GAH_EFFECTIVE_TOOLS = [...ALLOWED_TOOLS].join(",");
 
 /** Write/edit operations targeting these paths are blocked outright. */
 const PROTECTED_PATH_FRAGMENTS = [

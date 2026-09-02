@@ -131,10 +131,18 @@ the next tagged release. Run it by hand against any ref with
 
 Anything user-visible that lives **outside** the binary (system prompt, banners shown by the extension layer, footer/header content) goes in `packages/policy-pack/`. Anything **inside** the binary (the `pi` executable name, embedded URLs, package-level branding) needs a patch — by convention `patches/0001-branding.patch`.
 
+### The help page
+
+`--help` is rendered by `cli/gah-help.ts` (`patches/0002-branded-cli.patch`), not upstream's
+template: it reports the session's effective policy (tools from `policy.ts` via
+`GAH_EFFECTIVE_TOOLS`, models, hosts, skills) and lists only the options and `GAH_*`
+variables that mean something under policy. `--help --verbose` prints upstream's full
+reference. Keep the page short; if upstream adds a flag GAH users need, add one `row()`.
+
 ### Environment variable names
 
 Upstream reads some settings from hardcoded `PI_*` names that `piConfig.name` does not
-rebrand. `patches/0002-branded-env.patch` mirrors every `GAH_<NAME>` onto `PI_<NAME>` at
+rebrand. `patches/0002-branded-cli.patch` mirrors every `GAH_<NAME>` onto `PI_<NAME>` at
 startup (`core/gah-env.ts`), so `bin/gah --help` documents `GAH_*` and both spellings work;
 `PI_*` wins if both are set. Names the agent *exports* to child processes — `PI_CODING_AGENT`,
 and `PI_SESSION_ID` / `PI_MODEL` / … in the bash tool's environment — keep upstream's spelling

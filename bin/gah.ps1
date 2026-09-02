@@ -52,6 +52,8 @@ $SkillsConfigured = $false
 # none" - deploy/host/gah-launch passes it on every launch to pin the loaded
 # set, so honouring it here would exempt the shared host from the check.
 if ($args -contains '--skill') { $SkillsConfigured = $true }
+# --help and --version answer without a skills repo; they start nothing.
+if (@('--help', '-h', '--version', '-v') | Where-Object { $args -contains $_ }) { $SkillsConfigured = $true }
 if ($env:GAH_ALLOW_NO_SKILLS) { $SkillsConfigured = $true }
 if ($env:GAH_SKILLS_DIR -and (Test-Path $env:GAH_SKILLS_DIR)) { $SkillsConfigured = $true }
 if (-not $SkillsConfigured) {
