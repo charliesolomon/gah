@@ -131,6 +131,16 @@ the next tagged release. Run it by hand against any ref with
 
 Anything user-visible that lives **outside** the binary (system prompt, banners shown by the extension layer, footer/header content) goes in `packages/policy-pack/`. Anything **inside** the binary (the `pi` executable name, embedded URLs, package-level branding) needs a patch — by convention `patches/0001-branding.patch`.
 
+### Environment variable names
+
+Upstream reads some settings from hardcoded `PI_*` names that `piConfig.name` does not
+rebrand. `patches/0002-branded-env.patch` mirrors every `GAH_<NAME>` onto `PI_<NAME>` at
+startup (`core/gah-env.ts`), so `bin/gah --help` documents `GAH_*` and both spellings work;
+`PI_*` wins if both are set. Names the agent *exports* to child processes — `PI_CODING_AGENT`,
+and `PI_SESSION_ID` / `PI_MODEL` / … in the bash tool's environment — keep upstream's spelling
+so skill scripts written against upstream docs keep working. Add a new inbound name to the list
+in `gah-env.ts` if upstream introduces one.
+
 ## Anti-patterns
 
 - **Editing files in `vendor/pi/` directly and committing.** They are *not* silently

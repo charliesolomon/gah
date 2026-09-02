@@ -5,6 +5,8 @@
  *
  * Test with: npx tsx src/cli-new.ts [args...]
  */
+// GAH: must run before config.ts reads the environment (see gah-env.ts).
+import "./core/gah-env.ts";
 import { APP_NAME } from "./config.ts";
 import { configureHttpDispatcher } from "./core/http-dispatcher.ts";
 import { main } from "./main.ts";
