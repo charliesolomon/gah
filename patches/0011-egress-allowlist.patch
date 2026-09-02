@@ -1,0 +1,413 @@
+From 3e51f7f77b02d2d84207bf93c8cdcafdbd2caa8a Mon Sep 17 00:00:00 2001
+From: csolomon <charliesolomon@gmail.com>
+Date: Wed, 2 Sep 2026 10:49:24 -0700
+Subject: [PATCH] egress-allowlist: refuse HTTP requests to hosts not in
+ GAH_ALLOWED_HOSTS
+
+Defence in depth under 0010-restrict-model-sources and the policy pack's
+providers.json. Those decide what the registry exposes; this decides what
+the process may connect to, whatever code built the request -- including
+upstream code added after this patch series was written (#8).
+
+GAH_ALLOWED_HOSTS: comma-separated hostname globs (`*.amazonaws.com`,
+`api.anthropic.com`). Unset or empty = deny everything, the same posture
+as GAH_BUILTIN_MODELS. A bare `*` switches the control off, which is what
+bin/gah defaults to on a workstation. Hostnames only, case-insensitive.
+
+Three hooks, because the process uses three HTTP stacks:
+
+- undici, i.e. every fetch(): the Anthropic, OpenAI and Google SDKs, OAuth
+  token exchange and refresh, pi's own calls. A dispatcher interceptor
+  applied in configureHttpDispatcher(), so it is re-applied whenever
+  upstream rebuilds the dispatcher (idle-timeout setting changes) and it
+  works under EnvHttpProxyAgent: the interceptor sees the target origin,
+  not the proxy.
+- node:http / node:https request() and get(): the AWS SDK's NodeHttpHandler,
+  which Bedrock uses when an HTTP proxy is configured. The request options
+  still name the target host under the proxy agent.
+- node:http2 connect(): the AWS SDK's default NodeHttp2Handler, which
+  Bedrock uses when no proxy is configured. Without this hook the shared
+  host's own inference path would have been the one left uncovered.
+
+The node hooks patch the module objects once (CommonJS consumers such as
+the AWS SDK read them at call time; syncBuiltinESMExports() updates ESM
+importers). A refusal throws GahEgressError, which reaches the user as the
+provider error, and is appended to the audit log as egress_blocked once
+per host per process so SDK retries cannot flood it. The allowlist is read
+per call, not cached, so a stale value cannot fail open.
+
+New file core/gah-egress.ts carries the logic; http-dispatcher.ts gains an
+import and a two-line hunk at the setGlobalDispatcher call.
+
+Answers to the open questions on #8: OAuth needs platform.claude.com
+(token refresh) alongside api.anthropic.com, and the docs say so; package
+install/update checks and the version check are already off (0013);
+proxies work because both hooks inspect the target, not the connection;
+the RPC entry point calls configureHttpDispatcher() too, so RPC and web-UI
+sessions are covered.
+
+Tests: test/gah-egress.test.ts (new) against a local server -- glob
+semantics, deny-all/`*`, fetch blocked with the error as cause and audited
+once, node:http and node:http2 blocked, allowlisted hosts pass on every
+path, and the allowlist re-read per request. End to end with the built
+binary: with GAH_ALLOWED_HOSTS empty a real session failed at the OAuth
+refresh to platform.claude.com with the policy error and one audit line;
+with api.anthropic.com,platform.claude.com the same request reached the
+server (which answered 400: the local refresh token had expired).
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_011it956DeV4unyWw5VyvkDD
+---
+ packages/coding-agent/src/core/gah-egress.ts  | 189 ++++++++++++++++++
+ .../coding-agent/src/core/http-dispatcher.ts  |   7 +-
+ packages/coding-agent/test/gah-egress.test.ts | 118 +++++++++++
+ 3 files changed, 313 insertions(+), 1 deletion(-)
+ create mode 100644 vendor/pi/packages/coding-agent/src/core/gah-egress.ts
+ create mode 100644 vendor/pi/packages/coding-agent/test/gah-egress.test.ts
+
+diff --git a/packages/coding-agent/src/core/gah-egress.ts b/packages/coding-agent/src/core/gah-egress.ts
+new file mode 100644
+index 000000000..6f3512d21
+--- /dev/null
++++ b/packages/coding-agent/src/core/gah-egress.ts
+@@ -0,0 +1,189 @@
++/**
++ * GAH: network egress allowlist.
++ *
++ * 0010-restrict-model-sources decides which models the registry exposes and
++ * the policy pack decides which endpoints it registers -- both registry-level
++ * controls. This one sits underneath them: no HTTP request leaves the process
++ * unless its hostname matches GAH_ALLOWED_HOSTS, whatever code built the
++ * request, including upstream code added after this patch was written.
++ *
++ * GAH_ALLOWED_HOSTS: comma-separated hostname globs. `*` matches any run of
++ * characters, so `*.amazonaws.com` covers every regional Bedrock endpoint and
++ * a bare `*` switches the control off (what bin/gah defaults to on a
++ * workstation, where the user owns the environment anyway). Unset or empty =
++ * deny everything, the same posture as GAH_BUILTIN_MODELS; deploy/host's
++ * launcher exports it empty so the manifest has to grant hosts explicitly.
++ * Hostnames only, case-insensitive: ports and schemes are not policy.
++ *
++ * Three hooks, because three HTTP stacks are in use:
++ *  - undici, i.e. every fetch() in the process: the Anthropic, OpenAI and
++ *    Google SDKs, OAuth token exchange, pi's own calls. Installed as a
++ *    dispatcher interceptor by configureHttpDispatcher(), so it is re-applied
++ *    whenever upstream rebuilds the dispatcher (settings changes) and it works
++ *    under EnvHttpProxyAgent -- the interceptor sees the target origin, not
++ *    the proxy.
++ *  - node:http / node:https request() and get(): the AWS SDK's NodeHttpHandler,
++ *    which Bedrock uses when an HTTP proxy is configured. Under the proxy
++ *    agent the request options still name the target host.
++ *  - node:http2 connect(): the AWS SDK's default NodeHttp2Handler, which
++ *    Bedrock uses when no proxy is configured.
++ *  The node hooks patch the module objects once; CommonJS consumers such as
++ *  the AWS SDK read them at call time, and syncBuiltinESMExports() updates
++ *  ESM importers.
++ *
++ * A refused request throws GahEgressError, which reaches the user as the
++ * provider error, and is appended to the audit log ($GAH_AUDIT_LOG, default
++ * ~/.gah/audit.log) once per host per process so SDK retries do not flood it.
++ *
++ * Read per call rather than cached at load, for the same reason as
++ * gah-model-policy.ts: a stale cache here would fail open.
++ */
++
++import { appendFileSync, mkdirSync } from "node:fs";
++import http from "node:http";
++import http2 from "node:http2";
++import https from "node:https";
++import { syncBuiltinESMExports } from "node:module";
++import { homedir } from "node:os";
++import { dirname, join } from "node:path";
++import type * as undici from "undici";
++
++export class GahEgressError extends Error {
++	readonly host: string;
++	readonly via: string;
++
++	constructor(host: string, via: string) {
++		super(`GAH egress policy: "${host}" is not in GAH_ALLOWED_HOSTS (${via}). See docs/PROVIDERS.md.`);
++		this.name = "GahEgressError";
++		this.host = host;
++		this.via = via;
++	}
++}
++
++function globToRegExp(glob: string): RegExp {
++	const escaped = glob.replace(/[.*+?^${}()|[\]\\]/g, (c) => (c === "*" ? ".*" : `\\${c}`));
++	return new RegExp(`^${escaped}$`);
++}
++
++function allowedPatterns(): RegExp[] {
++	return (process.env.GAH_ALLOWED_HOSTS ?? "")
++		.split(",")
++		.map((s) => s.trim().toLowerCase())
++		.filter(Boolean)
++		.map(globToRegExp);
++}
++
++function normalizeHost(host: string): string {
++	return host
++		.trim()
++		.toLowerCase()
++		.replace(/^\[(.*)\]$/, "$1") // bracketed IPv6
++		.replace(/\.$/, ""); // trailing dot
++}
++
++export function gahAllowsHost(host: string): boolean {
++	const normalized = normalizeHost(host);
++	if (!normalized) return false;
++	return allowedPatterns().some((re) => re.test(normalized));
++}
++
++const auditedHosts = new Set<string>();
++
++function auditBlocked(host: string, via: string): void {
++	if (auditedHosts.has(host)) return;
++	auditedHosts.add(host);
++	const path = process.env.GAH_AUDIT_LOG ?? join(homedir(), ".gah", "audit.log");
++	try {
++		mkdirSync(dirname(path), { recursive: true });
++		appendFileSync(
++			path,
++			`${JSON.stringify({
++				ts: new Date().toISOString(),
++				kind: "egress_blocked",
++				host,
++				via,
++				allowed: process.env.GAH_ALLOWED_HOSTS ?? "",
++			})}\n`,
++		);
++	} catch {
++		// Best effort: an unwritable audit log must not turn a refusal into a crash.
++	}
++}
++
++/** Throws GahEgressError (and audits) unless `host` is allowlisted. */
++export function gahCheckHost(host: string, via: string): void {
++	if (gahAllowsHost(host)) return;
++	auditBlocked(normalizeHost(host), via);
++	throw new GahEgressError(normalizeHost(host), via);
++}
++
++function hostnameOfOrigin(origin: string | URL | undefined): string {
++	if (origin === undefined) return "";
++	return typeof origin === "string" ? new URL(origin).hostname : origin.hostname;
++}
++
++/** undici dispatcher interceptor: apply with `dispatcher.compose(gahEgressInterceptor)`. */
++export const gahEgressInterceptor = (dispatch: undici.Dispatcher["dispatch"]): undici.Dispatcher["dispatch"] => {
++	return (opts, handler) => {
++		gahCheckHost(hostnameOfOrigin(opts.origin), "undici");
++		return dispatch(opts, handler);
++	};
++};
++
++/** Wrap an already-configured dispatcher so every request it serves is checked. */
++export function gahGuardDispatcher(dispatcher: undici.Dispatcher): undici.Dispatcher {
++	return dispatcher.compose(gahEgressInterceptor);
++}
++
++// node:http/https request(url?, options?, callback?) -- the host can come from
++// a URL argument or from options.hostname / options.host (which may carry a port).
++function hostFromRequestArgs(args: readonly unknown[]): string {
++	let url: URL | undefined;
++	let options: Record<string, unknown> | undefined;
++	for (const arg of args.slice(0, 2)) {
++		if (typeof arg === "string") url = new URL(arg);
++		else if (arg instanceof URL) url = arg;
++		else if (arg !== null && typeof arg === "object") options = arg as Record<string, unknown>;
++	}
++	const fromOptions = options?.hostname ?? options?.host;
++	if (typeof fromOptions === "string" && fromOptions.length > 0) {
++		return fromOptions.replace(/^(\[[^\]]*\]|[^:]*)(:\d+)?$/, "$1");
++	}
++	return url?.hostname ?? "localhost";
++}
++
++let nodeGuardInstalled = false;
++
++/** Patch node:http, node:https and node:http2 so requests that bypass undici are checked too. Idempotent. */
++export function gahInstallNodeHttpGuard(): void {
++	if (nodeGuardInstalled) return;
++	nodeGuardInstalled = true;
++
++	for (const [mod, via] of [
++		[http, "node:http"],
++		[https, "node:https"],
++	] as const) {
++		for (const name of ["request", "get"] as const) {
++			const original = mod[name] as (...args: unknown[]) => http.ClientRequest;
++			(mod as unknown as Record<string, unknown>)[name] = function (this: unknown, ...args: unknown[]) {
++				gahCheckHost(hostFromRequestArgs(args), via);
++				return original.apply(this, args);
++			};
++		}
++	}
++
++	const originalConnect = http2.connect as (...args: unknown[]) => http2.ClientHttp2Session;
++	(http2 as unknown as Record<string, unknown>).connect = function (this: unknown, ...args: unknown[]) {
++		const authority = args[0];
++		const host =
++			typeof authority === "string"
++				? new URL(authority).hostname
++				: authority instanceof URL
++					? authority.hostname
++					: "";
++		gahCheckHost(host, "node:http2");
++		return originalConnect.apply(this, args);
++	};
++
++	syncBuiltinESMExports();
++}
+diff --git a/packages/coding-agent/src/core/http-dispatcher.ts b/packages/coding-agent/src/core/http-dispatcher.ts
+index 0cae09a60..cd3353d6a 100644
+--- a/packages/coding-agent/src/core/http-dispatcher.ts
++++ b/packages/coding-agent/src/core/http-dispatcher.ts
+@@ -1,5 +1,6 @@
+ import { EventEmitter } from "node:events";
+ import * as undici from "undici";
++import { gahGuardDispatcher, gahInstallNodeHttpGuard } from "./gah-egress.ts";
+ 
+ export const DEFAULT_HTTP_IDLE_TIMEOUT_MS = 300_000;
+ // Node's 250ms default can terminate valid connection attempts on high-latency routes.
+@@ -95,7 +96,11 @@ export function configureHttpDispatcher(timeoutMs: number = DEFAULT_HTTP_IDLE_TI
+ 			factory: createUndiciOriginDispatcher,
+ 		}),
+ 	);
+-	undici.setGlobalDispatcher(dispatcher);
++	// GAH: every request through this dispatcher, and every node:http(s)/http2
++	// request that bypasses it, is checked against GAH_ALLOWED_HOSTS. Applied
++	// here so a rebuilt dispatcher (settings change) is guarded too.
++	gahInstallNodeHttpGuard();
++	undici.setGlobalDispatcher(gahGuardDispatcher(dispatcher));
+ 	// Keep fetch and the dispatcher on the same undici implementation. Node 26.0's
+ 	// bundled fetch can otherwise consume compressed responses through npm undici's
+ 	// dispatcher without decompressing them, causing response.json() failures.
+diff --git a/packages/coding-agent/test/gah-egress.test.ts b/packages/coding-agent/test/gah-egress.test.ts
+new file mode 100644
+index 000000000..0c2bf07bb
+--- /dev/null
++++ b/packages/coding-agent/test/gah-egress.test.ts
+@@ -0,0 +1,118 @@
++/**
++ * GAH: the network egress allowlist (0011-egress-allowlist). Runs against a
++ * local HTTP server only; nothing leaves the machine.
++ */
++
++import { readFileSync, rmSync } from "node:fs";
++import http from "node:http";
++import http2 from "node:http2";
++import { tmpdir } from "node:os";
++import { join } from "node:path";
++import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
++import { gahAllowsHost, GahEgressError } from "../src/core/gah-egress.ts";
++import { configureHttpDispatcher } from "../src/core/http-dispatcher.ts";
++
++const savedHosts = process.env.GAH_ALLOWED_HOSTS;
++const savedAudit = process.env.GAH_AUDIT_LOG;
++const auditPath = join(tmpdir(), `gah-egress-audit-${process.pid}.log`);
++
++let server: http.Server;
++let port: number;
++
++beforeAll(async () => {
++	process.env.GAH_AUDIT_LOG = auditPath;
++	server = http.createServer((_req, res) => res.end("hello")).listen(0, "127.0.0.1");
++	await new Promise<void>((resolve) => server.once("listening", resolve));
++	port = (server.address() as { port: number }).port;
++	configureHttpDispatcher();
++});
++
++afterAll(() => {
++	server.close();
++	rmSync(auditPath, { force: true });
++	if (savedHosts === undefined) delete process.env.GAH_ALLOWED_HOSTS;
++	else process.env.GAH_ALLOWED_HOSTS = savedHosts;
++	if (savedAudit === undefined) delete process.env.GAH_AUDIT_LOG;
++	else process.env.GAH_AUDIT_LOG = savedAudit;
++});
++
++afterEach(() => {
++	delete process.env.GAH_ALLOWED_HOSTS;
++});
++
++function nodeGet(url: string): Promise<string> {
++	return new Promise((resolve, reject) => {
++		try {
++			http.get(url, (res) => {
++				let body = "";
++				res.on("data", (c) => (body += c));
++				res.on("end", () => resolve(body));
++			}).on("error", reject);
++		} catch (error) {
++			reject(error);
++		}
++	});
++}
++
++describe("GAH egress allowlist", () => {
++	it("matches hostname globs, case-insensitively, hostname only", () => {
++		process.env.GAH_ALLOWED_HOSTS = "api.anthropic.com, *.amazonaws.com";
++		expect(gahAllowsHost("api.anthropic.com")).toBe(true);
++		expect(gahAllowsHost("API.Anthropic.COM")).toBe(true);
++		expect(gahAllowsHost("bedrock-runtime.us-west-1.amazonaws.com")).toBe(true);
++		expect(gahAllowsHost("evil-amazonaws.com")).toBe(false);
++		expect(gahAllowsHost("api.anthropic.com.evil.example")).toBe(false);
++		expect(gahAllowsHost("platform.claude.com")).toBe(false);
++	});
++
++	it("denies everything when unset or empty, allows everything for *", () => {
++		delete process.env.GAH_ALLOWED_HOSTS;
++		expect(gahAllowsHost("api.anthropic.com")).toBe(false);
++		process.env.GAH_ALLOWED_HOSTS = "";
++		expect(gahAllowsHost("api.anthropic.com")).toBe(false);
++		process.env.GAH_ALLOWED_HOSTS = "*";
++		expect(gahAllowsHost("anything.example")).toBe(true);
++	});
++
++	it("blocks fetch (undici) to a host that is not allowlisted, and audits it once", async () => {
++		process.env.GAH_ALLOWED_HOSTS = "";
++		const url = `http://127.0.0.1:${port}/`;
++		for (let i = 0; i < 2; i++) {
++			await expect(fetch(url)).rejects.toSatisfy((error: unknown) => {
++				const cause = (error as { cause?: unknown }).cause;
++				return cause instanceof GahEgressError && cause.host === "127.0.0.1" && cause.via === "undici";
++			});
++		}
++		const lines = readFileSync(auditPath, "utf8").trim().split("\n");
++		const blocked = lines.map((l) => JSON.parse(l)).filter((e) => e.kind === "egress_blocked" && e.host === "127.0.0.1");
++		expect(blocked).toHaveLength(1);
++	});
++
++	it("blocks node:http requests that bypass undici", async () => {
++		process.env.GAH_ALLOWED_HOSTS = "";
++		await expect(nodeGet(`http://127.0.0.1:${port}/`)).rejects.toBeInstanceOf(GahEgressError);
++		expect(() => http.request({ hostname: "127.0.0.1", port, path: "/" })).toThrow(GahEgressError);
++		expect(() => http.request({ host: "127.0.0.1:443", path: "/" })).toThrow(GahEgressError);
++	});
++
++	it("blocks node:http2 sessions that bypass undici", () => {
++		process.env.GAH_ALLOWED_HOSTS = "";
++		expect(() => http2.connect(`http://127.0.0.1:${port}`)).toThrow(GahEgressError);
++	});
++
++	it("lets allowlisted hosts through on every path", async () => {
++		process.env.GAH_ALLOWED_HOSTS = "127.0.0.1";
++		expect(await (await fetch(`http://127.0.0.1:${port}/`)).text()).toBe("hello");
++		expect(await nodeGet(`http://127.0.0.1:${port}/`)).toBe("hello");
++		const session = http2.connect(`http://127.0.0.1:${port}`);
++		session.on("error", () => {}); // the test server is HTTP/1.1; only the policy decision is under test
++		session.destroy();
++	});
++
++	it("re-reads the allowlist on every request", async () => {
++		process.env.GAH_ALLOWED_HOSTS = "";
++		await expect(fetch(`http://127.0.0.1:${port}/`)).rejects.toThrow();
++		process.env.GAH_ALLOWED_HOSTS = "127.0.0.1";
++		expect((await fetch(`http://127.0.0.1:${port}/`)).ok).toBe(true);
++	});
++});
+-- 
+2.43.0
+
