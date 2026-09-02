@@ -1,10 +1,10 @@
 # GAH shared agent host
 
 Deployment for a **central Linux host serving the GAH TUI over SSH** to a
-small trusted team (the Grace Schools IT-support model). Staff on Windows
-laptops get an RMM-deployed desktop shortcut that runs
-`wt.exe ssh <user>@<host>`; SSH-ing in lands directly in the GAH TUI inside
-a persistent tmux session. There is no raw shell hand-out.
+small trusted team — an IT-support desk, say. Staff on Windows laptops get a
+desktop shortcut, pushed by whatever endpoint-management tool the organisation
+already runs, that opens `wt.exe ssh <user>@<host>`; SSH-ing in lands directly
+in the GAH TUI inside a persistent tmux session. There is no raw shell hand-out.
 
 ```
 Win11 laptop                      agent host                          AWS
@@ -22,10 +22,24 @@ Win11 laptop                      agent host                          AWS
                                         (PR-gated, pull on launch)
 ```
 
-Identity is the Unix account: the RMM-deployed SSH key authenticates the
-user, per-user IAM keys in `~/.aws/` authenticate to Bedrock, and both the
+Identity is the Unix account: the SSH key the shortcut installer placed on
+the laptop authenticates the user, per-user IAM keys in `~/.aws/` authenticate
+to Bedrock, and both the
 GAH audit log (`~/.gah/audit.log`, tool calls) and Bedrock invocation
 logging / CloudTrail (inference) attribute activity to that user.
+
+## The laptop side
+
+What the shortcut installer has to do is the same for every organisation:
+generate an SSH keypair for the named Windows user, pre-seed the host's key
+in `known_hosts` so nobody is asked to verify a fingerprint, add a Windows
+Terminal profile, drop a desktop shortcut that runs `wt.exe ssh <user>@<host>`,
+and hand the public key back so it can be registered with `gah-adduser`.
+How it gets onto the laptop is not: that depends on the endpoint-management
+tool. [`deploy/windows/`](../windows/README.md) holds one worked example,
+written for TacticalRMM; the organisation-specific wrapper that drives it
+(host name, shortcut name, RMM API) belongs in that organisation's own ops
+repository.
 
 ## Install
 

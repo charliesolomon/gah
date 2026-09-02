@@ -3,6 +3,14 @@
     Install (or remove) the GAH desktop shortcut and SSH key for ONE named
     Windows user. Designed to run from TacticalRMM, which executes as SYSTEM.
 
+    This is one worked example for one endpoint-management tool, not the
+    deployment path. The generic pattern (keypair, known_hosts, Terminal
+    profile, shortcut, key hand-back) is described in README.md next to this
+    file; the RMM-specific mechanics below are what TacticalRMM forces. An
+    organisation's host name, shortcut name and RMM API calls belong in a
+    wrapper in that organisation's own ops repository, which pushes this
+    script and passes or bakes in those values.
+
 .DESCRIPTION
     TacticalRMM runs agent scripts as SYSTEM and exposes no run-as-user option,
     so nothing here may rely on the ambient user context:
@@ -22,7 +30,7 @@
     Terminal settings backup that install took before touching it).
 
 .PARAMETER TargetUser
-    The Windows account to install for, e.g. 'csolomon_gracesimi'. Accepts
+    The Windows account to install for, e.g. 'jsmith_example'. Accepts
     'DOMAIN\user' or a bare local name. Required unless -ListProfiles.
 
 .PARAMETER GahUser
@@ -30,7 +38,8 @@
     (everything before the first underscore).
 
 .PARAMETER JumpHost
-    The GAH agent host. Default jump.grace.cloud.
+    The GAH agent host, e.g. 'agent.example.org'. Required for install and
+    uninstall.
 
 .PARAMETER HostKey
     The host's public key line for known_hosts, WITHOUT the leading hostname
@@ -53,8 +62,8 @@
 
 .EXAMPLE
     .\Deploy-GahShortcut.ps1 -ListProfiles
-    .\Deploy-GahShortcut.ps1 -TargetUser csolomon_gracesimi
-    .\Deploy-GahShortcut.ps1 -TargetUser csolomon_gracesimi -Uninstall -KeepKey
+    .\Deploy-GahShortcut.ps1 -TargetUser jsmith_example -JumpHost agent.example.org
+    .\Deploy-GahShortcut.ps1 -TargetUser jsmith_example -JumpHost agent.example.org -Uninstall -KeepKey
 #>
 [CmdletBinding(DefaultParameterSetName = 'Install')]
 param(
@@ -66,16 +75,16 @@ param(
     [Parameter(ParameterSetName = 'Uninstall')]
     [string]$GahUser,
 
-    [Parameter(ParameterSetName = 'Install')]
-    [Parameter(ParameterSetName = 'Uninstall')]
-    [string]$JumpHost = 'jump.grace.cloud',
+    [Parameter(ParameterSetName = 'Install', Mandatory = $true)]
+    [Parameter(ParameterSetName = 'Uninstall', Mandatory = $true)]
+    [string]$JumpHost,
 
     [Parameter(ParameterSetName = 'Install')]
     [string]$HostKey = '',
 
     [Parameter(ParameterSetName = 'Install')]
     [Parameter(ParameterSetName = 'Uninstall')]
-    [string]$ShortcutName = 'Grace IT Assistant',
+    [string]$ShortcutName = 'GAH Assistant',
 
     [Parameter(ParameterSetName = 'List', Mandatory = $true)]
     [switch]$ListProfiles,
@@ -510,7 +519,7 @@ function Invoke-Install {
     $sc  = $sh.CreateShortcut($lnk)
     $sc.TargetPath       = $exe
     $sc.Arguments        = $arg
-    $sc.Description      = "Grace IT assistant on $JumpHost"
+    $sc.Description      = "$ShortcutName on $JumpHost"
     $sc.WorkingDirectory = $Target.Path
     $sc.IconLocation     = "$env:SystemRoot\System32\SHELL32.dll,165"
     $sc.Save()

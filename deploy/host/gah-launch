@@ -36,8 +36,9 @@ if [ -t 0 ]; then
 	stty -echo 2>/dev/null || true
 fi
 
-# set -a: every var the manifest sets is exported — deployment knobs like
-# GRACE_TICKETS_DIR/GRACE_TICKETS_ENV must reach the session and its tools.
+# set -a: every var the manifest sets is exported — deployment knobs the skills
+# repo's scripts read (an API URL, a credentials file path) must reach the
+# session and its tools.
 set -a
 # shellcheck source=/dev/null
 source "$CONF"

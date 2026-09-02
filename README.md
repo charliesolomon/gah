@@ -25,6 +25,7 @@ gah/
 ├── patches/                   ← discrete patches against vendor/pi
 ├── vendor/pi/                 ← upstream PI (managed by scripts/sync-upstream.sh)
 ├── deploy/host/               ← shared SSH agent host (tmux launcher, per-user manifests)
+├── deploy/windows/            ← laptop-side shortcut installer: one worked example, for TacticalRMM
 ├── templates/skills-repo/     ← scaffold written by `gah init` (your org's skills repo)
 ├── scripts/                   ← sync, patch, build helpers
 ├── ci/scans/                  ← SBOM, CVE, semgrep/CodeQL configs
