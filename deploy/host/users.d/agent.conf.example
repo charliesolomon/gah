@@ -65,10 +65,11 @@ GAH_ALLOWED_HOSTS="bedrock-runtime.us-west-1.amazonaws.com"
 AWS_PROFILE="default"
 
 # --- Optional -----------------------------------------------------------------
-# Every variable set in this file is exported into the session, so skill
-# scripts can take deployment knobs here, e.g. for the ticket skills:
-#GRACE_TICKETS_DIR="/opt/grace-tickets"
-#GRACE_TICKETS_ENV="$HOME/grace-tickets.env"
+# Every variable set in this file is exported into the session, so scripts in
+# the skills repo can take deployment knobs from here — a helpdesk API, a
+# per-user credentials file — under whatever names those scripts read:
+#HELPDESK_API_URL="https://helpdesk.example/api"
+#HELPDESK_ENV="$HOME/helpdesk.env"
 # Approved non-built-in endpoints (docs/PROVIDERS.md, mechanism 2).
 #GAH_PROVIDERS_FILE="/etc/gah/providers.json"
 # Session working directory (default: ~/work).

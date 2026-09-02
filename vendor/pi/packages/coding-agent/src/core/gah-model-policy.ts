@@ -25,7 +25,7 @@
  * manager each construct their own ModelRuntime before any extension loads.
  * ModelRuntime.create() is the one constructor they all share.
  *
- * NOTE: the enforcement boundary that actually matters in the Grace deployment
+ * NOTE: the enforcement boundary that actually matters in a governed deployment
  * is the per-agent IAM policy (see deploy/host/README.md) — this is
  * defence in depth and a UI-surface control, not the last line.
  */

@@ -1,6 +1,6 @@
-From fa2403875113de5261e6756282a6b7667aab45e7 Mon Sep 17 00:00:00 2001
+From d99aee613c58d71e9f63ff6295752c4d81944ac1 Mon Sep 17 00:00:00 2001
 From: csolomon <charliesolomon@gmail.com>
-Date: Wed, 2 Sep 2026 09:22:49 -0700
+Date: Wed, 2 Sep 2026 11:38:19 -0700
 Subject: [PATCH] patch: restrict model sources (deny-all built-in catalog,
  hidden denied providers)
 MIME-Version: 1.0
@@ -114,6 +114,10 @@ built-ins, and two in agent-session-dynamic-provider re-register
 those two were already failing for the same reason. All four assert the
 behaviour this patch removes. This repo's CI does not run them.
 
+Re-authored 2026-09-02 (#20): the policy header's note about the IAM
+boundary now says "a governed deployment" rather than naming one
+organisation. Comment only.
+
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_011it956DeV4unyWw5VyvkDD
 ---
@@ -126,7 +130,7 @@ Claude-Session: https://claude.ai/code/session_011it956DeV4unyWw5VyvkDD
 
 diff --git a/packages/coding-agent/src/core/gah-model-policy.ts b/packages/coding-agent/src/core/gah-model-policy.ts
 new file mode 100644
-index 000000000..48742dccb
+index 000000000..8879a1c32
 --- /dev/null
 +++ b/packages/coding-agent/src/core/gah-model-policy.ts
 @@ -0,0 +1,103 @@
@@ -157,7 +161,7 @@ index 000000000..48742dccb
 + * manager each construct their own ModelRuntime before any extension loads.
 + * ModelRuntime.create() is the one constructor they all share.
 + *
-+ * NOTE: the enforcement boundary that actually matters in the Grace deployment
++ * NOTE: the enforcement boundary that actually matters in a governed deployment
 + * is the per-agent IAM policy (see deploy/host/README.md) — this is
 + * defence in depth and a UI-surface control, not the last line.
 + */
