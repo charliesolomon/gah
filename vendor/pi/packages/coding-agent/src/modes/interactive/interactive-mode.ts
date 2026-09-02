@@ -81,6 +81,7 @@ import type {
 	WorkingIndicatorOptions,
 } from "../../core/extensions/index.ts";
 import { FooterDataProvider, type ReadonlyFooterDataProvider } from "../../core/footer-data-provider.ts";
+import { gahAudit } from "../../core/gah-audit.ts";
 import { configureHttpDispatcher, formatHttpIdleTimeoutMs } from "../../core/http-dispatcher.ts";
 import { type AppKeybinding, KeybindingsManager } from "../../core/keybindings.ts";
 import { createCompactionSummaryMessage } from "../../core/messages.ts";
@@ -3014,6 +3015,16 @@ export class InteractiveMode {
 				return;
 			}
 			if (text === "/share") {
+				// GAH: /share uploads the transcript to a GitHub gist through the gh
+				// CLI -- a child process the egress allowlist (0011) cannot see, and a
+				// transcript on a governed host is the organisation's data. Off unless
+				// the deployment sets GAH_ALLOW_SHARE=1.
+				if (process.env.GAH_ALLOW_SHARE !== "1") {
+					gahAudit({ kind: "blocked", reason: "share_disabled", command: "/share" });
+					this.showError("/share is disabled by GAH policy: session transcripts stay on this machine.");
+					this.editor.setText("");
+					return;
+				}
 				await this.handleShareCommand();
 				this.editor.setText("");
 				return;

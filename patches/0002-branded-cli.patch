@@ -1,0 +1,468 @@
+From cff891a7326348f67c680e933cdae9308995a4b3 Mon Sep 17 00:00:00 2001
+From: csolomon <charliesolomon@gmail.com>
+Date: Wed, 2 Sep 2026 13:10:03 -0700
+Subject: [PATCH] branded-cli: GAH_* environment names, and a --help page that
+ describes this session
+
+Two changes to the CLI surface, one patch because both touch printHelp()
+in cli/args.ts and apply-patches.sh cannot recognise overlapping patches
+as already applied.
+
+== Environment names (#2) ==
+
+== The help page (#32) ==
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_011it956DeV4unyWw5VyvkDD
+---
+ packages/coding-agent/src/cli.ts            |   2 +
+ packages/coding-agent/src/cli/args.ts       |  15 +-
+ packages/coding-agent/src/cli/gah-help.ts   | 170 ++++++++++++++++++++
+ packages/coding-agent/src/core/gah-env.ts   |  70 ++++++++
+ packages/coding-agent/src/rpc-entry.ts      |   2 +
+ packages/coding-agent/test/gah-env.test.ts  |  36 +++++
+ packages/coding-agent/test/gah-help.test.ts |  64 ++++++++
+ 7 files changed, 354 insertions(+), 5 deletions(-)
+ create mode 100644 vendor/pi/packages/coding-agent/src/cli/gah-help.ts
+ create mode 100644 vendor/pi/packages/coding-agent/src/core/gah-env.ts
+ create mode 100644 vendor/pi/packages/coding-agent/test/gah-env.test.ts
+ create mode 100644 vendor/pi/packages/coding-agent/test/gah-help.test.ts
+
+diff --git a/packages/coding-agent/src/cli.ts b/packages/coding-agent/src/cli.ts
+index caa447229..23422a366 100644
+--- a/packages/coding-agent/src/cli.ts
++++ b/packages/coding-agent/src/cli.ts
+@@ -5,6 +5,8 @@
+  *
+  * Test with: npx tsx src/cli-new.ts [args...]
+  */
++// GAH: must run before config.ts reads the environment (see gah-env.ts).
++import "./core/gah-env.ts";
+ import { APP_NAME } from "./config.ts";
+ import { configureHttpDispatcher } from "./core/http-dispatcher.ts";
+ import { main } from "./main.ts";
+diff --git a/packages/coding-agent/src/cli/args.ts b/packages/coding-agent/src/cli/args.ts
+index 8ad5da63e..76c02f523 100644
+--- a/packages/coding-agent/src/cli/args.ts
++++ b/packages/coding-agent/src/cli/args.ts
+@@ -5,6 +5,7 @@
+ import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
+ import chalk from "chalk";
+ import { APP_NAME, CONFIG_DIR_NAME, ENV_AGENT_DIR, ENV_SESSION_DIR } from "../config.ts";
++import { printGahHelp } from "./gah-help.ts";
+ import type { ExtensionFlag } from "../core/extensions/types.ts";
+ import type { TuiMode } from "../core/settings-manager.ts";
+ 
+@@ -249,6 +250,10 @@ export function parseArgs(args: string[]): Args {
+ }
+ 
+ export function printHelp(extensionFlags?: ExtensionFlag[]): void {
++	// GAH: the short page is the default; --help --verbose prints this one (gah-help.ts).
++	if (printGahHelp(extensionFlags)) return;
++	// GAH: environment variables are documented under the branded prefix (gah-env.ts).
++	const ENV = APP_NAME.toUpperCase();
+ 	const extensionFlagsText =
+ 		extensionFlags && extensionFlags.length > 0
+ 			? `\n${chalk.bold("Extension CLI Flags:")}\n${extensionFlags
+@@ -315,7 +320,7 @@ ${chalk.bold("Options:")}
+   --tui-mode <mode>              TUI mode: regular (default) or fullscreen
+   --approve, -a                  Trust project-local files for this run
+   --no-approve, -na              Ignore project-local files for this run
+-  --offline                      Disable startup network operations (same as PI_OFFLINE=1)
++  --offline                      Disable startup network operations (same as ${ENV}_OFFLINE=1)
+   --                             End option parsing; treat remaining arguments as messages/files
+   --help, -h                     Show this help
+   --version, -v                  Show version number
+@@ -429,10 +434,10 @@ ${chalk.bold("Environment Variables:")}
+   AWS_REGION                       - AWS region for Amazon Bedrock (e.g., us-east-1)
+   ${ENV_AGENT_DIR.padEnd(32)} - Config directory (default: ~/${CONFIG_DIR_NAME}/agent)
+   ${ENV_SESSION_DIR.padEnd(32)} - Session storage directory (overridden by --session-dir)
+-  PI_PACKAGE_DIR                   - Override package directory (for Nix/Guix store paths)
+-  PI_OFFLINE                       - Disable startup network operations when set to 1/true/yes
+-  PI_TELEMETRY                     - Override install telemetry when set to 1/true/yes or 0/false/no
+-  PI_SHARE_VIEWER_URL              - Base URL for /share command (default: https://pi.dev/session/)
++  ${ENV}_PACKAGE_DIR                  - Override package directory (for Nix/Guix store paths)
++  ${ENV}_OFFLINE                      - Disable startup network operations when set to 1/true/yes
++  ${ENV}_TELEMETRY                    - Override install telemetry when set to 1/true/yes or 0/false/no
++  ${ENV}_SHARE_VIEWER_URL             - Base URL for /share command (default: https://pi.dev/session/)
+ 
+ ${chalk.bold("Built-in Tool Names:")}
+   read       - Read file contents
+diff --git a/packages/coding-agent/src/cli/gah-help.ts b/packages/coding-agent/src/cli/gah-help.ts
+new file mode 100644
+index 000000000..07d3ae350
+--- /dev/null
++++ b/packages/coding-agent/src/cli/gah-help.ts
+@@ -0,0 +1,170 @@
++/**
++ * GAH: the --help page.
++ *
++ * Upstream's help is one large template in args.ts describing everything pi
++ * can do: a package manager, credential printers, thirty provider API keys,
++ * flags the GAH policy makes inert. For the people GAH targets that page is
++ * mostly false -- it says bash is on and grep is off, that the default
++ * provider is google, that PI_OFFLINE exists -- and args.ts changes every
++ * release, so correcting it in place would be a recurring sync cost (#32).
++ *
++ * This module renders a short page from what is actually true in this
++ * process: the environment the launcher set (GAH_*), the tool allowlist the
++ * policy pack enforces (exported by policy.ts as GAH_EFFECTIVE_TOOLS at
++ * extension load, which happens before help prints), and the extension
++ * flags that registered. Upstream's full reference stays one flag away:
++ * `gah --help --verbose`.
++ *
++ * printHelp() in args.ts delegates here with a one-line hunk.
++ */
++
++import { existsSync } from "node:fs";
++import { homedir } from "node:os";
++import { join } from "node:path";
++import chalk from "chalk";
++import { APP_NAME, CONFIG_DIR_NAME, ENV_AGENT_DIR, ENV_SESSION_DIR, VERSION } from "../config.ts";
++
++interface HelpExtensionFlag {
++	name: string;
++	type?: string;
++	description?: string;
++	extensionPath?: string;
++}
++
++export interface GahHelpOptions {
++	env?: NodeJS.ProcessEnv;
++	extensionFlags?: readonly HelpExtensionFlag[];
++	/** Home directory used to describe default paths. */
++	home?: string;
++}
++
++const COL = 34;
++
++function row(name: string, description: string): string {
++	return `  ${name.padEnd(COL)}${description}`;
++}
++
++function describeList(value: string | undefined, whenEmpty: string): string {
++	const items = (value ?? "")
++		.split(",")
++		.map((s) => s.trim())
++		.filter(Boolean);
++	return items.length > 0 ? items.join(", ") : whenEmpty;
++}
++
++/** Render the page. Pure: everything it reports comes from `options`. */
++export function renderGahHelp(options: GahHelpOptions = {}): string {
++	const env = options.env ?? process.env;
++	const home = options.home ?? homedir();
++	const app = APP_NAME;
++	const ENV = app.toUpperCase();
++	const agentDir = env[ENV_AGENT_DIR] || join(home, CONFIG_DIR_NAME, "agent");
++	const gahDir = join(home, `.${app}`);
++	const providersFile = env.GAH_PROVIDERS_FILE || join(gahDir, "providers.json");
++	const auditLog = env.GAH_AUDIT_LOG || join(gahDir, "audit.log");
++	const bedrock = (env.GAH_BUILTIN_MODELS ?? "").includes("amazon-bedrock");
++
++	const tools = env.GAH_EFFECTIVE_TOOLS
++		? describeList(env.GAH_EFFECTIVE_TOOLS, "none")
++		: "(policy pack not loaded -- run through bin/gah)";
++	const models = describeList(env.GAH_BUILTIN_MODELS, "none from the built-in catalogue");
++	const hosts =
++		env.GAH_ALLOWED_HOSTS === undefined || env.GAH_ALLOWED_HOSTS.trim() === ""
++			? "none (deny all)"
++			: env.GAH_ALLOWED_HOSTS.trim() === "*"
++				? "any (no restriction)"
++				: describeList(env.GAH_ALLOWED_HOSTS, "none");
++	const skills = env.GAH_SKILLS_DIR ? env.GAH_SKILLS_DIR : "none configured";
++	const providers = existsSync(providersFile) ? providersFile : `${providersFile} (absent)`;
++
++	const extensionFlags = options.extensionFlags ?? [];
++	const extensionSection =
++		extensionFlags.length > 0
++			? `\n${chalk.bold("Extension flags:")}\n${extensionFlags
++					.map((flag) =>
++						row(
++							`--${flag.name}${flag.type === "string" ? " <value>" : ""}`,
++							flag.description ?? `registered by ${flag.extensionPath ?? "an extension"}`,
++						),
++					)
++					.join("\n")}\n`
++			: "";
++
++	return `${chalk.bold(app)} ${VERSION} - Good agent harness: your organisation's skills, run by an AI agent under policy.
++
++${chalk.bold("Usage:")}
++  ${app} [options] [--] [@files...] [message...]
++  ${app} init <directory>        Create your organisation's skills repository (once)
++  ${app} auth check              Report whether the configured provider is ready
++
++${chalk.bold("This session")} (from the environment the launcher set):
++${row("Tools", tools)}
++${row("", `GAH_ALLOW_TOOLS adds more; every call is written to the audit log`)}
++${row("Models", models)}
++${row("", `GAH_BUILTIN_MODELS; /model to choose, --list-models to see`)}
++${row("Endpoints file", providers)}
++${row("", `GAH_PROVIDERS_FILE; approved endpoints your deployment registered`)}
++${row("Network", hosts)}
++${row("", `GAH_ALLOWED_HOSTS; nothing else is reachable, including the tools`)}
++${row("Skills", skills)}
++${row("", `GAH_SKILLS_DIR; --skill <path> for a single run`)}
++${row("Audit log", auditLog)}
++
++${chalk.bold("Options:")}
++${row("--continue, -c", "Continue the previous session")}
++${row("--resume, -r", "Pick a session to resume")}
++${row("--session <path|id>", "Use a specific session file or partial id")}
++${row("--name, -n <name>", "Set the session display name")}
++${row("--no-session", "Do not save this session")}
++${row("--model <pattern>", 'Choose among the allowed models ("provider/id", optional ":<thinking>")')}
++${row("--models <patterns>", "Comma-separated patterns for Ctrl+P model cycling")}
++${row("--thinking <level>", "off, minimal, low, medium, high, xhigh, max")}
++${row("--list-models [search]", "List the models this session may use")}
++${row("--print, -p", "Non-interactive: answer the prompt and exit")}
++${row("--mode <mode>", "Output mode for -p: text (default), json, or rpc")}
++${row("--export <file> [out.html]", "Export a session file to HTML and exit")}
++${row("--skill <path>", "Load a skill file or directory for this run (repeatable)")}
++${row("--use-theme <name>", "Interactive theme for this run")}
++${row("--tui-mode <mode>", "regular (default) or fullscreen")}
++${row("--verbose", "Verbose startup; with --help, the full upstream reference")}
++${row("--", "End option parsing; the rest is the message")}
++${row("--help, -h", "This page")}
++${row("--version, -v", "Show the version")}
++${extensionSection}
++${chalk.bold("Environment:")}
++${row("GAH_SKILLS_DIR", "Skills directory to load (a session needs one)")}
++${row("GAH_ALLOW_NO_SKILLS", "Set to 1 to start deliberately without skills")}
++${row("GAH_BUILTIN_MODELS", "provider/model globs allowed from the built-in catalogue; unset = none")}
++${row("GAH_ALLOWED_HOSTS", "Hostname globs the process may connect to; unset = none, * = any")}
++${row("GAH_PROVIDERS_FILE", `Approved-endpoints file (default ${join(gahDir, "providers.json")})`)}
++${row("GAH_ALLOW_MODELS_JSON", `Set to 1 to read ${join(agentDir, "models.json")}`)}
++${row("GAH_ALLOW_TOOLS", "Comma-separated extra tools the policy allows, e.g. bash")}
++${row("GAH_AUDIT_LOG", `Audit log path (default ${join(gahDir, "audit.log")})`)}
++${row(ENV_AGENT_DIR, `Config directory (default ${join(home, CONFIG_DIR_NAME, "agent")})`)}
++${row(ENV_SESSION_DIR, "Session storage directory (overridden by --session-dir)")}
++${row(`${ENV}_TELEMETRY`, "Ignored: no telemetry leaves a GAH process")}${
++		bedrock
++			? `\n${row("AWS_PROFILE", "AWS profile for Amazon Bedrock (set by your deployment)")}\n${row("AWS_REGION", "AWS region for Amazon Bedrock")}`
++			: ""
++	}
++
++${chalk.bold("Examples:")}
++  ${app}                                             Start a session
++  ${app} "Summarise @meeting-notes.md in five bullets"
++  ${app} -c "Draft the follow-up email we discussed"
++  ${app} -p "Which of these is overdue? @invoices.csv" > answer.txt
++  ${app} --list-models                               See what this session may use
++
++Full upstream option reference: ${app} --help --verbose
++`;
++}
++
++/**
++ * Print the GAH page unless the caller asked for upstream's reference with
++ * --verbose. Returns true when it printed, so printHelp() can return.
++ */
++export function printGahHelp(extensionFlags?: readonly HelpExtensionFlag[]): boolean {
++	if (process.argv.includes("--verbose")) return false;
++	console.log(renderGahHelp({ extensionFlags }));
++	return true;
++}
+diff --git a/packages/coding-agent/src/core/gah-env.ts b/packages/coding-agent/src/core/gah-env.ts
+new file mode 100644
+index 000000000..74d3dd4c4
+--- /dev/null
++++ b/packages/coding-agent/src/core/gah-env.ts
+@@ -0,0 +1,70 @@
++/**
++ * GAH: branded environment variable names.
++ *
++ * 0001-branding sets piConfig.name, and APP_NAME rebrands the banner, the
++ * process title, the config directory and the *_CODING_AGENT_DIR variable.
++ * A handful of settings are still read from hardcoded PI_* names scattered
++ * across coding-agent, tui and ai, so `GAH_OFFLINE=1` did nothing while
++ * `--help` printed `PI_OFFLINE`. (#2)
++ *
++ * Rather than patch every read site -- a hunk per file, in files upstream
++ * touches often -- this module mirrors each GAH_<NAME> onto PI_<NAME> once,
++ * before anything reads them. Upstream keeps reading PI_*; users write GAH_*.
++ * PI_* still works, and wins if both are set, so nothing already configured
++ * changes behaviour.
++ *
++ * It must be the first import of every entry point (cli.ts, rpc-entry.ts):
++ * PI_PACKAGE_DIR is consulted while config.ts locates package.json, before
++ * the branded name is known, and PI_TIMING is read at module load. That is
++ * also why the prefix is a literal here rather than derived from APP_NAME.
++ *
++ * Only inbound settings are mirrored. Names the agent *exports* to child
++ * processes (PI_CODING_AGENT, and PI_SESSION_ID / PI_MODEL / ... in the bash
++ * tool's environment) keep upstream's spelling on purpose: skill scripts
++ * written against upstream's documentation must keep working.
++ */
++
++export const GAH_ENV_PREFIX = "GAH";
++
++/** Inbound PI_<NAME> settings upstream reads from the environment. */
++export const GAH_MIRRORED_ENV_NAMES = [
++	"OFFLINE",
++	"SKIP_VERSION_CHECK",
++	"TELEMETRY",
++	"PACKAGE_DIR",
++	"SHARE_VIEWER_URL",
++	"CACHE_RETENTION",
++	"EXPERIMENTAL",
++	"TIMING",
++	"STARTUP_BENCHMARK",
++	"OAUTH_CALLBACK_HOST",
++	"MANAGED_INSTALL_ROOT",
++	"BASE",
++	"CLEAR_ON_SHRINK",
++	"HARDWARE_CURSOR",
++	"HYPERLINKS",
++	"IMAGE_PROTOCOL",
++	"TRUE_COLOR",
++	"DEBUG_REDRAW",
++	"TUI_DEBUG",
++	"TUI_ESC_TIMEOUT",
++	"TUI_WRITE_LOG",
++] as const;
++
++/**
++ * Copy `${prefix}_<NAME>` to `PI_<NAME>` for every mirrored name that is set
++ * under the prefix and unset under PI_. Returns the names that were mirrored.
++ */
++export function applyGahEnvAliases(env: NodeJS.ProcessEnv = process.env, prefix: string = GAH_ENV_PREFIX): string[] {
++	if (prefix === "PI") return [];
++	const mirrored: string[] = [];
++	for (const name of GAH_MIRRORED_ENV_NAMES) {
++		const branded = env[`${prefix}_${name}`];
++		if (branded === undefined || env[`PI_${name}`] !== undefined) continue;
++		env[`PI_${name}`] = branded;
++		mirrored.push(name);
++	}
++	return mirrored;
++}
++
++applyGahEnvAliases();
+diff --git a/packages/coding-agent/src/rpc-entry.ts b/packages/coding-agent/src/rpc-entry.ts
+index 11059a8d4..4a7c86642 100644
+--- a/packages/coding-agent/src/rpc-entry.ts
++++ b/packages/coding-agent/src/rpc-entry.ts
+@@ -1,4 +1,6 @@
+ #!/usr/bin/env node
++// GAH: must run before config.ts reads the environment (see gah-env.ts).
++import "./core/gah-env.ts";
+ import { APP_NAME } from "./config.ts";
+ import { configureHttpDispatcher } from "./core/http-dispatcher.ts";
+ import { main } from "./main.ts";
+diff --git a/packages/coding-agent/test/gah-env.test.ts b/packages/coding-agent/test/gah-env.test.ts
+new file mode 100644
+index 000000000..41c9bfb72
+--- /dev/null
++++ b/packages/coding-agent/test/gah-env.test.ts
+@@ -0,0 +1,36 @@
++/**
++ * GAH: branded environment names (0002-branded-env). Pure function tests on a
++ * private env object; the module's own load-time call is exercised end to end
++ * by `bin/gah --help`.
++ */
++
++import { describe, expect, it } from "vitest";
++import { applyGahEnvAliases, GAH_MIRRORED_ENV_NAMES } from "../src/core/gah-env.ts";
++
++describe("GAH env aliases", () => {
++	it("mirrors GAH_<NAME> onto PI_<NAME> when PI_ is unset", () => {
++		const env: NodeJS.ProcessEnv = { GAH_TELEMETRY: "0", GAH_OFFLINE: "1" };
++		expect(applyGahEnvAliases(env).sort()).toEqual(["OFFLINE", "TELEMETRY"]);
++		expect(env.PI_TELEMETRY).toBe("0");
++		expect(env.PI_OFFLINE).toBe("1");
++	});
++
++	it("lets an explicit PI_ value win, and leaves everything else untouched", () => {
++		const env: NodeJS.ProcessEnv = { GAH_TELEMETRY: "0", PI_TELEMETRY: "1", GAH_UNRELATED: "x" };
++		expect(applyGahEnvAliases(env)).toEqual([]);
++		expect(env.PI_TELEMETRY).toBe("1");
++		expect(env.PI_UNRELATED).toBeUndefined();
++	});
++
++	it("is a no-op for the upstream prefix and for an empty environment", () => {
++		const env: NodeJS.ProcessEnv = { PI_OFFLINE: "1" };
++		expect(applyGahEnvAliases(env, "PI")).toEqual([]);
++		expect(applyGahEnvAliases({})).toEqual([]);
++	});
++
++	it("covers every inbound name the help text and the issue list", () => {
++		for (const name of ["OFFLINE", "SKIP_VERSION_CHECK", "TELEMETRY", "PACKAGE_DIR", "SHARE_VIEWER_URL", "CACHE_RETENTION"]) {
++			expect(GAH_MIRRORED_ENV_NAMES).toContain(name);
++		}
++	});
++});
+diff --git a/packages/coding-agent/test/gah-help.test.ts b/packages/coding-agent/test/gah-help.test.ts
+new file mode 100644
+index 000000000..ba5a095a8
+--- /dev/null
++++ b/packages/coding-agent/test/gah-help.test.ts
+@@ -0,0 +1,64 @@
++/**
++ * GAH: the --help page (0003-gah-help). Pure renderer tests on a private env.
++ */
++
++import { describe, expect, it } from "vitest";
++import { renderGahHelp } from "../src/cli/gah-help.ts";
++
++const base: NodeJS.ProcessEnv = {
++	GAH_EFFECTIVE_TOOLS: "read,grep,find,ls,edit,write",
++	GAH_BUILTIN_MODELS: "anthropic/*",
++	GAH_ALLOWED_HOSTS: "api.anthropic.com,platform.claude.com",
++	GAH_SKILLS_DIR: "/srv/skills",
++};
++
++describe("GAH help page", () => {
++	it("frames GAH as a harness and reports the session's effective policy", () => {
++		const page = renderGahHelp({ env: base, home: "/home/u" });
++		expect(page).toContain("Good agent harness");
++		expect(page).not.toMatch(/coding assistant/i);
++		expect(page).toContain("read, grep, find, ls, edit, write");
++		expect(page).toContain("anthropic/*");
++		expect(page).toContain("api.anthropic.com, platform.claude.com");
++		expect(page).toContain("/srv/skills");
++		expect(page).toContain("/home/u/.gah/audit.log");
++	});
++
++	it("documents GAH_* variables only: no PI_* names, no provider API keys, no /share", () => {
++		const page = renderGahHelp({ env: base, home: "/home/u" });
++		expect(page).not.toContain("PI_");
++		expect(page).not.toContain("API_KEY");
++		expect(page).not.toContain("share");
++		for (const name of ["GAH_BUILTIN_MODELS", "GAH_ALLOWED_HOSTS", "GAH_ALLOW_TOOLS", "GAH_SKILLS_DIR", "GAH_AUDIT_LOG"]) {
++			expect(page).toContain(name);
++		}
++	});
++
++	it("hides options the policy makes inert and points at the upstream reference", () => {
++		const page = renderGahHelp({ env: base, home: "/home/u" });
++		for (const flag of ["--provider", "--api-key", "--system-prompt", "--extension", "--no-tools", "--offline", "install <source>"]) {
++			expect(page).not.toContain(flag);
++		}
++		expect(page).toContain("--help --verbose");
++	});
++
++	it("describes deny-all and unrestricted network states plainly", () => {
++		expect(renderGahHelp({ env: { ...base, GAH_ALLOWED_HOSTS: "" }, home: "/home/u" })).toContain("none (deny all)");
++		expect(renderGahHelp({ env: { ...base, GAH_ALLOWED_HOSTS: "*" }, home: "/home/u" })).toContain("any (no restriction)");
++		const { GAH_ALLOWED_HOSTS: _h, ...unset } = base;
++		expect(renderGahHelp({ env: unset, home: "/home/u" })).toContain("none (deny all)");
++	});
++
++	it("mentions the AWS variables only when Bedrock is allowlisted", () => {
++		expect(renderGahHelp({ env: base, home: "/home/u" })).not.toContain("AWS_PROFILE");
++		expect(renderGahHelp({ env: { ...base, GAH_BUILTIN_MODELS: "amazon-bedrock/us.anthropic.*" }, home: "/home/u" })).toContain("AWS_PROFILE");
++	});
++
++	it("says when the policy pack is not loaded, and lists extension flags", () => {
++		const { GAH_EFFECTIVE_TOOLS: _t, ...noPolicy } = base;
++		expect(renderGahHelp({ env: noPolicy, home: "/home/u" })).toContain("policy pack not loaded");
++		const page = renderGahHelp({ env: base, home: "/home/u", extensionFlags: [{ name: "plan", type: "boolean", description: "Start in plan mode" }] });
++		expect(page).toContain("--plan");
++		expect(page).toContain("Start in plan mode");
++	});
++});
+-- 
+2.43.0
+

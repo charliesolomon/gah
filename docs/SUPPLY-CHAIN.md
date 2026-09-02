@@ -21,6 +21,7 @@ disabled by `patches/0013-offline-runtime.patch`, which forces upstream's own
 | Install-report ping to `pi.dev` | startup | Off. |
 | Remote model-catalogue refresh from `pi.dev` | startup and periodically | Off. The catalogue is what the build seeded ([model-data](../packages/policy-pack/model-data/README.md)), filtered by `GAH_BUILTIN_MODELS` ([PROVIDERS.md](PROVIDERS.md)). |
 | Package update check | startup | Off. GAH loads its extensions by path, not from packages. |
+| `/share`: upload the session transcript as a GitHub gist via the `gh` CLI | on request | Off (`patches/0014-no-session-share.patch`), audited as `share_disabled`. A child process the egress allowlist cannot see, and the transcript is the organisation's data. `GAH_ALLOW_SHARE=1` re-enables it. |
 
 Enforcement is in the binary (`main()` and the tools manager), not in launcher
 environment, so it holds for `bin/gah`, the shared-host launcher, published
