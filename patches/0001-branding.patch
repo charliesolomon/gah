@@ -1,6 +1,6 @@
-From 4b06713e41bc9ebf6f0877421364db7ac3975aa7 Mon Sep 17 00:00:00 2001
+From a2663ab5cf76ce954c663bb7c72c8c66ebeb2667 Mon Sep 17 00:00:00 2001
 From: csolomon <charliesolomon@gmail.com>
-Date: Fri, 28 Aug 2026 19:52:38 -0700
+Date: Wed, 2 Sep 2026 16:16:26 -0700
 Subject: [PATCH] =?UTF-8?q?branding:=20rebrand=20pi=20=E2=86=92=20gah?=
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
@@ -21,10 +21,18 @@ referencing the policy + audit posture.
 
 Regenerated against v0.84.4: the bin target moved from dist/cli.js to
 dist/bundle/cli.js, which is why the v0.79.1 patch no longer applied.
+Re-authored 2026-09-02 (#35 follow-up): the startup banner advertised
+"! bash" whether or not a shell was allowed. The two ! hints now appear
+only when the policy's exported tool set (GAH_EFFECTIVE_TOOLS) contains
+bash or powershell; absent that variable (no policy pack loaded) they
+show as upstream would.
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_011it956DeV4unyWw5VyvkDD
 ---
- packages/coding-agent/package.json                           | 5 +++--
- .../coding-agent/src/modes/interactive/interactive-mode.ts   | 2 +-
- 2 files changed, 4 insertions(+), 3 deletions(-)
+ packages/coding-agent/package.json                     |  5 +++--
+ .../src/modes/interactive/interactive-mode.ts          | 10 ++++++----
+ 2 files changed, 9 insertions(+), 6 deletions(-)
 
 diff --git a/packages/coding-agent/package.json b/packages/coding-agent/package.json
 index 8aa47351d..ceff2f241 100644
@@ -45,10 +53,39 @@ index 8aa47351d..ceff2f241 100644
  	"main": "./dist/index.js",
  	"types": "./dist/index.d.ts",
 diff --git a/packages/coding-agent/src/modes/interactive/interactive-mode.ts b/packages/coding-agent/src/modes/interactive/interactive-mode.ts
-index aee28d448..6649ceafe 100644
+index aee28d448..1c9fe887d 100644
 --- a/packages/coding-agent/src/modes/interactive/interactive-mode.ts
 +++ b/packages/coding-agent/src/modes/interactive/interactive-mode.ts
-@@ -1000,7 +1000,7 @@ export class InteractiveMode {
+@@ -966,6 +966,7 @@ export class InteractiveMode {
+ 			// Build startup instructions using keybinding hint helpers
+ 			const hint = (keybinding: AppKeybinding, description: string) => keyHint(keybinding, description);
+ 
++			const gahShellAllowed = /(^|,)(bash|powershell)(,|$)/.test(process.env.GAH_EFFECTIVE_TOOLS ?? "bash");
+ 			const expandedInstructions = [
+ 				hint("app.interrupt", "to interrupt"),
+ 				hint("app.clear", "to clear"),
+@@ -980,8 +981,9 @@ export class InteractiveMode {
+ 				hint("app.thinking.toggle", "to expand thinking"),
+ 				hint("app.editor.external", "for external editor"),
+ 				rawKeyHint("/", "for commands"),
+-				rawKeyHint("!", "to run bash"),
+-				rawKeyHint("!!", "to run bash (no context)"),
++				// GAH: the shell escape exists only when the policy allows a shell
++				// (policy.ts exports the enforced set before this banner is built).
++				...(gahShellAllowed ? [rawKeyHint("!", "to run bash"), rawKeyHint("!!", "to run bash (no context)")] : []),
+ 				hint("app.message.followUp", "to queue follow-up"),
+ 				hint("app.message.dequeue", "to edit all queued messages"),
+ 				hint("app.clipboard.pasteImage", "to paste image (with text fallback)"),
+@@ -991,7 +993,7 @@ export class InteractiveMode {
+ 				hint("app.interrupt", "interrupt"),
+ 				rawKeyHint(`${keyText("app.clear")}/${keyText("app.exit")}`, "clear/exit"),
+ 				rawKeyHint("/", "commands"),
+-				rawKeyHint("!", "bash"),
++				...(gahShellAllowed ? [rawKeyHint("!", "bash")] : []),
+ 				hint("app.tools.expand", "more"),
+ 			].join(theme.fg("muted", " · "));
+ 			const compactOnboarding = theme.fg(
+@@ -1000,7 +1002,7 @@ export class InteractiveMode {
  			);
  			const onboarding = theme.fg(
  				"dim",

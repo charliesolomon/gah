@@ -967,6 +967,7 @@ export class InteractiveMode {
 			// Build startup instructions using keybinding hint helpers
 			const hint = (keybinding: AppKeybinding, description: string) => keyHint(keybinding, description);
 
+			const gahShellAllowed = /(^|,)(bash|powershell)(,|$)/.test(process.env.GAH_EFFECTIVE_TOOLS ?? "bash");
 			const expandedInstructions = [
 				hint("app.interrupt", "to interrupt"),
 				hint("app.clear", "to clear"),
@@ -981,8 +982,9 @@ export class InteractiveMode {
 				hint("app.thinking.toggle", "to expand thinking"),
 				hint("app.editor.external", "for external editor"),
 				rawKeyHint("/", "for commands"),
-				rawKeyHint("!", "to run bash"),
-				rawKeyHint("!!", "to run bash (no context)"),
+				// GAH: the shell escape exists only when the policy allows a shell
+				// (policy.ts exports the enforced set before this banner is built).
+				...(gahShellAllowed ? [rawKeyHint("!", "to run bash"), rawKeyHint("!!", "to run bash (no context)")] : []),
 				hint("app.message.followUp", "to queue follow-up"),
 				hint("app.message.dequeue", "to edit all queued messages"),
 				hint("app.clipboard.pasteImage", "to paste image (with text fallback)"),
@@ -992,7 +994,7 @@ export class InteractiveMode {
 				hint("app.interrupt", "interrupt"),
 				rawKeyHint(`${keyText("app.clear")}/${keyText("app.exit")}`, "clear/exit"),
 				rawKeyHint("/", "commands"),
-				rawKeyHint("!", "bash"),
+				...(gahShellAllowed ? [rawKeyHint("!", "bash")] : []),
 				hint("app.tools.expand", "more"),
 			].join(theme.fg("muted", " · "));
 			const compactOnboarding = theme.fg(
