@@ -74,6 +74,10 @@ jobs:
       - name: Smoke test
         run: make smoke
 
+      - name: Tool surface
+        # What the model is offered vs. what the policy allows (issue #35).
+        run: make check-tools
+
   scan-deps:
     name: dependency CVEs (npm audit + trivy)
     runs-on: ubuntu-latest

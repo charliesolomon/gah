@@ -4,7 +4,9 @@ Deployment for a **central Linux host serving the GAH TUI over SSH** to a
 small trusted team — an IT-support desk, say. Staff on Windows laptops get a
 desktop shortcut, pushed by whatever endpoint-management tool the organisation
 already runs, that opens `wt.exe ssh <user>@<host>`; SSH-ing in lands directly
-in the GAH TUI inside a persistent tmux session. There is no raw shell hand-out.
+in the GAH TUI inside a persistent tmux session. There is no raw shell hand-out:
+the model gets no shell tool unless the manifest allows one, and the editor's
+`!command` escape is disabled under the same rule.
 
 ```
 Win11 laptop                      agent host                          AWS

@@ -178,6 +178,25 @@ the pinned versions: [SUPPLY-CHAIN.md](SUPPLY-CHAIN.md). If the tools are
 missing, the agent says so at startup and the find and grep tools fail; nothing
 else is affected.
 
+## Tools
+
+The model is offered exactly the tools the policy allows: `read`, `grep`, `find`,
+`ls`, `edit`, `write`. Listing a directory is the `ls` tool, which needs no shell.
+Shells are off by default; on Windows the shell tool is `powershell`, and a
+deployment opts in with:
+
+```powershell
+$env:GAH_ALLOW_TOOLS = 'powershell'
+```
+
+The editor's `!command` prefix, which runs a shell as you rather than as the
+model, follows the same rule: it works only when a shell tool is allowed.
+
+Two PowerShell habits to know when passing lists on the command line: an
+unquoted comma list is an **array literal**, so `--tools read,ls` reaches the
+binary as two separate words. Quote it: `--tools 'read,ls'`. Environment
+variables are not affected, since `$env:X = 'a,b'` is already a string.
+
 ## Run
 
 GAH will not start without your organization's skills. If someone has already

@@ -26,6 +26,17 @@ if ([string]::IsNullOrWhiteSpace($BaseUrl)) { Write-Host "  skipped"; exit 0 }
 $ProviderId = Read-Host "  Provider id [corp]"
 if ([string]::IsNullOrWhiteSpace($ProviderId)) { $ProviderId = 'corp' }
 $ModelIds = Read-Host "  Model ids, comma-separated (e.g. gpt-4.1,gpt-5)"
+# Two wire protocols speak "OpenAI". Chat Completions is what most gateways,
+# vLLM and Ollama serve; the Responses API is what gpt-5-class models are
+# served through on OpenAI-compatible corporate gateways, and a gateway that
+# only half-implements streaming tool calls on Chat Completions shows up as
+# nameless tool calls in the agent. Default from the model ids; overridable.
+$ApiDefault = if ($ModelIds -match '(^|,)\s*(gpt-5|o\d)') { 'openai-responses' } else { 'openai-completions' }
+$ApiKind = Read-Host "  API (openai-completions or openai-responses) [$ApiDefault]"
+if ([string]::IsNullOrWhiteSpace($ApiKind)) { $ApiKind = $ApiDefault }
+if ($ApiKind -notin @('openai-completions', 'openai-responses')) {
+    Write-Host "  unknown API '$ApiKind', using $ApiDefault"; $ApiKind = $ApiDefault
+}
 $Secure   = Read-Host "  API key" -AsSecureString
 $ApiKey   = [Runtime.InteropServices.Marshal]::PtrToStringAuto(
     [Runtime.InteropServices.Marshal]::SecureStringToBSTR($Secure))
@@ -38,7 +49,7 @@ foreach ($id in ($ModelIds -split ',')) {
 
 $provider = [ordered]@{
     name    = $ProviderId
-    api     = 'openai-completions'
+    api     = $ApiKind
     baseUrl = $BaseUrl
 }
 # ConvertTo-Json escapes the key for us; no hand-rolled quoting.
@@ -66,4 +77,4 @@ Write-Host "  wrote $ModelsJson (owner-only ACL)"
 if (-not $hadKey) {
     Write-Host "  No key stored - add `"apiKey`" to that file, or run /login in the agent."
 }
-Write-Host "  If your endpoint uses the Responses API, change api to openai-responses."
+Write-Host "  To switch protocols later, edit `"api`" in that file (openai-completions / openai-responses)."

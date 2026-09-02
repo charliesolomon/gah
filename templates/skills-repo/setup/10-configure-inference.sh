@@ -31,6 +31,22 @@ read -r -p "  Base URL (e.g. https://api.example.com/openai/v1): " BASE_URL
 read -r -p "  Provider id [corp]: " PROVIDER_ID
 PROVIDER_ID="${PROVIDER_ID:-corp}"
 read -r -p "  Model ids, comma-separated (e.g. gpt-4.1,gpt-5): " MODEL_IDS
+# Two wire protocols speak "OpenAI". Chat Completions is what most gateways,
+# vLLM and Ollama serve; the Responses API is what gpt-5-class models are
+# served through on OpenAI-compatible corporate gateways, and a gateway that
+# only half-implements streaming tool calls on Chat Completions shows up as
+# nameless tool calls in the agent. Default from the model ids; the person
+# can override.
+case ",$MODEL_IDS," in
+  *,gpt-5*|*,o[0-9]*|*,\ gpt-5*|*,\ o[0-9]*) API_DEFAULT="openai-responses" ;;
+  *) API_DEFAULT="openai-completions" ;;
+esac
+read -r -p "  API (openai-completions or openai-responses) [$API_DEFAULT]: " API_KIND
+API_KIND="${API_KIND:-$API_DEFAULT}"
+case "$API_KIND" in
+  openai-completions|openai-responses) ;;
+  *) echo "  unknown API '$API_KIND', using $API_DEFAULT"; API_KIND="$API_DEFAULT" ;;
+esac
 read -r -s -p "  API key: " API_KEY
 echo
 
@@ -38,7 +54,7 @@ mkdir -p "$AGENT_DIR"
 umask 077
 {
   printf '{\n  "providers": {\n    "%s": {\n' "$(json_escape "$PROVIDER_ID")"
-  printf '      "name": "%s",\n      "api": "openai-completions",\n' "$(json_escape "$PROVIDER_ID")"
+  printf '      "name": "%s",\n      "api": "%s",\n' "$(json_escape "$PROVIDER_ID")" "$API_KIND"
   printf '      "baseUrl": "%s",\n' "$(json_escape "$BASE_URL")"
   [ -n "$API_KEY" ] && printf '      "apiKey": "%s",\n' "$(json_escape "$API_KEY")"
   printf '      "models": [\n'
@@ -61,4 +77,4 @@ echo "  wrote $MODELS_JSON (0600)"
 if [ "$had_key" -eq 0 ]; then
   echo "  No key stored — add \"apiKey\" to that file, or run /login in the agent."
 fi
-echo "  If your endpoint uses the Responses API, change api to openai-responses."
+echo "  To switch protocols later, edit \"api\" in that file (openai-completions / openai-responses)."
