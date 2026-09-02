@@ -41,12 +41,12 @@ gah/
 
 **Building and running needs only Node and npm — on any platform.** The vendored
 tree is committed with patches applied, so a fresh clone builds directly, and
-nothing after `npm install` touches the network: the model catalogue is seeded
+nothing after the install touches the network: the model catalogue is seeded
 from [`packages/policy-pack/model-data/`](packages/policy-pack/model-data/README.md)
 (patch 0030) instead of being fetched from vendor APIs.
 
 ```bash
-cd vendor/pi && npm install && npm run build     # upstream's own 9-package chain
+cd vendor/pi && npm install --ignore-scripts && npm run build   # upstream's own 9-package chain
 cd ../..
 node scripts/install-tools.mjs                   # fd + ripgrep, pinned and verified (or: apt install fd-find ripgrep)
 ./bin/gah init ../my-org-skills                  # once per organization

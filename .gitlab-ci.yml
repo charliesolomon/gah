@@ -38,7 +38,7 @@ build:
       - vendor/pi/node_modules/
   script:
     - cd vendor/pi
-    - npm ci
+    - npm ci --ignore-scripts
     - for p in tui ai agent coding-agent; do npm --workspace packages/$p run build; done
     - cd ../..
     - ./scripts/bundle-policy.sh
