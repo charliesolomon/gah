@@ -78,3 +78,26 @@ export function gahRestrictProvider(provider: Provider): Provider {
 			provider.getModels().filter((m) => gahAllowsBuiltInModel(provider.id, m.id)),
 	};
 }
+
+/**
+ * A provider with nothing in its (filtered) catalogue has nothing to log into.
+ *
+ * Read at call time, not snapshotted: the catalogue is dynamic (see above).
+ * getModels() is synchronous everywhere -- withRemoteCatalog merges an
+ * in-memory overlay that refreshModels() fills in separately -- so this costs
+ * no network round-trip at menu-render time.
+ */
+export function gahProviderHasModels(provider: Provider): boolean {
+	return provider.getModels().length > 0;
+}
+
+/**
+ * The provider list every picker sees: /login, `gah auth`, the ModelRegistry
+ * facade extensions read. Denied providers are hidden rather than shown
+ * disabled, so the approved set is what a user is choosing from -- a policy
+ * that is invisible where providers are picked reads as no policy at all.
+ * Extension-registered providers carry their own models and stay visible.
+ */
+export function gahVisibleProviders(providers: readonly Provider[]): Provider[] {
+	return providers.filter(gahProviderHasModels);
+}

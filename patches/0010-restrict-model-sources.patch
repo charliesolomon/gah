@@ -1,7 +1,8 @@
-From 8ad80e06fb6688467495b705706ff66158c29442 Mon Sep 17 00:00:00 2001
+From fa2403875113de5261e6756282a6b7667aab45e7 Mon Sep 17 00:00:00 2001
 From: csolomon <charliesolomon@gmail.com>
-Date: Fri, 28 Aug 2026 19:57:13 -0700
-Subject: [PATCH] patch: restrict model sources (deny-all built-in catalog)
+Date: Wed, 2 Sep 2026 09:22:49 -0700
+Subject: [PATCH] patch: restrict model sources (deny-all built-in catalog,
+ hidden denied providers)
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
@@ -51,18 +52,84 @@ files never conflict on sync (patches/README.md).
 
 Verified: with GAH_BUILTIN_MODELS unset, --list-models reports no models;
 with 'anthropic/claude-opus-*' it lists only those.
+
+Re-authored 2026-09-02 to fold in #18 -- the same control seen from the
+provider-picker side. Kept in this patch rather than a 0012 because the
+two share the import hunk in model-runtime.ts, and apply-patches.sh
+cannot recognise overlapping patches as already applied.
+
+Two gaps in the allowlist's UI surface (0010-restrict-model-sources), one
+patch because they are the same control seen from two sides.
+
+1. /login listed every built-in provider, including the ~38 whose models
+   the allowlist denies (#18). 0010 wraps each provider's getModels() but
+   never filters the provider array, so getLoginProviderOptions() -- and
+   `gah auth`, and ModelRegistry.getProviders() for extensions -- offered
+   providers that can never serve a model. A technician who logged in to
+   one stored a credential on the shared host for nothing, and the deny-all
+   posture was invisible at exactly the moment a provider was being chosen.
+
+   ModelRuntime.getProviders() and getProvider() now hide providers whose
+   catalogue is empty. The predicate is "has at least one model after
+   filtering", read at call time; getModels() is synchronous everywhere
+   (withRemoteCatalog merges an in-memory overlay that refreshModels()
+   fills separately), so this is not a network round-trip per provider at
+   menu render, which was the open question on #18. Internal paths keep
+   reading this.models directly, so availability refresh and auth checks
+   are unchanged. Hidden, not shown disabled: the approved set is what a
+   user should be choosing from.
+
+2. A native re-registration of a built-in escaped the allowlist. An
+   extension can pi.registerProvider(providerObject); the policy pack does
+   exactly that to strip OAuth flows when providers.json is present, taking
+   the object from pi-ai's builtinProviders() -- upstream's raw catalogue,
+   not the wrapped one create() built. recomposeProvider() then served it
+   as-is. Reproduced at the runtime level: under deny-all, after that call,
+   anthropic exposed 14 models. It stayed out of --list-models on this
+   machine only because the stored credential was OAuth, which the
+   re-registered provider no longer accepted; an API key would have shown
+   them. Config-form overrides of a built-in id were already filtered
+   (they compose over the wrapped base), so this makes native
+   registration consistent with them.
+
+   recomposeProvider() now routes every setProvider through a helper that
+   re-wraps anything registered under a default built-in id. Idempotent
+   over the already-wrapped builtins. Providers under new ids -- what
+   providers.json normally registers -- are untouched and stay visible.
+
+Why here and not the policy pack: same reasoning as 0010. The extension API
+cannot see the runtime's providers at factory time (registrations are
+queued until bindCore), and `gah auth`, the SDK and the package manager
+build their own ModelRuntime before any extension loads. The provider list
+and the recompose chokepoint are the two places every entry point shares.
+
+Tests: test/gah-model-policy.test.ts (new file) covers deny-all, allowlist
+matching, an allowlist entry that matches nothing, extension providers by
+config and native under new ids, and the native re-registration of a
+built-in. Four upstream tests now fail in addition to the seven that
+already failed under GAH's deny-all default: two in
+model-runtime-auth-options enumerate getProviders() expecting all
+built-ins, and two in agent-session-dynamic-provider re-register
+"anthropic" natively with a custom baseUrl -- the config-form twins of
+those two were already failing for the same reason. All four assert the
+behaviour this patch removes. This repo's CI does not run them.
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_011it956DeV4unyWw5VyvkDD
 ---
- .../coding-agent/src/core/gah-model-policy.ts | 80 +++++++++++++++++++
- .../coding-agent/src/core/model-runtime.ts    | 15 +++-
- 2 files changed, 93 insertions(+), 2 deletions(-)
+ .../coding-agent/src/core/gah-model-policy.ts | 103 ++++++++++++++++++
+ .../coding-agent/src/core/model-runtime.ts    |  44 ++++++--
+ .../test/gah-model-policy.test.ts             |  99 +++++++++++++++++
+ 3 files changed, 239 insertions(+), 7 deletions(-)
  create mode 100644 vendor/pi/packages/coding-agent/src/core/gah-model-policy.ts
+ create mode 100644 vendor/pi/packages/coding-agent/test/gah-model-policy.test.ts
 
 diff --git a/packages/coding-agent/src/core/gah-model-policy.ts b/packages/coding-agent/src/core/gah-model-policy.ts
 new file mode 100644
-index 000000000..9e84dab25
+index 000000000..48742dccb
 --- /dev/null
 +++ b/packages/coding-agent/src/core/gah-model-policy.ts
-@@ -0,0 +1,80 @@
+@@ -0,0 +1,103 @@
 +/**
 + * GAH: built-in model catalogue policy.
 + *
@@ -143,19 +210,47 @@ index 000000000..9e84dab25
 +			provider.getModels().filter((m) => gahAllowsBuiltInModel(provider.id, m.id)),
 +	};
 +}
++
++/**
++ * A provider with nothing in its (filtered) catalogue has nothing to log into.
++ *
++ * Read at call time, not snapshotted: the catalogue is dynamic (see above).
++ * getModels() is synchronous everywhere -- withRemoteCatalog merges an
++ * in-memory overlay that refreshModels() fills in separately -- so this costs
++ * no network round-trip at menu-render time.
++ */
++export function gahProviderHasModels(provider: Provider): boolean {
++	return provider.getModels().length > 0;
++}
++
++/**
++ * The provider list every picker sees: /login, `gah auth`, the ModelRegistry
++ * facade extensions read. Denied providers are hidden rather than shown
++ * disabled, so the approved set is what a user is choosing from -- a policy
++ * that is invisible where providers are picked reads as no policy at all.
++ * Extension-registered providers carry their own models and stay visible.
++ */
++export function gahVisibleProviders(providers: readonly Provider[]): Provider[] {
++	return providers.filter(gahProviderHasModels);
++}
 diff --git a/packages/coding-agent/src/core/model-runtime.ts b/packages/coding-agent/src/core/model-runtime.ts
-index 6f4071b60..c31125601 100644
+index 6f4071b60..ff14dab4e 100644
 --- a/packages/coding-agent/src/core/model-runtime.ts
 +++ b/packages/coding-agent/src/core/model-runtime.ts
-@@ -40,6 +40,7 @@ import * as builtinProviderCatalog from "@earendil-works/pi-ai/providers/all";
+@@ -40,6 +40,12 @@ import * as builtinProviderCatalog from "@earendil-works/pi-ai/providers/all";
  import { getAgentDir } from "../config.ts";
  import { operationSignal, raceWithAbortSignal } from "../utils/abort.ts";
  import { AuthStorage as DefaultAuthStorage } from "./auth-storage.ts";
-+import { gahAllowsModelsJson, gahRestrictProvider } from "./gah-model-policy.ts";
++import {
++	gahAllowsModelsJson,
++	gahProviderHasModels,
++	gahRestrictProvider,
++	gahVisibleProviders,
++} from "./gah-model-policy.ts";
  import { ModelConfig } from "./model-config.ts";
  import { FileModelsStore, InMemoryCodingAgentModelsStore } from "./models-store.ts";
  import {
-@@ -171,8 +172,15 @@ export class ModelRuntime implements Models {
+@@ -171,8 +177,15 @@ export class ModelRuntime implements Models {
  
  	static async create(options: CreateModelRuntimeOptions = {}): Promise<ModelRuntime> {
  		const credentials = new RuntimeCredentials(options.credentials ?? DefaultAuthStorage.create(options.authPath));
@@ -172,7 +267,7 @@ index 6f4071b60..c31125601 100644
  		const config = await ModelConfig.load(modelsPath);
  		const modelsStore =
  			options.modelsStore ??
-@@ -180,13 +188,16 @@ export class ModelRuntime implements Models {
+@@ -180,13 +193,16 @@ export class ModelRuntime implements Models {
  				? new FileModelsStore(options.modelsStorePath ?? join(dirname(modelsPath), "models-store.json"))
  				: new InMemoryCodingAgentModelsStore());
  		const builtinModelDataGeneratedAt = builtinProviderCatalog.getBuiltinModelDataGeneratedAt();
@@ -190,6 +285,167 @@ index 6f4071b60..c31125601 100644
  		const runtime = new ModelRuntime(
  			credentials,
  			config,
+@@ -242,6 +258,16 @@ export class ModelRuntime implements Models {
+ 		]);
+ 	}
+ 
++	// GAH: whatever ends up registered under a built-in provider id is subject
++	// to the allowlist, however it got there. An extension can re-register a
++	// built-in as a native object (the policy pack does, to strip OAuth flows),
++	// and that object is upstream's raw catalogue, not the wrapped one from
++	// create() -- without this, a providers.json on the host reopened every
++	// built-in with an OAuth flow. Idempotent over already-wrapped builtins.
++	private setComposedProvider(providerId: string, provider: Provider): void {
++		this.models.setProvider(this.defaultBuiltins.has(providerId) ? gahRestrictProvider(provider) : provider);
++	}
++
+ 	private recomposeProvider(providerId: string): void {
+ 		const base = this.nativeExtensionProviders.get(providerId) ?? this.builtins.get(providerId);
+ 		const extension = this.extensionProviders.get(providerId);
+@@ -252,16 +278,16 @@ export class ModelRuntime implements Models {
+ 		}
+ 		if (base && !this.config.getProvider(providerId) && !extension) {
+ 			// No overlays: use the builtin untouched so its auth/login/stream behavior is exact.
+-			this.models.setProvider(base);
++			this.setComposedProvider(providerId, base);
+ 			this.compositionErrors.delete(providerId);
+ 			return;
+ 		}
+ 		try {
+-			this.models.setProvider(composeModelProvider(providerId, base, this.config, extension));
++			this.setComposedProvider(providerId, composeModelProvider(providerId, base, this.config, extension));
+ 			this.compositionErrors.delete(providerId);
+ 		} catch (error) {
+ 			this.compositionErrors.set(providerId, error instanceof Error ? error.message : String(error));
+-			if (base) this.models.setProvider(base);
++			if (base) this.setComposedProvider(providerId, base);
+ 			else this.models.deleteProvider(providerId);
+ 		}
+ 	}
+@@ -381,12 +407,16 @@ export class ModelRuntime implements Models {
+ 		}
+ 	}
+ 
++	// GAH: the public surface hides providers with no allowed models, so /login,
++	// `gah auth` and extensions see only what a user can actually use. Internal
++	// paths keep reading this.models directly. See gah-model-policy.ts.
+ 	getProviders(): readonly Provider[] {
+-		return this.models.getProviders();
++		return gahVisibleProviders(this.models.getProviders());
+ 	}
+ 
+ 	getProvider(providerId: string): Provider | undefined {
+-		return this.models.getProvider(providerId);
++		const provider = this.models.getProvider(providerId);
++		return provider && gahProviderHasModels(provider) ? provider : undefined;
+ 	}
+ 
+ 	getModels(providerId?: string): readonly Model<Api>[] {
+diff --git a/packages/coding-agent/test/gah-model-policy.test.ts b/packages/coding-agent/test/gah-model-policy.test.ts
+new file mode 100644
+index 000000000..86748c85b
+--- /dev/null
++++ b/packages/coding-agent/test/gah-model-policy.test.ts
+@@ -0,0 +1,99 @@
++/**
++ * GAH: the built-in model allowlist (0010) and the provider surface it
++ * implies. Runs without network or stored credentials.
++ */
++
++import { InMemoryCredentialStore } from "@earendil-works/pi-ai";
++import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
++import { afterEach, describe, expect, it } from "vitest";
++import { ModelRuntime } from "../src/core/model-runtime.ts";
++
++const saved = process.env.GAH_BUILTIN_MODELS;
++afterEach(() => {
++	if (saved === undefined) delete process.env.GAH_BUILTIN_MODELS;
++	else process.env.GAH_BUILTIN_MODELS = saved;
++});
++
++async function runtimeWith(allowlist: string | undefined): Promise<ModelRuntime> {
++	if (allowlist === undefined) delete process.env.GAH_BUILTIN_MODELS;
++	else process.env.GAH_BUILTIN_MODELS = allowlist;
++	return ModelRuntime.create({
++		credentials: new InMemoryCredentialStore(),
++		modelsPath: null,
++		allowModelNetwork: false,
++	});
++}
++
++const providerIds = (runtime: ModelRuntime) => runtime.getProviders().map((p) => p.id).sort();
++
++function testModel(id: string) {
++	return {
++		id,
++		name: id,
++		reasoning: false,
++		input: ["text"] as ("text" | "image")[],
++		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
++		contextWindow: 10000,
++		maxTokens: 1000,
++	};
++}
++
++describe("GAH model policy", () => {
++	it("deny-all exposes no models and no providers", async () => {
++		const runtime = await runtimeWith(undefined);
++		expect(runtime.getModels()).toHaveLength(0);
++		expect(providerIds(runtime)).toEqual([]);
++		expect(runtime.getProvider("anthropic")).toBeUndefined();
++	});
++
++	it("shows exactly the providers with an allowed model", async () => {
++		const runtime = await runtimeWith("anthropic/*,amazon-bedrock/us.anthropic.*");
++		expect(providerIds(runtime)).toEqual(["amazon-bedrock", "anthropic"]);
++		expect(runtime.getProvider("anthropic")?.id).toBe("anthropic");
++		expect(runtime.getProvider("openai")).toBeUndefined();
++		for (const model of runtime.getModels("amazon-bedrock")) {
++			expect(model.id.startsWith("us.anthropic.")).toBe(true);
++		}
++	});
++
++	it("hides a provider whose allowlist entry matches nothing", async () => {
++		const runtime = await runtimeWith("anthropic/no-such-model");
++		expect(providerIds(runtime)).toEqual([]);
++	});
++
++	it("keeps extension-registered providers visible under deny-all", async () => {
++		const runtime = await runtimeWith(undefined);
++		runtime.registerProvider("corp", {
++			baseUrl: "https://corp.example.invalid/v1",
++			api: "openai-completions",
++			apiKey: "x",
++			models: [testModel("corp-model")],
++		});
++		expect(providerIds(runtime)).toEqual(["corp"]);
++		expect(runtime.getModels("corp").map((m) => m.id)).toEqual(["corp-model"]);
++	});
++
++	it("keeps native providers under new ids visible under deny-all", async () => {
++		const runtime = await runtimeWith(undefined);
++		const raw = builtinProviders().find((p) => p.id === "anthropic")!;
++		const model = { ...testModel("corp-native-model"), api: "anthropic-messages" as const, provider: "corp-native", baseUrl: "https://corp.example.invalid" };
++		runtime.registerNativeProvider({ ...raw, id: "corp-native", name: "Corp Native", getModels: () => [model] });
++		expect(providerIds(runtime)).toEqual(["corp-native"]);
++		expect(runtime.getModels("corp-native").map((m) => m.id)).toEqual(["corp-native-model"]);
++	});
++
++	it("re-applies the allowlist to a built-in re-registered as a native provider", async () => {
++		// What the policy pack does to strip OAuth flows when providers.json is
++		// present: registerProvider({ ...rawBuiltin, auth: withoutOAuth }).
++		const runtime = await runtimeWith(undefined);
++		const raw = builtinProviders().find((p) => p.id === "anthropic")!;
++		const { oauth: _oauth, ...auth } = raw.auth;
++		runtime.registerNativeProvider({ ...raw, auth });
++		expect(runtime.getModels("anthropic")).toHaveLength(0);
++		expect(runtime.getProvider("anthropic")).toBeUndefined();
++
++		process.env.GAH_BUILTIN_MODELS = "anthropic/claude-sonnet-4-6";
++		expect(runtime.getModels("anthropic").map((m) => m.id)).toEqual(["claude-sonnet-4-6"]);
++		expect(runtime.getProvider("anthropic")?.auth.oauth).toBeUndefined();
++	});
++});
 -- 
 2.43.0
 
