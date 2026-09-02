@@ -83,6 +83,31 @@ passes it on every launch to pin the loaded set. It does not satisfy the check.
 To start a genuinely empty session — debugging the harness itself, essentially —
 set `GAH_ALLOW_NO_SKILLS=1`.
 
+## Prompt templates
+
+`prompts/<name>.md` in the skills repository becomes `/name` in the editor. Typing
+`/brief 18746` pastes the file's text into the message with `$1` replaced by
+`18746`, and sends it. Nothing else happens: no code runs, no tool is granted, the
+model receives ordinary text. A template is the button a person presses for a
+request they make often.
+
+That makes it the natural home for house rules — tone, format, "always cite the
+ticket number", "show me the draft and stop" — and for hiding skill names from
+the people using them: a template can say "use the ticket-brief skill and give me
+exactly five lines". Contrast with a skill, which is capability the *agent* picks
+up when relevant. Skill is capability; template is a button.
+
+The launchers pass `<repo>/prompts` through automatically (`bin/gah` and
+`bin\gah.ps1` relative to `GAH_SKILLS_DIR`, `gah-launch` from the synced clone),
+so templates ride the same PR review as skills. Upstream's discovery of a
+person's own `~/.gah/agent/prompts/` is deliberately left on: personal templates
+are text the person could have typed, so there is nothing to pin.
+
+`gah init` ships three neutral starters — `/summarize`, `/draft-email`,
+`/handoff` — meant to be replaced by the organisation's routine (`/morning`,
+`/brief <ticket>`, …). Format and argument syntax are upstream's:
+[prompt-templates.md](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/prompt-templates.md).
+
 ## Setup steps
 
 `setup/NN-*.sh` (`.ps1` on Windows) run in numeric order before the agent

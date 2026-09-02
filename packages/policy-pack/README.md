@@ -1,6 +1,6 @@
 # @gah/policy-pack
 
-The GAH policy layer, packaged as a [pi-package](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/packages.md). All custom behavior — tool allowlists, audit logging, system prompt overrides, branding, default skills — lives here.
+The GAH policy layer, packaged as a [pi-package](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/packages.md). All harness-level behavior — tool allowlists, audit logging, system prompt overrides, branding, approved providers — lives here. Skills and prompt templates do not: they are organisation content and live in the skills repository (`docs/SKILLS.md`).
 
 ## Contents
 
@@ -8,8 +8,8 @@ The GAH policy layer, packaged as a [pi-package](https://github.com/earendil-wor
 |------|---------|
 | `extensions/policy.ts` | Tool allowlist, audit logging, protected-path guard |
 | `extensions/branding.ts` | System-prompt header, footer/banner customization |
-| `skills/` | Default skills shipped with GAH |
-| `prompts/` | Default prompt templates |
+| `extensions/providers.ts` | Approved inference endpoints from `providers.json` |
+| `model-data/` | The only built-in model data a build ships (`model-data/README.md`) |
 | `SYSTEM.md` | System-prompt override (loaded by `branding.ts`) |
 
 ## Why everything is here

@@ -17,8 +17,6 @@ Anything we *can* express as an extension goes in (1). Edits to upstream code on
 gah/
 ├── packages/policy-pack/      ← our IP — extensions, skills, prompts, branding
 │   ├── extensions/
-│   ├── skills/
-│   ├── prompts/
 │   ├── model-data/            ← the only built-in model data a build ships
 │   ├── SYSTEM.md              ← system-prompt override
 │   └── package.json
@@ -26,7 +24,7 @@ gah/
 ├── vendor/pi/                 ← upstream PI (managed by scripts/sync-upstream.sh)
 ├── deploy/host/               ← shared SSH agent host (tmux launcher, per-user manifests)
 ├── deploy/windows/            ← laptop-side shortcut installer: one worked example, for TacticalRMM
-├── templates/skills-repo/     ← scaffold written by `gah init` (your org's skills repo)
+├── templates/skills-repo/     ← scaffold written by `gah init`: skills, prompts, setup steps
 ├── scripts/                   ← sync, patch, build helpers
 ├── ci/scans/                  ← SBOM, CVE, semgrep/CodeQL configs
 ├── docs/WORKFLOW.md           ← upstream sync + patch hygiene

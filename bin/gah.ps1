@@ -75,6 +75,9 @@ if (-not $SkillsConfigured) {
 $SkillArgs = @()
 if ($env:GAH_SKILLS_DIR -and (Test-Path $env:GAH_SKILLS_DIR)) {
     $SkillArgs = @('--skill', $env:GAH_SKILLS_DIR)
+    # Prompt templates: the repo's prompts\ (sibling of skills\). See bin/gah.
+    $PromptsDir = Join-Path (Split-Path -Parent $env:GAH_SKILLS_DIR) 'prompts'
+    if (Test-Path $PromptsDir) { $SkillArgs += @('--prompt-template', $PromptsDir) }
 }
 
 if (-not (Test-Path $PiCli)) {
