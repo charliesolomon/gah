@@ -91,6 +91,28 @@ export default function (pi: ExtensionAPI) {
 		audit({ kind: "policy", reason: "active_tools", tools: active });
 	});
 
+	// The `!command` / `!!command` editor prefix runs a shell as the USER, not
+	// as a model tool call, so the allowlist below never sees it -- and on a
+	// shared host that is a raw shell hand-out the deployment promised not to
+	// make (#35). Same rule as the tools: a shell is available only when the
+	// deployment allowed one. Returning a result replaces execution entirely.
+	pi.on("user_bash", async (event) => {
+		const shellAllowed = ALLOWED_TOOLS.has("bash") || ALLOWED_TOOLS.has("powershell");
+		if (shellAllowed) {
+			audit({ kind: "allowed", tool: "user_bash", command: event.command });
+			return undefined;
+		}
+		audit({ kind: "blocked", reason: "shell_escape", command: event.command });
+		return {
+			result: {
+				output: "Shell commands are disabled by GAH policy in this deployment (no bash/powershell in GAH_ALLOW_TOOLS).",
+				exitCode: 1,
+				cancelled: false,
+				truncated: false,
+			},
+		};
+	});
+
 	pi.on("tool_call", async (event, _ctx) => {
 		// 1. Allowlist
 		if (!ALLOWED_TOOLS.has(event.toolName)) {

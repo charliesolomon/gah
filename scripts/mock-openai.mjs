@@ -7,9 +7,9 @@ import { appendFileSync } from "node:fs";
 import http from "node:http";
 
 const log = process.env.MOCK_LOG;
-const port = Number(process.env.MOCK_PORT || 0);
-if (!log || !port) {
-	console.error("mock-openai: MOCK_LOG and MOCK_PORT are required");
+const port = Number(process.env.MOCK_PORT || 0); // 0 = any free port; the chosen one is printed
+if (!log) {
+	console.error("mock-openai: MOCK_LOG is required");
 	process.exit(2);
 }
 
@@ -32,4 +32,6 @@ http
 			res.end();
 		});
 	})
-	.listen(port, "127.0.0.1", () => console.log(`mock-openai listening on ${port}`));
+	.listen(port, "127.0.0.1", function () {
+		console.log(`mock-openai listening on ${this.address().port}`);
+	});

@@ -189,6 +189,9 @@ deployment opts in with:
 $env:GAH_ALLOW_TOOLS = 'powershell'
 ```
 
+The editor's `!command` prefix, which runs a shell as you rather than as the
+model, follows the same rule: it works only when a shell tool is allowed.
+
 Two PowerShell habits to know when passing lists on the command line: an
 unquoted comma list is an **array literal**, so `--tools read,ls` reaches the
 binary as two separate words. Quote it: `--tools 'read,ls'`. Environment

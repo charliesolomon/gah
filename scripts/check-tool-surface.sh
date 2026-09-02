@@ -16,9 +16,23 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
-PORT="${MOCK_PORT:-47391}"
 WORK="$(mktemp -d)"
-trap 'kill "$MOCK_PID" 2>/dev/null || true; rm -rf "$WORK"' EXIT
+MOCK_PID=""
+trap '[ -n "$MOCK_PID" ] && kill "$MOCK_PID" 2>/dev/null || true; rm -rf "$WORK"' EXIT
+
+# Any free port: a fixed one collides with a mock left over from an earlier,
+# interrupted run, and the failure then looks like "no request reached the mock".
+MOCK_LOG="$WORK/requests.log" MOCK_PORT=0 node scripts/mock-openai.mjs >"$WORK/mock.out" 2>&1 &
+MOCK_PID=$!
+PORT=""
+for _ in $(seq 1 50); do
+	PORT=$(sed -n 's/^mock-openai listening on //p' "$WORK/mock.out" 2>/dev/null)
+	[ -n "$PORT" ] && break
+	sleep 0.1
+done
+if [ -z "$PORT" ]; then
+	echo "mock endpoint did not start:" >&2; cat "$WORK/mock.out" >&2; exit 2
+fi
 
 mkdir -p "$WORK/agent"
 cat > "$WORK/agent/models.json" <<JSON
@@ -26,10 +40,6 @@ cat > "$WORK/agent/models.json" <<JSON
   "baseUrl": "http://127.0.0.1:$PORT/v1", "apiKey": "x",
   "models": [ { "id": "m1", "input": ["text"] } ] } } }
 JSON
-
-MOCK_LOG="$WORK/requests.log" MOCK_PORT="$PORT" node scripts/mock-openai.mjs >"$WORK/mock.out" 2>&1 &
-MOCK_PID=$!
-for _ in $(seq 1 50); do grep -q listening "$WORK/mock.out" 2>/dev/null && break; sleep 0.1; done
 
 # Runs one print-mode prompt through bin/gah and prints the tool names the
 # mock saw, comma-joined. Extra args go to bin/gah.
