@@ -1,0 +1,120 @@
+From 0e143f5f514e4a45e3b9df8d4f1dec1a7334a117 Mon Sep 17 00:00:00 2001
+From: csolomon <charliesolomon@gmail.com>
+Date: Wed, 2 Sep 2026 10:24:12 -0700
+Subject: [PATCH] offline-runtime: no runtime downloads, no startup network
+ calls
+
+Two hunks, one contract: at runtime GAH reaches the network only to talk
+to approved inference endpoints (docs/SUPPLY-CHAIN.md).
+
+1. utils/tools-manager.ts: ensureTool() no longer downloads. Upstream
+   fetched whatever GitHub called the latest release of fd and ripgrep --
+   unpinned, unverified, extracted with tar -- the first time a session
+   found them missing, at TUI startup and again on first use of the find
+   and grep tools (#3). Both tools are load-bearing: find and grep reject
+   outright without them. GAH installs them at deployment time instead,
+   from the system package manager or pinned and SHA-256-checked by
+   scripts/install-tools.mjs, and this function only looks them up: the
+   agent bin directory first, then PATH (fd, fdfind, rg). When neither
+   has the tool it warns with the install instructions and returns
+   undefined. downloadTool() and its helpers are left unreferenced on
+   purpose so the change stays one hunk; nothing calls them.
+
+2. main.ts: offline mode is unconditional. Upstream's --offline /
+   PI_OFFLINE switch gates every startup network call that is not
+   inference: the tool download above (belt and braces), the npm version
+   check (GAH is not on npm), the install-report ping to pi.dev, the
+   remote model-catalogue refresh from pi.dev (denied by 0010 anyway) and
+   the package update check (GAH loads its extensions by path, not from
+   packages). Forcing it in main() covers every CLI entry point; the flag
+   and the variable stay accepted and are simply redundant.
+
+Why a patch: the download lives inside the find and grep tools' own code
+path and runs before any extension could intervene; the startup calls
+happen in main() before extensions load. Env-only enforcement in the
+launchers would leave published artifacts and the SDK path downloading.
+
+Verified against the built dist with PATH emptied, no agent bin directory
+and globalThis.fetch stubbed to throw: both lookups warn and return
+undefined, no fetch is attempted; with binaries placed in the agent bin
+directory both resolve. Full build and smoke pass.
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_011it956DeV4unyWw5VyvkDD
+---
+ packages/coding-agent/src/main.ts             |  8 +++-
+ .../coding-agent/src/utils/tools-manager.ts   | 41 +++++++------------
+ 2 files changed, 21 insertions(+), 28 deletions(-)
+
+diff --git a/packages/coding-agent/src/main.ts b/packages/coding-agent/src/main.ts
+index 6769849b4..0839fc0ee 100644
+--- a/packages/coding-agent/src/main.ts
++++ b/packages/coding-agent/src/main.ts
+@@ -564,7 +564,13 @@ export interface MainOptions {
+ export async function main(args: string[], options?: MainOptions) {
+ 	resetTimings();
+ 	const extensionFactories = [...builtInExtensions, ...(options?.extensionFactories ?? [])];
+-	const offlineMode = args.includes("--offline") || isTruthyEnvFlag(process.env.PI_OFFLINE);
++	// GAH: always run in upstream's offline mode. It gates every startup
++	// network call that is not inference -- the fd/ripgrep download, the npm
++	// version check, the install-report ping to pi.dev, the remote
++	// model-catalogue refresh and the package update check. GAH's network
++	// contract is "approved inference endpoints only" (docs/SUPPLY-CHAIN.md).
++	// --offline and PI_OFFLINE remain accepted and are simply redundant.
++	const offlineMode = true;
+ 	if (offlineMode) {
+ 		process.env.PI_OFFLINE = "1";
+ 		process.env.PI_SKIP_VERSION_CHECK = "1";
+diff --git a/packages/coding-agent/src/utils/tools-manager.ts b/packages/coding-agent/src/utils/tools-manager.ts
+index 23a71b5a1..d255b28e9 100644
+--- a/packages/coding-agent/src/utils/tools-manager.ts
++++ b/packages/coding-agent/src/utils/tools-manager.ts
+@@ -344,31 +344,18 @@ export async function ensureTool(
+ 	const config = TOOLS[tool];
+ 	if (!config) return undefined;
+ 
+-	if (isOfflineModeEnabled()) {
+-		onStatus?.({ type: "warning", message: `${config.name} not found. Offline mode enabled, skipping download.` });
+-		return undefined;
+-	}
+-
+-	// On Android/Termux, Linux binaries don't work due to Bionic libc incompatibility.
+-	// Users must install via pkg.
+-	if (platform() === "android") {
+-		const pkgName = TERMUX_PACKAGES[tool] ?? tool;
+-		onStatus?.({ type: "warning", message: `${config.name} not found. Install with: pkg install ${pkgName}` });
+-		return undefined;
+-	}
+-
+-	// Tool not found - download it
+-	onStatus?.({ type: "info", message: `${config.name} not found. Downloading...` });
+-
+-	try {
+-		const path = await downloadTool(tool);
+-		onStatus?.({ type: "info", message: `${config.name} installed to ${path}` });
+-		return path;
+-	} catch (e) {
+-		onStatus?.({
+-			type: "warning",
+-			message: `Failed to download ${config.name}: ${e instanceof Error ? e.message : e}`,
+-		});
+-		return undefined;
+-	}
++	// GAH: never download at runtime. Upstream fetches whatever GitHub calls the
++	// latest release, unpinned and unverified, the first time the tool is
++	// missing. GAH installs fd and ripgrep at deployment time instead -- from
++	// the system package manager, or pinned and SHA-256-checked by
++	// scripts/install-tools.mjs -- and this function only ever looks them up.
++	// See docs/SUPPLY-CHAIN.md. downloadTool() above is intentionally left
++	// unreferenced so the patch stays a single hunk.
++	onStatus?.({
++		type: "warning",
++		message:
++			`${config.name} not found. GAH does not download tools at runtime: install it on PATH ` +
++			`or into ${TOOLS_DIR} (node scripts/install-tools.mjs -- see docs/SUPPLY-CHAIN.md).`,
++	});
++	return undefined;
+ }
+-- 
+2.43.0
+
