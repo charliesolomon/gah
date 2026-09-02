@@ -44,10 +44,15 @@ JSON
 # Runs one print-mode prompt through bin/gah and prints the tool names the
 # mock saw, comma-joined. Extra args go to bin/gah.
 offered() {
-	: > "$WORK/requests.log"
-	GAH_CODING_AGENT_DIR="$WORK/agent" GAH_ALLOW_MODELS_JSON=1 GAH_BUILTIN_MODELS='' \
-	GAH_ALLOWED_HOSTS=127.0.0.1 GAH_ALLOW_NO_SKILLS=1 GAH_AUDIT_LOG="$WORK/audit.log" \
-		timeout 90 ./bin/gah -p --no-session --model mock/m1 "$@" "hi" >/dev/null 2>&1 || true
+	# One retry: an isolated miss was seen once on a loaded machine and did not
+	# reproduce; a flaky guard is worse than none.
+	for _attempt in 1 2; do
+		: > "$WORK/requests.log"
+		GAH_CODING_AGENT_DIR="$WORK/agent" GAH_ALLOW_MODELS_JSON=1 GAH_BUILTIN_MODELS='' \
+		GAH_ALLOWED_HOSTS=127.0.0.1 GAH_ALLOW_NO_SKILLS=1 GAH_AUDIT_LOG="$WORK/audit.log" \
+			timeout 90 ./bin/gah -p --no-session --model mock/m1 "$@" "hi" >/dev/null 2>&1 || true
+		[ -s "$WORK/requests.log" ] && break
+	done
 	[ -s "$WORK/requests.log" ] || { echo "(no request reached the mock)"; return; }
 	node -e 'const l=require("fs").readFileSync(process.argv[1],"utf8").trim().split("\n").pop();console.log(JSON.parse(l).tools.join(","))' "$WORK/requests.log"
 }
