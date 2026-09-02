@@ -6,6 +6,7 @@ controls; this supplies everything that makes it useful to *your* organization.
 
 ```
 skills/     one directory per skill, each with SKILL.md
+prompts/    slash commands: one Markdown file per /name (see below)
 setup/      steps run before the agent starts, on every launch
 context/    what your organization knows (see context/README.md)
 ```
@@ -41,6 +42,25 @@ for exactly that, which also means the tool teaches its own extension.
 Both are deliberately generic. Everything else here should be specific to you —
 if a skill would make sense at another organization unchanged, it probably
 belongs upstream rather than here.
+
+## Prompt templates
+
+`prompts/<name>.md` becomes `/name` in the editor: typing it pastes the file's
+text into your message, with `$1`, `$2` and `$@` replaced by what you typed
+after it. That is all a template is — no code runs and no tool is granted. It
+is the button a person presses for a request they make often, and it is where
+house rules live: tone, format, "always cite the ticket number", "show me the
+draft and stop". A template can name a skill ("use the ticket-brief skill and
+give me five lines"), so nobody has to learn skill names.
+
+Three neutral starters ship here: `/summarize`, `/draft-email`, `/rrr` (a
+pirate's stanza about the working directory — the one to try first).
+Replace them with your routine — a `/morning` for the start of a shift, a
+`/brief <ticket>` in your fixed format. People can also keep personal ones in
+`~/.gah/agent/prompts/`; those load alongside the shared set and are not
+reviewed, which is fine for text the person could have typed anyway.
+
+Format and argument syntax: [upstream's prompt-template reference](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/prompt-templates.md).
 
 ## Setup steps
 

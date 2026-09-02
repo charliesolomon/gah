@@ -134,6 +134,13 @@ export GAH_ALLOWED_HOSTS="${GAH_ALLOWED_HOSTS-*}"
 skill_args=()
 [ -n "${GAH_SKILLS_DIR:-}" ] && [ -d "${GAH_SKILLS_DIR:-}" ] && skill_args=(--skill "$GAH_SKILLS_DIR")
 
+# Prompt templates: the skills repo's prompts/ (sibling of skills/) holds the
+# organisation's slash commands, reviewed like skills. Discovery stays on, so a
+# person's own ~/.gah/agent/prompts/ still loads alongside them.
+if [ -n "${GAH_SKILLS_DIR:-}" ] && [ -d "$(dirname "$GAH_SKILLS_DIR")/prompts" ]; then
+  skill_args+=(--prompt-template "$(dirname "$GAH_SKILLS_DIR")/prompts")
+fi
+
 # --- Onboarding / setup steps -------------------------------------------------
 # The skills repo may ship numbered, idempotent setup steps (setup/NN-*.sh) that
 # run in the terminal before the TUI, so secrets are collected without ever

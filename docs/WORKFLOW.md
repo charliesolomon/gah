@@ -4,7 +4,7 @@
 
 Every customization is one of:
 
-1. **Additive in `packages/policy-pack/`** — new extension, new skill, new prompt, new file in `SYSTEM.md`. Zero merge conflict surface.
+1. **Additive in `packages/policy-pack/`** — new extension, new file in `SYSTEM.md`. Zero merge conflict surface. (Skills and prompt templates are organisation content and live in the skills repository, not here.)
 2. **A discrete patch in `patches/`** — modifies upstream PI sources. Use only when (1) is impossible.
 
 We are aggressive about pushing things into (1). The PI extension API can replace built-in tools, gate every tool call, override the system prompt, customize compaction, register commands and UI, etc. Reach for a patch only after confirming there's no extension hook.
@@ -45,7 +45,7 @@ Never commit changes to `vendor/pi/` outside the patch flow (`patches/README.md`
 
 ## Daily flow
 
-- Adding policy/branding/skill behavior → edit `packages/policy-pack/`, commit normally.
+- Adding policy/branding behavior → edit `packages/policy-pack/`, commit normally. Skills and prompt templates go in the organisation's skills repository.
 - Need to change upstream PI source → see `patches/README.md` for how to author and export a patch. Never edit `vendor/pi/` files directly on `main`.
 
 ## Upstream sync ritual

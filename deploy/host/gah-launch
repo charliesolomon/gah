@@ -240,4 +240,10 @@ Check the warnings above: either the clone failed or the repo has no skills.
 To start a deliberately empty session:  GAH_ALLOW_NO_SKILLS=1 $GAH_HOME/bin/gah --no-skills"
 fi
 
+# Prompt templates: the shared repo's prompts/ holds the organisation's slash
+# commands (/brief, /handoff, ...), reviewed like skills. Discovery is left on,
+# so a user's own ~/.gah/agent/prompts/ loads alongside them -- they are text
+# expansions the person could have typed, so there is nothing to pin.
+[ -d "$SKILLS_DIR/prompts" ] && skill_args+=(--prompt-template "$SKILLS_DIR/prompts")
+
 exec "$GAH_HOME/bin/gah" --no-skills "${skill_args[@]}"
