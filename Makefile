@@ -6,7 +6,7 @@
 PI_DIR := vendor/pi
 
 .DEFAULT_GOAL := help
-.PHONY: help install install-hooks build build-all build-offline smoke refresh-model-data patches bundle-policy clean-vendor sync sync-init status patch-new patch-export
+.PHONY: help install install-tools install-hooks build build-all build-offline smoke refresh-model-data patches bundle-policy clean-vendor sync sync-init status patch-new patch-export
 
 help: ## Show available targets
 	@awk 'BEGIN { FS = ":.*##"; printf "Usage: make <target> [VAR=value]\n\nTargets:\n" } \
@@ -15,6 +15,11 @@ help: ## Show available targets
 
 install: ## Install npm deps in vendor/pi (run after first sync-init)
 	cd $(PI_DIR) && npm install
+
+install-tools: ## Install pinned, SHA-256-verified fd + ripgrep into ~/.gah/agent/bin (see docs/SUPPLY-CHAIN.md)
+	@# 0013-offline-runtime removed upstream's runtime download of these; the
+	@# find and grep tools need them. Offline: see the doc for --download-only/--from.
+	node scripts/install-tools.mjs
 
 install-hooks: ## Symlink scripts/git-hooks/* into .git/hooks/ (one-time per clone)
 	@for hook in scripts/git-hooks/*; do \

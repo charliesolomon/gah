@@ -15,6 +15,10 @@ All scanners use OSS configurations and run without external service accounts, s
 
 **Scope:** Semgrep only scans owned code (`packages/`, `scripts/`, `bin/`). `vendor/pi/` is upstream and out of scope for our SAST — we can't fix issues there and we don't want to be alerted about issues that aren't ours. Trivy and npm audit *do* cover `vendor/pi/` because we run them against the installed dependency tree, which we ship.
 
+Runtime supply chain — what the built agent reaches over the network, and how
+the `fd`/`ripgrep` binaries it needs are pinned and installed — is covered in
+[docs/SUPPLY-CHAIN.md](../../docs/SUPPLY-CHAIN.md).
+
 ## Triage policy
 
 - **Critical** in `packages/`, `scripts/`, `bin/`, or in runtime deps of `vendor/pi/` → blocks the next release.

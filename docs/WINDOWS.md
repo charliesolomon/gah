@@ -147,6 +147,37 @@ npm run build:offline                             # full, reuses src/providers/d
 Both are offline. `build:offline` only skips re-seeding `packages/ai`'s model
 data from `packages/policy-pack/model-data/`, which a normal build does anyway.
 
+## Install fd and ripgrep
+
+The agent's find and grep tools need these two binaries, and GAH does not
+download them at runtime (patch 0013; upstream did, unpinned). Install them once,
+pinned and SHA-256-verified, into `~\.gah\agent\bin`:
+
+```powershell
+cd ..\..                              # repo root
+node scripts\install-tools.mjs
+```
+
+Needs the same proxy environment as `npm install`. Nothing else in a session
+reaches the internet except the inference endpoint.
+
+**No internet on the target machine?** On any connected machine, from a clone:
+
+```powershell
+node scripts\install-tools.mjs --download-only C:\path\to\gah-tools --platform win32-x64
+```
+
+copy that folder over, then on the target:
+
+```powershell
+node scripts\install-tools.mjs --from C:\path\to\gah-tools
+```
+
+The archives are verified against the pinned checksums either way. Details and
+the pinned versions: [SUPPLY-CHAIN.md](SUPPLY-CHAIN.md). If the tools are
+missing, the agent says so at startup and the find and grep tools fail; nothing
+else is affected.
+
 ## Run
 
 GAH will not start without your organization's skills. If someone has already
