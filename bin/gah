@@ -58,8 +58,10 @@ fi
 # honouring it here would exempt the shared host from the check entirely.
 skills_configured=0
 case " $* " in *" --skill "*) skills_configured=1 ;; esac
-# --help and --version answer without a skills repo; they start nothing.
-case " $* " in *" --help "*|*" -h "*|*" --version "*|*" -v "*) skills_configured=1 ;; esac
+# --help and --version answer without a skills repo and start nothing, so they
+# also skip the setup steps below.
+info_only=0
+case " $* " in *" --help "*|*" -h "*|*" --version "*|*" -v "*) info_only=1; skills_configured=1 ;; esac
 [ -n "${GAH_ALLOW_NO_SKILLS:-}" ] && skills_configured=1
 if [ -n "${GAH_SKILLS_DIR:-}" ] && [ -d "$GAH_SKILLS_DIR" ]; then skills_configured=1; fi
 if [ "$skills_configured" -eq 0 ]; then
@@ -151,7 +153,7 @@ fi
 # Steps are agent-authored code, same trust level as the skills themselves;
 # change control is the skills repo's review. Failure is non-fatal, matching
 # deploy/host/gah-launch. GAH_SKIP_SETUP=1 skips them.
-if [ -n "${GAH_SKILLS_DIR:-}" ] && [ -z "${GAH_SKIP_SETUP:-}" ]; then
+if [ -n "${GAH_SKILLS_DIR:-}" ] && [ -z "${GAH_SKIP_SETUP:-}" ] && [ "$info_only" -eq 0 ]; then
   setup_dir="$(dirname "$GAH_SKILLS_DIR")/setup"
   if [ -d "$setup_dir" ]; then
     for step in "$setup_dir"/[0-9]*.sh; do

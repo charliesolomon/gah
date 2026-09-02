@@ -52,8 +52,12 @@ $SkillsConfigured = $false
 # none" - deploy/host/gah-launch passes it on every launch to pin the loaded
 # set, so honouring it here would exempt the shared host from the check.
 if ($args -contains '--skill') { $SkillsConfigured = $true }
-# --help and --version answer without a skills repo; they start nothing.
-if (@('--help', '-h', '--version', '-v') | Where-Object { $args -contains $_ }) { $SkillsConfigured = $true }
+# --help and --version answer without a skills repo and start nothing, so they
+# also skip the setup steps below. Computed at script scope on purpose: inside
+# a Where-Object scriptblock, $args is the scriptblock's own (empty) list.
+$InfoOnly = $false
+foreach ($flag in @('--help', '-h', '--version', '-v')) { if ($args -contains $flag) { $InfoOnly = $true } }
+if ($InfoOnly) { $SkillsConfigured = $true }
 if ($env:GAH_ALLOW_NO_SKILLS) { $SkillsConfigured = $true }
 if ($env:GAH_SKILLS_DIR -and (Test-Path $env:GAH_SKILLS_DIR)) { $SkillsConfigured = $true }
 if (-not $SkillsConfigured) {
@@ -120,7 +124,7 @@ if (-not (Test-Path Env:GAH_ALLOWED_HOSTS)) {
 # Steps are agent-authored code, same trust level as the skills themselves;
 # change control is the skills repo's review. Failure is non-fatal, matching
 # deploy/host/gah-launch. GAH_SKIP_SETUP=1 skips them.
-if ($env:GAH_SKILLS_DIR -and -not $env:GAH_SKIP_SETUP) {
+if ($env:GAH_SKILLS_DIR -and -not $env:GAH_SKIP_SETUP -and -not $InfoOnly) {
     $SetupDir = Join-Path (Split-Path -Parent $env:GAH_SKILLS_DIR) 'setup'
     if (Test-Path $SetupDir) {
         $steps = Get-ChildItem -Path $SetupDir -Filter '*.ps1' -File |
