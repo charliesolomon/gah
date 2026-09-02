@@ -48,6 +48,8 @@ Schema and a worked example: [`packages/policy-pack/providers.example.json`](../
   the file itself holds no secrets.
 - **No file → nothing registered** (mechanism 1 still applies).
 - **Bad file → fail closed**: nothing registered, error in stderr + audit log.
+- Registered providers appear in `/login` alongside any allowlisted built-ins;
+  everything else is absent from the list, not shown disabled.
 - When a file is present it is authoritative for logins: built-in OAuth flows
   (`anthropic`, `github-copilot`, `openai-codex`) not listed in `keepOAuth`
   are removed from `/login`.
@@ -57,6 +59,8 @@ Schema and a worked example: [`packages/policy-pack/providers.example.json`](../
 | Surface | Disposition |
 |---|---|
 | Built-in catalog | Only seeded providers have any models (patch 0030); those are hidden unless `GAH_BUILTIN_MODELS` matches (patch 0010) |
+| `/login`, `gah auth`, `ModelRegistry.getProviders()` | List only providers with at least one usable model (patch 0010). A denied built-in provider does not appear, so nobody stores a credential for a provider that can never serve a model. |
+| Re-registering a built-in provider id from an extension | Still subject to `GAH_BUILTIN_MODELS`, whether registered by config or as a native provider object (patch 0010). A `providers.json` entry that reuses a built-in id such as `anthropic` therefore also needs that provider allowlisted; use a new id to sidestep the built-in catalogue entirely. |
 | `~/.gah/agent/models.json` | Read unless `GAH_ALLOW_MODELS_JSON` is set to anything but `1` (patch 0010). `bin/gah` and `bin\gah.ps1` default it **on**, since a workstation exists to point at its user's endpoint. `deploy/host/gah-launch` defaults it **off** and exports it either way, so a user's own environment cannot switch it on — models.json carries its own `baseUrl` and `apiKey`, so honouring one there would route around this table entirely. |
 | `pi.registerProvider()` from extensions | Only GAH's own extensions load (`--no-extensions` + explicit list / baked `gah-policy`) |
 | Built-in OAuth `/login` flows | Removed when a providers file is present, except `keepOAuth` entries |
