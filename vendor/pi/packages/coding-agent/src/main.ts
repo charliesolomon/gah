@@ -564,7 +564,13 @@ export interface MainOptions {
 export async function main(args: string[], options?: MainOptions) {
 	resetTimings();
 	const extensionFactories = [...builtInExtensions, ...(options?.extensionFactories ?? [])];
-	const offlineMode = args.includes("--offline") || isTruthyEnvFlag(process.env.PI_OFFLINE);
+	// GAH: always run in upstream's offline mode. It gates every startup
+	// network call that is not inference -- the fd/ripgrep download, the npm
+	// version check, the install-report ping to pi.dev, the remote
+	// model-catalogue refresh and the package update check. GAH's network
+	// contract is "approved inference endpoints only" (docs/SUPPLY-CHAIN.md).
+	// --offline and PI_OFFLINE remain accepted and are simply redundant.
+	const offlineMode = true;
 	if (offlineMode) {
 		process.env.PI_OFFLINE = "1";
 		process.env.PI_SKIP_VERSION_CHECK = "1";

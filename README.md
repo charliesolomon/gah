@@ -33,6 +33,7 @@ gah/
 ├── docs/GITLAB.md             ← distribution via enterprise GitLab (npm registry)
 ├── docs/PROVIDERS.md          ← inference-provider restriction + approved endpoints
 ├── docs/SKILLS.md             ← the skills repository: gah init, layout, rollout
+├── docs/SUPPLY-CHAIN.md       ← what reaches the network, and the fd/ripgrep install
 ├── docs/CONCEPT.html         ← the concept, for a non-technical audience (standalone, offline)
 └── .github/workflows/         ← scheduled upstream sync + scans
 ```
@@ -48,6 +49,7 @@ from [`packages/policy-pack/model-data/`](packages/policy-pack/model-data/README
 ```bash
 cd vendor/pi && npm install && npm run build     # upstream's own 9-package chain
 cd ../..
+node scripts/install-tools.mjs                   # fd + ripgrep, pinned and verified (or: apt install fd-find ripgrep)
 ./bin/gah init ../my-org-skills                  # once per organization
 GAH_SKILLS_DIR=../my-org-skills/skills ./bin/gah # bin\gah.ps1 on Windows
 ```
@@ -60,6 +62,11 @@ source control and share it with the team. See [docs/SKILLS.md](docs/SKILLS.md).
 `npm run build` is what `make build-all` invokes. Prefer it: it comes from the
 vendored tree, so it cannot fall out of step with upstream the way a hand-kept
 package list does.
+
+The agent's find and grep tools need `fd` and `ripgrep`, and GAH never downloads
+them at runtime (patch 0013). Install them from your package manager, or pinned
+and checksum-verified with `node scripts/install-tools.mjs` — offline variants
+included. See [docs/SUPPLY-CHAIN.md](docs/SUPPLY-CHAIN.md).
 
 **Maintaining the fork uses make, and is bash-only** (Linux/macOS). This is the
 part make actually earns — REF validation, the patch series, git hooks, policy

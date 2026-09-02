@@ -26,7 +26,10 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 echo ">>> prerequisites"
 apt-get update -qq
-apt-get install -y -qq git tmux curl ca-certificates
+# fd-find and ripgrep: the agent's find and grep tools need them, and GAH
+# never downloads them at runtime (docs/SUPPLY-CHAIN.md). Debian names the
+# fd binary fdfind; the agent looks for both names.
+apt-get install -y -qq git tmux curl ca-certificates fd-find ripgrep
 
 node_major=0
 if command -v node >/dev/null 2>&1; then

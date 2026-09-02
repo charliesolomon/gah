@@ -56,7 +56,10 @@ Then per component:
    and drops a manifest at `/etc/gah/users.d/jsmith.conf` from the
    [template](users.d/agent.conf.example) — review it: skills repo/branch,
    `GAH_BUILTIN_MODELS` globs, `GAH_ALLOW_TOOLS`.
-3. **AWS credentials** (Phase 2): per-user IAM keys in
+3. **fd and ripgrep**: `setup.sh` installs the `fd-find` and `ripgrep`
+   packages system-wide, so no per-user copy is needed and nothing is
+   downloaded at runtime (docs/SUPPLY-CHAIN.md).
+4. **AWS credentials** (Phase 2): per-user IAM keys in
    `~jsmith/.aws/credentials`, mode 0600. The IAM policy — not the manifest
    — is what actually restricts which Bedrock models the user can invoke.
 
