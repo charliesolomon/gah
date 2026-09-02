@@ -138,7 +138,7 @@ ${row("GAH_BUILTIN_MODELS", "provider/model globs allowed from the built-in cata
 ${row("GAH_ALLOWED_HOSTS", "Hostname globs the process may connect to; unset = none, * = any")}
 ${row("GAH_PROVIDERS_FILE", `Approved-endpoints file (default ${join(gahDir, "providers.json")})`)}
 ${row("GAH_ALLOW_MODELS_JSON", `Set to 1 to read ${join(agentDir, "models.json")}`)}
-${row("GAH_ALLOW_TOOLS", "Comma-separated extra tools the policy allows, e.g. bash")}
+${row("GAH_ALLOW_TOOLS", "Comma-separated extra tools the policy allows, e.g. bash (powershell on Windows)")}
 ${row("GAH_AUDIT_LOG", `Audit log path (default ${join(gahDir, "audit.log")})`)}
 ${row(ENV_AGENT_DIR, `Config directory (default ${join(home, CONFIG_DIR_NAME, "agent")})`)}
 ${row(ENV_SESSION_DIR, "Session storage directory (overridden by --session-dir)")}

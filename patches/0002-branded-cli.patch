@@ -1,16 +1,8 @@
-From cff891a7326348f67c680e933cdae9308995a4b3 Mon Sep 17 00:00:00 2001
+From f6876cac13405a1f4eb517652060e36f6bd9ddac Mon Sep 17 00:00:00 2001
 From: csolomon <charliesolomon@gmail.com>
-Date: Wed, 2 Sep 2026 13:10:03 -0700
-Subject: [PATCH] branded-cli: GAH_* environment names, and a --help page that
- describes this session
-
-Two changes to the CLI surface, one patch because both touch printHelp()
-in cli/args.ts and apply-patches.sh cannot recognise overlapping patches
-as already applied.
-
-== Environment names (#2) ==
-
-== The help page (#32) ==
+Date: Wed, 2 Sep 2026 15:12:37 -0700
+Subject: [PATCH] Re-authored 2026-09-02 (#35): the help page names powershell
+ as the Windows shell tool next to bash. Comment-only.
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_011it956DeV4unyWw5VyvkDD
@@ -90,7 +82,7 @@ index 8ad5da63e..76c02f523 100644
    read       - Read file contents
 diff --git a/packages/coding-agent/src/cli/gah-help.ts b/packages/coding-agent/src/cli/gah-help.ts
 new file mode 100644
-index 000000000..07d3ae350
+index 000000000..31e88e5c7
 --- /dev/null
 +++ b/packages/coding-agent/src/cli/gah-help.ts
 @@ -0,0 +1,170 @@
@@ -234,7 +226,7 @@ index 000000000..07d3ae350
 +${row("GAH_ALLOWED_HOSTS", "Hostname globs the process may connect to; unset = none, * = any")}
 +${row("GAH_PROVIDERS_FILE", `Approved-endpoints file (default ${join(gahDir, "providers.json")})`)}
 +${row("GAH_ALLOW_MODELS_JSON", `Set to 1 to read ${join(agentDir, "models.json")}`)}
-+${row("GAH_ALLOW_TOOLS", "Comma-separated extra tools the policy allows, e.g. bash")}
++${row("GAH_ALLOW_TOOLS", "Comma-separated extra tools the policy allows, e.g. bash (powershell on Windows)")}
 +${row("GAH_AUDIT_LOG", `Audit log path (default ${join(gahDir, "audit.log")})`)}
 +${row(ENV_AGENT_DIR, `Config directory (default ${join(home, CONFIG_DIR_NAME, "agent")})`)}
 +${row(ENV_SESSION_DIR, "Session storage directory (overridden by --session-dir)")}
