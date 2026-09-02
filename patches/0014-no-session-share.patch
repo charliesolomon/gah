@@ -1,0 +1,100 @@
+From f360eafb4ac214d2e1e29b07fc0858ce32611219 Mon Sep 17 00:00:00 2001
+From: csolomon <charliesolomon@gmail.com>
+Date: Wed, 2 Sep 2026 13:08:12 -0700
+Subject: [PATCH] no-session-share: /share is off unless the deployment allows
+ it
+
+/share uploads the session transcript as a secret GitHub gist by spawning
+the gh CLI. That is a child process, so 0011-egress-allowlist never sees
+the request, and on a governed host the transcript is the organisation's
+data (#32). Built-in slash commands dispatch before extension commands,
+so the policy pack cannot shadow it; this has to live in the binary.
+
+Two hunks: the /share branch in interactive-mode.ts refuses with a
+message and an audit line (kind "blocked", reason "share_disabled")
+unless GAH_ALLOW_SHARE=1, and slash-commands.ts lists the command only in
+that case so autocomplete does not advertise it. New file core/gah-audit.ts
+appends to the same audit log the policy pack writes; best effort.
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_011it956DeV4unyWw5VyvkDD
+---
+ packages/coding-agent/src/core/gah-audit.ts   | 21 +++++++++++++++++++
+ .../coding-agent/src/core/slash-commands.ts   |  3 ++-
+ .../src/modes/interactive/interactive-mode.ts | 11 ++++++++++
+ 3 files changed, 34 insertions(+), 1 deletion(-)
+ create mode 100644 vendor/pi/packages/coding-agent/src/core/gah-audit.ts
+
+diff --git a/packages/coding-agent/src/core/gah-audit.ts b/packages/coding-agent/src/core/gah-audit.ts
+new file mode 100644
+index 000000000..df29425df
+--- /dev/null
++++ b/packages/coding-agent/src/core/gah-audit.ts
+@@ -0,0 +1,21 @@
++/**
++ * GAH: append a line to the audit log from vendor code.
++ *
++ * The policy pack writes the same file from its extensions; this is for the
++ * few enforcement points that live inside the binary (see 0014). Best effort:
++ * an unwritable log must never turn a refusal into a crash.
++ */
++
++import { appendFileSync, mkdirSync } from "node:fs";
++import { homedir } from "node:os";
++import { dirname, join } from "node:path";
++
++export function gahAudit(entry: Record<string, unknown>): void {
++	const path = process.env.GAH_AUDIT_LOG ?? join(homedir(), ".gah", "audit.log");
++	try {
++		mkdirSync(dirname(path), { recursive: true });
++		appendFileSync(path, `${JSON.stringify({ ts: new Date().toISOString(), ...entry })}\n`);
++	} catch {
++		// best effort
++	}
++}
+diff --git a/packages/coding-agent/src/core/slash-commands.ts b/packages/coding-agent/src/core/slash-commands.ts
+index 13326d2da..034645fa6 100644
+--- a/packages/coding-agent/src/core/slash-commands.ts
++++ b/packages/coding-agent/src/core/slash-commands.ts
+@@ -24,7 +24,8 @@ export const BUILTIN_SLASH_COMMANDS: ReadonlyArray<BuiltinSlashCommand> = [
+ 	{ name: "scoped-models", description: "Enable/disable models for Ctrl+P cycling" },
+ 	{ name: "export", description: "Export session (HTML default, or specify path: .html/.jsonl)" },
+ 	{ name: "import", description: "Import and resume a session from a JSONL file" },
+-	{ name: "share", description: "Share session as a secret GitHub gist" },
++	// GAH: hidden unless the deployment allows it (see interactive-mode.ts /share).
++	...(process.env.GAH_ALLOW_SHARE === "1" ? [{ name: "share", description: "Share session as a secret GitHub gist" }] : []),
+ 	{ name: "copy", description: "Copy last agent message to clipboard" },
+ 	{ name: "name", description: "Set session display name" },
+ 	{ name: "session", description: "Show session info and stats" },
+diff --git a/packages/coding-agent/src/modes/interactive/interactive-mode.ts b/packages/coding-agent/src/modes/interactive/interactive-mode.ts
+index 6649ceafe..2f0448d9e 100644
+--- a/packages/coding-agent/src/modes/interactive/interactive-mode.ts
++++ b/packages/coding-agent/src/modes/interactive/interactive-mode.ts
+@@ -81,6 +81,7 @@ import type {
+ 	WorkingIndicatorOptions,
+ } from "../../core/extensions/index.ts";
+ import { FooterDataProvider, type ReadonlyFooterDataProvider } from "../../core/footer-data-provider.ts";
++import { gahAudit } from "../../core/gah-audit.ts";
+ import { configureHttpDispatcher, formatHttpIdleTimeoutMs } from "../../core/http-dispatcher.ts";
+ import { type AppKeybinding, KeybindingsManager } from "../../core/keybindings.ts";
+ import { createCompactionSummaryMessage } from "../../core/messages.ts";
+@@ -3014,6 +3015,16 @@ export class InteractiveMode {
+ 				return;
+ 			}
+ 			if (text === "/share") {
++				// GAH: /share uploads the transcript to a GitHub gist through the gh
++				// CLI -- a child process the egress allowlist (0011) cannot see, and a
++				// transcript on a governed host is the organisation's data. Off unless
++				// the deployment sets GAH_ALLOW_SHARE=1.
++				if (process.env.GAH_ALLOW_SHARE !== "1") {
++					gahAudit({ kind: "blocked", reason: "share_disabled", command: "/share" });
++					this.showError("/share is disabled by GAH policy: session transcripts stay on this machine.");
++					this.editor.setText("");
++					return;
++				}
+ 				await this.handleShareCommand();
+ 				this.editor.setText("");
+ 				return;
+-- 
+2.43.0
+

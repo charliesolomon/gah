@@ -5,6 +5,7 @@
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import chalk from "chalk";
 import { APP_NAME, CONFIG_DIR_NAME, ENV_AGENT_DIR, ENV_SESSION_DIR } from "../config.ts";
+import { printGahHelp } from "./gah-help.ts";
 import type { ExtensionFlag } from "../core/extensions/types.ts";
 import type { TuiMode } from "../core/settings-manager.ts";
 
@@ -249,6 +250,8 @@ export function parseArgs(args: string[]): Args {
 }
 
 export function printHelp(extensionFlags?: ExtensionFlag[]): void {
+	// GAH: the short page is the default; --help --verbose prints this one (gah-help.ts).
+	if (printGahHelp(extensionFlags)) return;
 	// GAH: environment variables are documented under the branded prefix (gah-env.ts).
 	const ENV = APP_NAME.toUpperCase();
 	const extensionFlagsText =
