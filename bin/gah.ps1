@@ -99,6 +99,12 @@ if (-not (Test-Path Env:GAH_ALLOW_MODELS_JSON)) {
     $env:GAH_ALLOW_MODELS_JSON = "1"
 }
 
+# Workstation default: no egress restriction (patch 0011 denies all when
+# unset). See bin/gah for why, and docs/PROVIDERS.md to lock it down.
+if (-not (Test-Path Env:GAH_ALLOWED_HOSTS)) {
+    $env:GAH_ALLOWED_HOSTS = "*"
+}
+
 # --- Onboarding / setup steps ----------------------------------------------
 # The skills repo may ship numbered, idempotent setup steps (setup\NN-*.ps1)
 # that run in the terminal before the TUI, so secrets are collected without ever

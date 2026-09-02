@@ -24,8 +24,10 @@ disabled by `patches/0013-offline-runtime.patch`, which forces upstream's own
 
 Enforcement is in the binary (`main()` and the tools manager), not in launcher
 environment, so it holds for `bin/gah`, the shared-host launcher, published
-artifacts and the SDK path alike. A network-level egress allowlist (issue #8)
-would add the same guarantee one layer down.
+artifacts and the SDK path alike. One layer down, `GAH_ALLOWED_HOSTS`
+(patch 0011, [PROVIDERS.md](PROVIDERS.md)) refuses any HTTP request to a host
+the deployment has not named, so the contract holds even for code paths this
+page does not list.
 
 ## fd and ripgrep
 
