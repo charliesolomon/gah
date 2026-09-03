@@ -178,7 +178,10 @@ if (!opt.skipCheck && bash) {
 	const r = spawnSync(bash, [join(REPO, "scripts", "check-tool-surface.sh")], {
 		cwd: REPO,
 		stdio: "inherit",
-		env: { ...process.env, GAH_BIN: `${process.execPath} ${join(tree, "bundle", "cli.js")} --no-extensions`, GAH_PROVIDERS_FILE: join(tree, "gah-policy", "providers.json") },
+		// GAH_CLI rather than a command string: process.execPath is
+		// "C:\Program Files\nodejs\node.exe" on Windows, and a space splits a
+		// command string in bash. The script quotes the path and runs node from PATH.
+		env: { ...process.env, GAH_CLI: join(tree, "bundle", "cli.js"), GAH_PROVIDERS_FILE: join(tree, "gah-policy", "providers.json") },
 	});
 	if (r.status !== 0) fail("assembled package failed the tool-surface check; not zipping");
 }
