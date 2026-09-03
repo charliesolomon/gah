@@ -1,4 +1,4 @@
-# Configure the inference endpoint for this deployment.
+﻿# Configure the inference endpoint for this deployment.
 #
 # PowerShell twin of 10-configure-inference.sh, for Windows deployments.
 # Idempotent: exits once models.json exists. To reconfigure or rotate the key,

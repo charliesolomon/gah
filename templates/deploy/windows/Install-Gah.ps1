@@ -1,4 +1,4 @@
-# Install-Gah.ps1 - install (or update) a GAH deployment package for the current
+﻿# Install-Gah.ps1 - install (or update) a GAH deployment package for the current
 # Windows user. Run it from inside the unpacked package folder:
 #
 #   .\Install-Gah.ps1 [-GitLabToken <token>] [-NoPrompt]
@@ -22,7 +22,7 @@ $Src    = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Deploy = Get-Content -LiteralPath (Join-Path $Src 'deploy.json') -Raw | ConvertFrom-Json
 $Root   = Join-Path $env:LOCALAPPDATA 'gah'
 $Dest   = Join-Path $Root $Deploy.packageName
-function Ok($m) { Write-Host "  ✓ $m" }
+function Ok($m) { Write-Host "  OK: $m" }
 function Warn($m) { [Console]::Error.WriteLine("  ! $m") }
 function Expand-Zip($zip, $dest) {
     New-Item -ItemType Directory -Force -Path $dest | Out-Null

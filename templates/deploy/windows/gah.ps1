@@ -1,4 +1,4 @@
-# gah.ps1 - packaged GAH launcher for Windows. Lives inside the installed
+﻿# gah.ps1 - packaged GAH launcher for Windows. Lives inside the installed
 # package directory next to deploy.json, and is started by the desktop shortcut
 # through <root>\gah-launch.ps1 (which reads current.txt, so updates survive).
 #

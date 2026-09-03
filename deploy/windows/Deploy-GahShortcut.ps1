@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Install (or remove) the GAH desktop shortcut and SSH key for ONE named
     Windows user. Designed to run from TacticalRMM, which executes as SYSTEM.
