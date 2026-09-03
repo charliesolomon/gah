@@ -55,13 +55,15 @@ offered() {
 	# reproduce; a flaky guard is worse than none.
 	for _attempt in 1 2; do
 		: > "$WORK/requests.log"
-		GAH_CODING_AGENT_DIR="$WORK_NATIVE/agent" GAH_ALLOW_MODELS_JSON=1 GAH_BUILTIN_MODELS='' \
-		GAH_ALLOWED_HOSTS=127.0.0.1 GAH_ALLOW_NO_SKILLS=1 GAH_AUDIT_LOG="$WORK_NATIVE/audit.log" \
+		(
+			export GAH_CODING_AGENT_DIR="$WORK_NATIVE/agent" GAH_ALLOW_MODELS_JSON=1 GAH_BUILTIN_MODELS='' \
+				GAH_ALLOWED_HOSTS=127.0.0.1 GAH_ALLOW_NO_SKILLS=1 GAH_AUDIT_LOG="$WORK_NATIVE/audit.log"
 			if [ -n "${GAH_CLI:-}" ]; then
-				timeout 90 node "$GAH_CLI" --no-extensions -p --no-session --model mock/m1 "$@" "hi" >/dev/null 2>&1 || true
+				timeout 90 node "$GAH_CLI" --no-extensions -p --no-session --model mock/m1 "$@" "hi"
 			else
-				timeout 90 ./bin/gah -p --no-session --model mock/m1 "$@" "hi" >/dev/null 2>&1 || true
+				timeout 90 ./bin/gah -p --no-session --model mock/m1 "$@" "hi"
 			fi
+		) >/dev/null 2>&1 || true
 		[ -s "$WORK/requests.log" ] && break
 	done
 	[ -s "$WORK/requests.log" ] || { echo "(no request reached the mock)"; return; }
