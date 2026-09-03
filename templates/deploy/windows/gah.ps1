@@ -24,7 +24,24 @@ $GitLab  = $Deploy.gitlab.url.TrimEnd('/')
 # demands mutual TLS (thumbprint chosen at install time).
 $Req = @{ Headers = @{} }
 if ($env:GAH_GITLAB_TOKEN) { $Req.Headers['PRIVATE-TOKEN'] = $env:GAH_GITLAB_TOKEN }
-if ($Deploy.gitlab.proxy) { $Req.Proxy = $Deploy.gitlab.proxy }
+# Proxy: gitlab.proxy in deploy.json forces a URL, "none" forces a direct
+# connection, null uses this machine's proxy environment (HTTPS_PROXY, then
+# HTTP_PROXY, honouring NO_PROXY) so different sites keep their own settings;
+# with none of those set, Invoke-* falls back to the Windows proxy settings.
+function Resolve-Proxy($hostName) {
+    $cfg = $Deploy.gitlab.proxy
+    if ($cfg -eq 'none') { return $null }
+    if ($cfg) { return $cfg }
+    $envProxy = if ($env:HTTPS_PROXY) { $env:HTTPS_PROXY } elseif ($env:HTTP_PROXY) { $env:HTTP_PROXY } else { $null }
+    if (-not $envProxy) { return $null }
+    foreach ($skip in (($env:NO_PROXY -split '[,; ]') | Where-Object { $_ })) {
+        $s = $skip.Trim().TrimStart('.').TrimStart('*')
+        if ($hostName -eq $s -or $hostName.EndsWith(".$s")) { return $null }
+    }
+    return $envProxy
+}
+$ProxyUrl = Resolve-Proxy ([uri]$GitLab).Host
+if ($ProxyUrl) { $Req.Proxy = $ProxyUrl }
 if ($env:GAH_GITLAB_CERT_THUMBPRINT) { $Req.CertificateThumbprint = $env:GAH_GITLAB_CERT_THUMBPRINT }
 function Warn($m) { [Console]::Error.WriteLine("gah: $m") }
 function Enc($s) { [uri]::EscapeDataString($s) }
