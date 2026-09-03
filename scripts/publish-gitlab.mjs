@@ -50,7 +50,12 @@ function haveCurl() {
 function putWithCurl(url, file) {
 	const r = spawnSync(
 		"curl",
-		["--silent", "--show-error", "--fail-with-body", "--upload-file", file, "--header", `PRIVATE-TOKEN: ${token}`, "--write-out", "\n%{http_code}", url],
+		[
+			"--silent", "--show-error", "--fail-with-body",
+			// Trust the same CA file Node was given; curl on Windows would otherwise consult only the OS store.
+			...(process.env.NODE_EXTRA_CA_CERTS ? ["--cacert", process.env.NODE_EXTRA_CA_CERTS] : []),
+			"--upload-file", file, "--header", `PRIVATE-TOKEN: ${token}`, "--write-out", "\n%{http_code}", url,
+		],
 		{ stdio: ["ignore", "pipe", "pipe"], encoding: "utf8" },
 	);
 	if (r.error) throw r.error;
@@ -89,17 +94,24 @@ for (const file of [`${opt.zip}.sha256`, opt.zip]) {
 				continue;
 			} catch (curlError) {
 				console.log("failed");
-				fail(`${cause?.message ?? error} — and curl: ${curlError.message}\n${hints(code)}`);
+				fail(`${cause?.message ?? error} — and curl: ${curlError.message}\n${hints(code, cause?.message)}`);
 			}
 		}
-		fail(`${cause?.message ?? error.message ?? error}\n${hints(code)}`);
+		fail(`${cause?.message ?? error.message ?? error}\n${hints(code, cause?.message)}`);
 	}
 }
 
-function hints(code) {
+function hints(code, message = "") {
 	const lines = [
 		`Target: ${host}. Uploads go through HTTPS_PROXY when it is set (${process.env.HTTPS_PROXY ? "it is: " + process.env.HTTPS_PROXY : "it is not"}).`,
 	];
+	if (/CERT_|SELF_SIGNED|UNABLE_TO_VERIFY|certificate|SSL|TLS/i.test(`${code} ${message}`)) {
+		lines.push(
+			"TLS trust: if the GitLab certificate comes from an internal CA, point Node at the same PEM git uses:",
+			"  git config --get http.sslCAInfo   ->   setx NODE_EXTRA_CA_CERTS <that path>   (new window afterwards)",
+			"The curl fallback receives the same file via --cacert.",
+		);
+	}
 	if (code === "UND_ERR_SOCKET") {
 		lines.push(
 			"The connection was closed after the body was sent, with no response: a proxy that caps or scans uploads, or GitLab that is reachable only directly.",

@@ -65,6 +65,12 @@ repository's own `bin/gah` with `GAH_SKILLS_DIR=$PWD/skills` and
 Phase 1 builds on the admin's machine. A GitLab CI job that runs the same two
 scripts from the mirrored checkout is the intended next step (issue #41).
 
+### Certificates and proxies
+
+The admin scripts are Node: behind a corporate proxy set `NODE_OPTIONS=--use-system-ca --use-env-proxy` and `HTTPS_PROXY` as for the build ([WINDOWS.md](WINDOWS.md)); if GitLab presents a certificate from an internal CA that is not in the Windows store, point Node at the PEM git uses (`git config --get http.sslCAInfo`) with `NODE_EXTRA_CA_CERTS`. If GitLab is inside the network, exclude it with `NO_PROXY=<gitlab-host>`. The publish script's `curl` fallback honours the same variables.
+
+The consumer launcher and installer talk to GitLab from PowerShell, which uses the Windows certificate store and system proxy: the prerequisite on a consumer machine is that the corporate CA is in that store, which managed machines normally have.
+
 ## Consumer: install
 
 1. Download `gah-<org>-<version>.zip` from the GitLab package registry and unzip it anywhere.
