@@ -8,6 +8,7 @@
     "project": "it/gah-deploy",
     "package": "gah-windows",
     "clientCert": null,
+    "clientCertIssuer": null,
     "proxy": null
   },
   "skills": {

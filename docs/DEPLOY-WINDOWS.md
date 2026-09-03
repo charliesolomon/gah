@@ -44,6 +44,7 @@ Lives in **your** deployment repository, not in this one. Start from
 | `version` | Package version, semantic; the launcher updates when the registry has a higher one |
 | `gitlab.url`, `gitlab.project`, `gitlab.package` | Where packages are published and looked up (generic package registry; `package` defaults to `gah-windows`) |
 | `gitlab.clientCert` | `"user"` when GitLab sits behind a mutual-TLS front-end: the installer lets the consumer pick a certificate from their Windows store and the launcher presents it on every GitLab call. `null` otherwise. |
+| `gitlab.clientCertIssuer` | Optional substring of the issuing CA's name (e.g. `"Org Issuing CA"`); the installer lists certificates from that CA first. Independently of this, a certificate git already uses for this GitLab is listed first and marked. |
 | `gitlab.proxy` | `null` (default): the consumer machine's `HTTPS_PROXY` / `HTTP_PROXY`, honouring `NO_PROXY`, falling back to the Windows proxy settings, so sites with different proxies need no per-site package. A URL forces that proxy; `"none"` forces a direct connection. |
 | `skills.project`, `skills.branch` | The skills repository consumers fetch as an archive on every launch (default branch `main`) |
 | `env` | `GAH_*` variables the launcher exports: `GAH_ALLOWED_HOSTS` (the inference host; unset means nothing is reachable), `GAH_BUILTIN_MODELS` (usually empty), `GAH_ALLOW_TOOLS` (usually empty; `powershell` to allow a shell), `GAH_ALLOW_SHARE` |

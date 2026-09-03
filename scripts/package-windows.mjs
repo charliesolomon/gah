@@ -153,6 +153,8 @@ const deploy = {
 		package: cfg.gitlab.package ?? "gah-windows",
 		// "user": the installer asks which of the user's certificates to present (mutual TLS front-ends).
 		clientCert: cfg.gitlab.clientCert ?? null,
+		// Optional issuer substring: the installer lists certificates from that CA first.
+		clientCertIssuer: cfg.gitlab.clientCertIssuer ?? null,
 		// null: the consumer machine's HTTPS_PROXY/HTTP_PROXY (honouring NO_PROXY), else Windows settings;
 		// a URL forces that proxy; "none" forces a direct connection.
 		proxy: cfg.gitlab.proxy ?? null,

@@ -94,13 +94,36 @@ if (-not $Update) {
         } elseif ($NoPrompt) {
             Warn "this deployment needs a client certificate: set GAH_GITLAB_CERT_THUMBPRINT (user) to a thumbprint from Cert:\CurrentUser\My"
         } else {
-            $certs = @(Get-ChildItem Cert:\CurrentUser\My | Where-Object { $_.HasPrivateKey } | Sort-Object NotAfter -Descending)
+            # Narrow the list: a private key, not expired, and usable for client
+            # authentication (drops most device and Wi-Fi certificates). Then put
+            # the one git already uses for this GitLab first, or one from the
+            # issuer the deployment names, and make it the default.
+            $gitThumb = ''
+            try {
+                $gitCert = (& git config --get-urlmatch http.sslcert $Deploy.gitlab.url 2>$null)
+                if ($gitCert -match '([0-9A-Fa-f]{40})\s*$') { $gitThumb = $matches[1].ToUpper() }
+            } catch {}
+            $issuerHint = if ($Deploy.gitlab.clientCertIssuer) { [string]$Deploy.gitlab.clientCertIssuer } else { '' }
+            $clientAuth = '1.3.6.1.5.5.7.3.2'
+            $certs = @(Get-ChildItem Cert:\CurrentUser\My | Where-Object {
+                $_.HasPrivateKey -and $_.NotAfter -gt (Get-Date) -and
+                ((@($_.EnhancedKeyUsageList).Count -eq 0) -or (@($_.EnhancedKeyUsageList | ForEach-Object { $_.ObjectId }) -contains $clientAuth))
+            })
+            $rank = { param($c)
+                if ($gitThumb -and $c.Thumbprint -eq $gitThumb) { 0 }
+                elseif ($issuerHint -and $c.Issuer -like "*$issuerHint*") { 1 }
+                elseif ($c.Subject -like "*$env:USERNAME*") { 2 }
+                else { 3 } }
+            $certs = @($certs | Sort-Object @{ Expression = { & $rank $_ } }, @{ Expression = 'NotAfter'; Descending = $true })
             if ($certs.Count -eq 0) {
-                Warn "no certificates with a private key in Cert:\CurrentUser\My; GitLab calls will fail until GAH_GITLAB_CERT_THUMBPRINT is set"
+                Warn "no usable client certificate in Cert:\CurrentUser\My; GitLab calls will fail until GAH_GITLAB_CERT_THUMBPRINT is set"
             } else {
                 Write-Host "  GitLab requires a client certificate. Yours:"
                 for ($i = 0; $i -lt $certs.Count; $i++) {
-                    Write-Host ("    [{0}] {1}  (issuer {2}, expires {3:yyyy-MM-dd})" -f ($i + 1), $certs[$i].Subject, ($certs[$i].Issuer -replace '^CN=', '' -replace ',.*$', ''), $certs[$i].NotAfter)
+                    $c = $certs[$i]
+                    $tag = if ($gitThumb -and $c.Thumbprint -eq $gitThumb) { '  <- used by git for this GitLab' }
+                           elseif ($issuerHint -and $c.Issuer -like "*$issuerHint*") { "  <- issued by $issuerHint" } else { '' }
+                    Write-Host ("    [{0}] {1}  (issuer {2}, expires {3:yyyy-MM-dd}){4}" -f ($i + 1), $c.Subject, ($c.Issuer -replace '^CN=', '' -replace ',.*$', ''), $c.NotAfter, $tag)
                 }
                 $pick = Read-Host "  Number to use [1]"
                 if (-not $pick) { $pick = '1' }
