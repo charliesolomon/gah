@@ -13,6 +13,7 @@
  *     tools/               pinned fd + ripgrep archives and SHA256SUMS; the installer verifies and unpacks
  *     gah.ps1              the consumer launcher (templates/deploy/windows/)
  *     Install-Gah.ps1      the installer
+ *     Uninstall-Gah.ps1    the uninstaller (also copied to the install root)
  *     deploy.json          what the launcher and installer read at runtime
  *     VERSION              package, gah and upstream versions, build time
  *
@@ -83,7 +84,7 @@ const syncState = Object.fromEntries(
 const gahRev = spawnSync("git", ["-C", REPO, "rev-parse", "--short", "HEAD"], { encoding: "utf8" }).stdout?.trim() || "unknown";
 const policyPack = join(REPO, "packages", "policy-pack");
 const launcherSrc = join(REPO, "templates", "deploy", "windows");
-for (const f of ["gah.ps1", "Install-Gah.ps1"]) {
+for (const f of ["gah.ps1", "Install-Gah.ps1", "Uninstall-Gah.ps1"]) {
 	if (!existsSync(join(launcherSrc, f))) fail(`missing ${join(launcherSrc, f)}`);
 }
 
@@ -117,7 +118,7 @@ const systemMd = cfg.systemMd ? resolve(dirname(opt.config), cfg.systemMd) : joi
 if (!existsSync(systemMd)) fail(`SYSTEM.md not found: ${systemMd}`);
 cpSync(systemMd, join(tree, "gah-policy", "SYSTEM.md"));
 writeFileSync(join(tree, "gah-policy", "providers.json"), `${JSON.stringify(cfg.providers, null, 2)}\n`);
-for (const f of ["gah.ps1", "Install-Gah.ps1"]) cpSync(join(launcherSrc, f), join(tree, f));
+for (const f of ["gah.ps1", "Install-Gah.ps1", "Uninstall-Gah.ps1"]) cpSync(join(launcherSrc, f), join(tree, f));
 
 // tools: pinned archives + checksums; the installer verifies and unpacks them
 const archs = cfg.windowsArch ?? ["x64"];

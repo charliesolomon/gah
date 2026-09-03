@@ -24,6 +24,7 @@ gah checkout + gah-deploy.json ──► package registry ◄──── Instal
 | `tools/` | pinned `fd` and `ripgrep` archives plus `SHA256SUMS`; the installer verifies and unpacks them |
 | `gah.ps1` | the launcher (below) |
 | `Install-Gah.ps1` | the installer (below) |
+| `Uninstall-Gah.ps1` | the uninstaller; also copied to `%LOCALAPPDATA%\gah\` so it survives updates |
 | `deploy.json`, `VERSION` | what the launcher and installer read; package, gah and upstream versions |
 
 The package is built by `scripts/package-windows.mjs`, which runs the
@@ -78,6 +79,12 @@ scripts from the mirrored checkout is the intended next step (issue #41).
 
 Re-running the installer repairs an installation. `-NoPrompt` skips the
 questions (RMM use; keys are then set as user environment variables separately).
+
+`%LOCALAPPDATA%\gah\Uninstall-Gah.ps1` reverses all of it: every installed
+package with the skills cache and downloads, the shortcut, the `gg` alias, and
+the stored GitLab token and API-key variables (`-KeepSecrets` keeps those). The
+agent's own state in `~\.gah` (keys from `/login`, audit log, sessions) stays
+unless `-Purge`.
 
 ## What happens on every launch
 

@@ -109,6 +109,7 @@ $rc = $LASTEXITCODE
 if ($rc -ne 0 -and $env:GAH_FROM_SHORTCUT) { Write-Host ""; Read-Host "gah exited with code $rc. Press Enter to close" | Out-Null }
 exit $rc
 '@ | Set-Content -LiteralPath $stub
+Copy-Item -LiteralPath (Join-Path $Dest 'Uninstall-Gah.ps1') -Destination (Join-Path $Root 'Uninstall-Gah.ps1') -Force
 Ok "current package: $($Deploy.packageName)"
 
 if (-not $Update) {
@@ -142,4 +143,5 @@ if (-not $Update) {
     Write-Host ""
     Write-Host "Done. Double-click '$($Deploy.shortcutName)' on the desktop, or open a new PowerShell window and type gg."
     Write-Host "The first launch fetches your organisation's skills from $($Deploy.gitlab.url)."
+    Write-Host "To remove everything later: $Root\Uninstall-Gah.ps1"
 }
