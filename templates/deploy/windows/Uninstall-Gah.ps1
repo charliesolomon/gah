@@ -59,6 +59,15 @@ if (-not $KeepSecrets) {
 } else { Ok "kept stored secrets (-KeepSecrets)" }
 
 # --- The install root ------------------------------------------------------------------
+# This script usually runs from inside the folder it is about to delete. A
+# current directory inside that tree makes Windows report it as in use, so
+# step out first (the script itself is already parsed and keeps running).
+$inside = (Get-Location).Path.TrimEnd('\')
+if ($inside -eq $Root -or $inside.StartsWith($Root + '\', [StringComparison]::OrdinalIgnoreCase)) {
+    Set-Location $env:USERPROFILE
+    [Environment]::CurrentDirectory = $env:USERPROFILE
+    Ok "moved the current directory to $env:USERPROFILE"
+}
 if (Test-Path $Root) {
     Remove-Item -LiteralPath $Root -Recurse -Force
     Ok "removed $Root (packages, skills cache, downloads)"
