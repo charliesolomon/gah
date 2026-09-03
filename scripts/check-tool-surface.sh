@@ -11,6 +11,8 @@
 # definitions in each request, and compares.
 #
 # Needs a built bin/gah and a free localhost port. No real endpoint, no keys.
+# GAH_BIN overrides the launcher, e.g. GAH_BIN="node /path/to/package/bundle/cli.js --no-extensions"
+# to check an assembled deployment package (its baked gah-policy/ loads via 0020).
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -50,7 +52,7 @@ offered() {
 		: > "$WORK/requests.log"
 		GAH_CODING_AGENT_DIR="$WORK/agent" GAH_ALLOW_MODELS_JSON=1 GAH_BUILTIN_MODELS='' \
 		GAH_ALLOWED_HOSTS=127.0.0.1 GAH_ALLOW_NO_SKILLS=1 GAH_AUDIT_LOG="$WORK/audit.log" \
-			timeout 90 ./bin/gah -p --no-session --model mock/m1 "$@" "hi" >/dev/null 2>&1 || true
+			timeout 90 ${GAH_BIN:-./bin/gah} -p --no-session --model mock/m1 "$@" "hi" >/dev/null 2>&1 || true
 		[ -s "$WORK/requests.log" ] && break
 	done
 	[ -s "$WORK/requests.log" ] || { echo "(no request reached the mock)"; return; }

@@ -1,0 +1,33 @@
+{
+  "$comment": "GAH deployment config. Copy into your organisation's deployment repo, fill in, then: node scripts/package-windows.mjs --config <this file>. Schema: docs/DEPLOY-WINDOWS.md.",
+  "org": "Example Corp",
+  "shortcutName": "Example Assistant",
+  "version": "1.0.0",
+  "gitlab": {
+    "url": "https://gitlab.example.com",
+    "project": "it/gah-deploy",
+    "package": "gah-windows"
+  },
+  "skills": {
+    "project": "it/it-skills",
+    "branch": "main"
+  },
+  "env": {
+    "GAH_BUILTIN_MODELS": "",
+    "GAH_ALLOWED_HOSTS": "inference.example.com",
+    "GAH_ALLOW_TOOLS": ""
+  },
+  "providers": {
+    "providers": [
+      {
+        "name": "corp",
+        "baseUrl": "https://inference.example.com/openai/v1",
+        "api": "openai-responses",
+        "models": [
+          { "id": "gpt-5", "name": "GPT-5", "reasoning": true, "input": ["text"], "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }, "contextWindow": 200000, "maxTokens": 16384 }
+        ]
+      }
+    ]
+  },
+  "systemMd": null
+}

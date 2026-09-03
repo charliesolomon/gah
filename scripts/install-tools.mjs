@@ -33,7 +33,7 @@ import { basename, dirname, join, resolve } from "node:path";
 // entries are the hashes of what github.com served over TLS on that date.
 // When bumping a version, refresh every entry for that tool and say in the
 // commit how the fd hashes were obtained.
-const PINS = {
+export const PINS = {
 	fd: {
 		repo: "sharkdp/fd",
 		version: "10.5.0",
@@ -64,7 +64,12 @@ const PINS = {
 		},
 	},
 };
-const PLATFORMS = Object.keys(PINS.fd.assets);
+export const PLATFORMS = Object.keys(PINS.fd.assets);
+
+// Importable as a module (the packager reads PINS); the CLI below runs only when invoked directly.
+if (!process.argv[1] || !import.meta.url.endsWith(process.argv[1].split(/[\\/]/).pop())) {
+	// imported
+} else {
 
 // --- Arguments --------------------------------------------------------------
 const args = process.argv.slice(2);
@@ -214,4 +219,5 @@ if (opts.downloadOnly) {
 	} finally {
 		rmSync(work, { recursive: true, force: true });
 	}
+}
 }
