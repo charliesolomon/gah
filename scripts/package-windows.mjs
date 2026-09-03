@@ -76,7 +76,10 @@ const CA = join(REPO, "vendor", "pi", "packages", "coding-agent");
 const bundle = join(CA, "dist", "bundle");
 if (!existsSync(join(bundle, "cli.js"))) fail(`no build at ${bundle} — run make build-all first`);
 const gahVersion = JSON.parse(readFileSync(join(CA, "package.json"), "utf8")).version;
-const syncState = Object.fromEntries(readFileSync(join(REPO, ".sync-state"), "utf8").trim().split("\n").map((l) => l.split("=")));
+// .sync-state may have CRLF endings on a Windows checkout; keep values clean.
+const syncState = Object.fromEntries(
+	readFileSync(join(REPO, ".sync-state"), "utf8").split(/\r?\n/).filter(Boolean).map((l) => l.split("=").map((v) => v.trim())),
+);
 const gahRev = spawnSync("git", ["-C", REPO, "rev-parse", "--short", "HEAD"], { encoding: "utf8" }).stdout?.trim() || "unknown";
 const policyPack = join(REPO, "packages", "policy-pack");
 const launcherSrc = join(REPO, "templates", "deploy", "windows");
