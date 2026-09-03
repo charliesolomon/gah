@@ -104,7 +104,10 @@ $stub = Join-Path $Root 'gah-launch.ps1'
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Current = (Get-Content -LiteralPath (Join-Path $Root 'current.txt') -Raw).Trim()
 & (Join-Path $Root "$Current\gah.ps1") @args
-exit $LASTEXITCODE
+$rc = $LASTEXITCODE
+# From the desktop shortcut the window would close before an error could be read.
+if ($rc -ne 0 -and $env:GAH_FROM_SHORTCUT) { Write-Host ""; Read-Host "gah exited with code $rc. Press Enter to close" | Out-Null }
+exit $rc
 '@ | Set-Content -LiteralPath $stub
 Ok "current package: $($Deploy.packageName)"
 
@@ -115,7 +118,7 @@ if (-not $Update) {
     $sh = New-Object -ComObject WScript.Shell
     $sc = $sh.CreateShortcut($lnk)
     $sc.TargetPath = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
-    $sc.Arguments = "-NoLogo -ExecutionPolicy Bypass -File `"$stub`""
+    $sc.Arguments = "-NoLogo -ExecutionPolicy Bypass -Command `"`$env:GAH_FROM_SHORTCUT='1'; & '$stub'`""
     $sc.WorkingDirectory = $env:USERPROFILE
     $sc.Description = "$($Deploy.shortcutName) (gah)"
     $sc.IconLocation = "$env:SystemRoot\System32\SHELL32.dll,165"
@@ -127,8 +130,14 @@ if (-not $Update) {
     $line = "function gg { & `"$stub`" @args }  $marker"
     if (-not (Test-Path $PROFILE)) { New-Item -ItemType File -Force -Path $PROFILE | Out-Null }
     $profileText = Get-Content -LiteralPath $PROFILE -Raw
-    if ($profileText -notmatch [regex]::Escape($marker)) { Add-Content -LiteralPath $PROFILE -Value $line; Ok "'gg' alias added to $PROFILE" }
-    else { Ok "'gg' alias already in profile" }
+    if ($null -eq $profileText) { $profileText = '' }
+    if ($profileText -notmatch [regex]::Escape($marker)) {
+        # Append on a line of its own: a profile that does not end in a newline
+        # would otherwise absorb the function into its last statement.
+        $prefix = if ($profileText.Length -gt 0 -and -not $profileText.EndsWith("`n")) { "`r`n" } else { '' }
+        Add-Content -LiteralPath $PROFILE -Value ($prefix + $line)
+        Ok "'gg' alias added to $PROFILE"
+    } else { Ok "'gg' alias already in profile" }
 
     Write-Host ""
     Write-Host "Done. Double-click '$($Deploy.shortcutName)' on the desktop, or open a new PowerShell window and type gg."
