@@ -158,16 +158,21 @@ writeFileSync(join(tree, "VERSION"), `${JSON.stringify(version, null, 2)}\n`);
 // The check is a bash script. On Windows, Git for Windows puts git on PATH but
 // not always bash, so look where upstream's shell resolver looks before giving up.
 function findBash() {
-	const probe = spawnSync(process.platform === "win32" ? "where" : "which", ["bash"], { encoding: "utf8" });
-	if (probe.status === 0 && probe.stdout.trim()) return "bash";
-	if (process.platform === "win32") {
-		for (const root of [process.env.ProgramFiles, process.env["ProgramFiles(x86)"], process.env.LOCALAPPDATA && join(process.env.LOCALAPPDATA, "Programs")]) {
-			if (!root) continue;
-			const candidate = join(root, "Git", "bin", "bash.exe");
-			if (existsSync(candidate)) return candidate;
-		}
+	if (process.platform !== "win32") {
+		const probe = spawnSync("which", ["bash"], { encoding: "utf8" });
+		return probe.status === 0 && probe.stdout.trim() ? "bash" : undefined;
 	}
-	return undefined;
+	// Windows: Git Bash first, by location. The `bash` on PATH is usually
+	// System32\bash.exe, the WSL shim, which runs a Linux userland, mangles
+	// C:\ paths and would not find Windows node -- never use it.
+	for (const root of [process.env.ProgramFiles, process.env["ProgramFiles(x86)"], process.env.LOCALAPPDATA && join(process.env.LOCALAPPDATA, "Programs")]) {
+		if (!root) continue;
+		const candidate = join(root, "Git", "bin", "bash.exe");
+		if (existsSync(candidate)) return candidate;
+	}
+	const probe = spawnSync("where", ["bash"], { encoding: "utf8" });
+	const found = probe.status === 0 ? probe.stdout.split(/\r?\n/).map((l) => l.trim()).find((l) => l && !/\\System32\\bash\.exe$/i.test(l)) : undefined;
+	return found;
 }
 const bash = opt.skipCheck ? undefined : findBash();
 if (!opt.skipCheck && !bash) {
@@ -175,7 +180,8 @@ if (!opt.skipCheck && !bash) {
 }
 if (!opt.skipCheck && bash) {
 	console.log(`checking tool surface of ${tree} …`);
-	const r = spawnSync(bash, [join(REPO, "scripts", "check-tool-surface.sh")], {
+	// Forward slashes: Git Bash accepts C:/... as a file argument; backslashes are escapes to bash.
+	const r = spawnSync(bash, [join(REPO, "scripts", "check-tool-surface.sh").split("\\").join("/")], {
 		cwd: REPO,
 		stdio: "inherit",
 		// GAH_CLI rather than a command string: process.execPath is
