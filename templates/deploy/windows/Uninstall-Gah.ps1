@@ -49,7 +49,7 @@ if (Test-Path $PROFILE) {
 
 # --- Stored secrets ------------------------------------------------------------------
 if (-not $KeepSecrets) {
-    $vars = @('GAH_GITLAB_TOKEN')
+    $vars = @('GAH_GITLAB_TOKEN', 'GAH_GITLAB_CERT_THUMBPRINT')
     foreach ($d in $deploys) { foreach ($e in @($d.providersEnv)) { if ($e -and $e.variable) { $vars += $e.variable } } }
     foreach ($v in ($vars | Select-Object -Unique)) {
         if ([Environment]::GetEnvironmentVariable($v, 'User')) {

@@ -6,7 +6,9 @@
   "gitlab": {
     "url": "https://gitlab.example.com",
     "project": "it/gah-deploy",
-    "package": "gah-windows"
+    "package": "gah-windows",
+    "clientCert": null,
+    "proxy": null
   },
   "skills": {
     "project": "it/it-skills",

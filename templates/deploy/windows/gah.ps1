@@ -19,12 +19,17 @@ $InfoOnly = $false
 foreach ($flag in @('--help', '-h', '--version', '-v')) { if ($args -contains $flag) { $InfoOnly = $true } }
 
 $GitLab  = $Deploy.gitlab.url.TrimEnd('/')
-$Headers = @{}
-if ($env:GAH_GITLAB_TOKEN) { $Headers['PRIVATE-TOKEN'] = $env:GAH_GITLAB_TOKEN }
+# Every GitLab call carries the same extras: the token header, the deployment's
+# proxy if it names one, and the user's client certificate when the front-end
+# demands mutual TLS (thumbprint chosen at install time).
+$Req = @{ Headers = @{} }
+if ($env:GAH_GITLAB_TOKEN) { $Req.Headers['PRIVATE-TOKEN'] = $env:GAH_GITLAB_TOKEN }
+if ($Deploy.gitlab.proxy) { $Req.Proxy = $Deploy.gitlab.proxy }
+if ($env:GAH_GITLAB_CERT_THUMBPRINT) { $Req.CertificateThumbprint = $env:GAH_GITLAB_CERT_THUMBPRINT }
 function Warn($m) { [Console]::Error.WriteLine("gah: $m") }
 function Enc($s) { [uri]::EscapeDataString($s) }
-function Get-Api($path) { Invoke-RestMethod -Uri "$GitLab/api/v4/$path" -Headers $Headers -TimeoutSec 20 }
-function Get-File($url, $dest) { Invoke-WebRequest -Uri $url -Headers $Headers -OutFile $dest -TimeoutSec 300 -UseBasicParsing }
+function Get-Api($path) { Invoke-RestMethod -Uri "$GitLab/api/v4/$path" @Req -TimeoutSec 20 }
+function Get-File($url, $dest) { Invoke-WebRequest -Uri $url @Req -OutFile $dest -TimeoutSec 300 -UseBasicParsing }
 function Expand-Zip($zip, $dest) {
     New-Item -ItemType Directory -Force -Path $dest | Out-Null
     try { Expand-Archive -LiteralPath $zip -DestinationPath $dest -Force }

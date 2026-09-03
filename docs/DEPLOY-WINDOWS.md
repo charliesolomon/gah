@@ -43,6 +43,8 @@ Lives in **your** deployment repository, not in this one. Start from
 | `shortcutName` | Desktop shortcut and window title (default `<org> Assistant`) |
 | `version` | Package version, semantic; the launcher updates when the registry has a higher one |
 | `gitlab.url`, `gitlab.project`, `gitlab.package` | Where packages are published and looked up (generic package registry; `package` defaults to `gah-windows`) |
+| `gitlab.clientCert` | `"user"` when GitLab sits behind a mutual-TLS front-end: the installer lets the consumer pick a certificate from their Windows store and the launcher presents it on every GitLab call. `null` otherwise. |
+| `gitlab.proxy` | Explicit proxy URL for the launcher's GitLab calls when the Windows proxy settings are not enough; `null` to use them. |
 | `skills.project`, `skills.branch` | The skills repository consumers fetch as an archive on every launch (default branch `main`) |
 | `env` | `GAH_*` variables the launcher exports: `GAH_ALLOWED_HOSTS` (the inference host; unset means nothing is reachable), `GAH_BUILTIN_MODELS` (usually empty), `GAH_ALLOW_TOOLS` (usually empty; `powershell` to allow a shell), `GAH_ALLOW_SHARE` |
 | `providers` | The contents of `providers.json` ([PROVIDERS.md](PROVIDERS.md)). `apiKey` may be a literal, `"$VAR"` (the installer prompts and stores `VAR` as a user environment variable), or omitted (the consumer runs `/login` once and the key lands in `auth.json`). The endpoint never leaves this file. |
@@ -70,6 +72,8 @@ scripts from the mirrored checkout is the intended next step (issue #41).
 The admin scripts are Node: behind a corporate proxy set `NODE_OPTIONS=--use-system-ca --use-env-proxy` and `HTTPS_PROXY` as for the build ([WINDOWS.md](WINDOWS.md)); if GitLab presents a certificate from an internal CA that is not in the Windows store, point Node at the PEM git uses (`git config --get http.sslCAInfo`) with `NODE_EXTRA_CA_CERTS`. If GitLab is inside the network, exclude it with `NO_PROXY=<gitlab-host>`. The publish script's `curl` fallback honours the same variables.
 
 The consumer launcher and installer talk to GitLab from PowerShell, which uses the Windows certificate store and system proxy: the prerequisite on a consumer machine is that the corporate CA is in that store, which managed machines normally have.
+
+**Mutual TLS.** Some corporate GitLab instances sit behind a front-end that requires a client certificate (the sign that git needs `http.<url>.sslCert` to reach it). Set `gitlab.clientCert` to `"user"`: the installer lists the consumer's certificates that have a private key, they pick one, and its thumbprint is stored as `GAH_GITLAB_CERT_THUMBPRINT`; the launcher passes it with `-CertificateThumbprint`. For publishing, give the admin script the same certificate in curl's syntax — on Windows the store reference git uses, `--cert "CurrentUser\MY\<thumbprint>"` (or `GAH_GITLAB_CLIENT_CERT`); uploads then go through `curl.exe`, which uses schannel exactly as git does. If GitLab is reachable only through the proxy, set `gitlab.proxy` too.
 
 ## Consumer: install
 

@@ -3,7 +3,12 @@
  * publish-gitlab.mjs — upload a deployment package to a GitLab generic package
  * registry, where the packaged launcher looks for updates.
  *
- *   GAH_GITLAB_TOKEN=... node scripts/publish-gitlab.mjs --config gah-deploy.json --zip dist-deploy/gah-<org>-<version>.zip [--curl]
+ *   GAH_GITLAB_TOKEN=... node scripts/publish-gitlab.mjs --config gah-deploy.json --zip dist-deploy/gah-<org>-<version>.zip [--curl] [--cert <spec>]
+ *
+ * --cert (or GAH_GITLAB_CLIENT_CERT): a client certificate for a GitLab behind
+ * mutual TLS, in curl's syntax -- on Windows a store reference such as
+ * "CurrentUser\MY\<thumbprint>" (what git's http.sslCert uses), elsewhere a PEM
+ * path. Uploads then go through curl, since fetch cannot use a store cert.
  *
  * Uploads <zip> and <zip>.sha256 to
  *   <gitlab.url>/api/v4/projects/<gitlab.project>/packages/generic/<gitlab.package>/<version>/
@@ -17,12 +22,13 @@ import { existsSync, readFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
 
 const args = process.argv.slice(2);
-const opt = { config: undefined, zip: undefined };
+const opt = { config: undefined, zip: undefined, cert: undefined };
 for (let i = 0; i < args.length; i++) {
 	const a = args[i];
 	if (a === "--config") opt.config = resolve(args[++i] ?? fail("--config needs a path"));
 	else if (a === "--zip") opt.zip = resolve(args[++i] ?? fail("--zip needs a path"));
 	else if (a === "--curl") { /* handled below */ }
+	else if (a === "--cert") opt.cert = args[++i] ?? fail("--cert needs a certificate spec");
 	else if (a === "-h" || a === "--help") {
 		console.log(readFileSync(new URL(import.meta.url), "utf8").split("\n").filter((l) => l.startsWith(" *")).map((l) => l.slice(3)).join("\n"));
 		process.exit(0);
@@ -54,6 +60,7 @@ function putWithCurl(url, file) {
 			"--silent", "--show-error", "--fail-with-body",
 			// Trust the same CA file Node was given; curl on Windows would otherwise consult only the OS store.
 			...(process.env.NODE_EXTRA_CA_CERTS ? ["--cacert", process.env.NODE_EXTRA_CA_CERTS] : []),
+			...(clientCert ? ["--cert", clientCert] : []),
 			"--upload-file", file, "--header", `PRIVATE-TOKEN: ${token}`, "--write-out", "\n%{http_code}", url,
 		],
 		{ stdio: ["ignore", "pipe", "pipe"], encoding: "utf8" },
@@ -68,7 +75,8 @@ async function putWithFetch(url, file) {
 	return String(res.status);
 }
 
-const useCurl = process.argv.includes("--curl");
+const clientCert = opt.cert ?? process.env.GAH_GITLAB_CLIENT_CERT;
+const useCurl = process.argv.includes("--curl") || Boolean(clientCert);
 const host = new URL(base).host;
 // The small checksum first: if a 100-byte PUT fails, the problem is auth or
 // routing, not size, and the message below can say so before 9 MB is wasted.
@@ -107,6 +115,7 @@ function hints(code, message = "") {
 	];
 	if (/CERT_|SELF_SIGNED|UNABLE_TO_VERIFY|certificate|SSL|TLS/i.test(`${code} ${message}`)) {
 		lines.push(
+			"Mutual TLS: if git reaches this GitLab with http.<url>.sslCert (a client certificate), pass the same spec with --cert or GAH_GITLAB_CLIENT_CERT; uploads then go through curl.",
 			"TLS trust: if the GitLab certificate comes from an internal CA, point Node at the same PEM git uses:",
 			"  git config --get http.sslCAInfo   ->   setx NODE_EXTRA_CA_CERTS <that path>   (new window afterwards)",
 			"The curl fallback receives the same file via --cacert.",

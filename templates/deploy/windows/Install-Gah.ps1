@@ -13,6 +13,7 @@
 # Needs: Windows PowerShell 5.1+, node 22+ on PATH.
 param(
     [string]$GitLabToken = '',
+    [string]$CertThumbprint = '',
     [switch]$NoPrompt,
     [switch]$Update
 )
@@ -82,6 +83,33 @@ if (-not $Update) {
         [Environment]::SetEnvironmentVariable('GAH_GITLAB_TOKEN', $GitLabToken, 'User'); $env:GAH_GITLAB_TOKEN = $GitLabToken
         Ok "GitLab token stored for this user"
     } else { Ok "no GitLab token (the project must be visible without one)" }
+
+    # --- Client certificate for a GitLab behind mutual TLS ------------------------------------
+    if ($Deploy.gitlab.clientCert -eq 'user') {
+        $existing = [Environment]::GetEnvironmentVariable('GAH_GITLAB_CERT_THUMBPRINT', 'User')
+        if ($CertThumbprint) {
+            [Environment]::SetEnvironmentVariable('GAH_GITLAB_CERT_THUMBPRINT', $CertThumbprint, 'User'); Ok "client certificate: $CertThumbprint"
+        } elseif ($existing) {
+            Ok "client certificate already chosen ($existing)"
+        } elseif ($NoPrompt) {
+            Warn "this deployment needs a client certificate: set GAH_GITLAB_CERT_THUMBPRINT (user) to a thumbprint from Cert:\CurrentUser\My"
+        } else {
+            $certs = @(Get-ChildItem Cert:\CurrentUser\My | Where-Object { $_.HasPrivateKey } | Sort-Object NotAfter -Descending)
+            if ($certs.Count -eq 0) {
+                Warn "no certificates with a private key in Cert:\CurrentUser\My; GitLab calls will fail until GAH_GITLAB_CERT_THUMBPRINT is set"
+            } else {
+                Write-Host "  GitLab requires a client certificate. Yours:"
+                for ($i = 0; $i -lt $certs.Count; $i++) {
+                    Write-Host ("    [{0}] {1}  (issuer {2}, expires {3:yyyy-MM-dd})" -f ($i + 1), $certs[$i].Subject, ($certs[$i].Issuer -replace '^CN=', '' -replace ',.*$', ''), $certs[$i].NotAfter)
+                }
+                $pick = Read-Host "  Number to use [1]"
+                if (-not $pick) { $pick = '1' }
+                $chosen = $certs[[int]$pick - 1]
+                [Environment]::SetEnvironmentVariable('GAH_GITLAB_CERT_THUMBPRINT', $chosen.Thumbprint, 'User'); $env:GAH_GITLAB_CERT_THUMBPRINT = $chosen.Thumbprint
+                Ok "client certificate: $($chosen.Subject) ($($chosen.Thumbprint))"
+            }
+        }
+    }
 
     # --- API keys the deployment collects via environment variables ------------------------
     foreach ($e in @($Deploy.providersEnv)) {

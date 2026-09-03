@@ -147,7 +147,15 @@ const deploy = {
 	version: cfg.version,
 	packageName: name,
 	gahVersion,
-	gitlab: { url: cfg.gitlab.url, project: cfg.gitlab.project, package: cfg.gitlab.package ?? "gah-windows" },
+	gitlab: {
+		url: cfg.gitlab.url,
+		project: cfg.gitlab.project,
+		package: cfg.gitlab.package ?? "gah-windows",
+		// "user": the installer asks which of the user's certificates to present (mutual TLS front-ends).
+		clientCert: cfg.gitlab.clientCert ?? null,
+		// Explicit proxy for the launcher's GitLab calls when the system proxy settings are not enough.
+		proxy: cfg.gitlab.proxy ?? null,
+	},
 	skills: { project: cfg.skills.project, branch: cfg.skills.branch ?? "main" },
 	env,
 	providersLogin: cfg.providers.providers.filter((p) => p.apiKey === undefined).map((p) => p.name),
