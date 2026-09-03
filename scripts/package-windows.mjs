@@ -155,9 +155,27 @@ const version = { package: name, version: cfg.version, gah: gahVersion, upstream
 writeFileSync(join(tree, "VERSION"), `${JSON.stringify(version, null, 2)}\n`);
 
 // --- Check the assembled tree, not the repo ------------------------------
-if (!opt.skipCheck) {
+// The check is a bash script. On Windows, Git for Windows puts git on PATH but
+// not always bash, so look where upstream's shell resolver looks before giving up.
+function findBash() {
+	const probe = spawnSync(process.platform === "win32" ? "where" : "which", ["bash"], { encoding: "utf8" });
+	if (probe.status === 0 && probe.stdout.trim()) return "bash";
+	if (process.platform === "win32") {
+		for (const root of [process.env.ProgramFiles, process.env["ProgramFiles(x86)"], process.env.LOCALAPPDATA && join(process.env.LOCALAPPDATA, "Programs")]) {
+			if (!root) continue;
+			const candidate = join(root, "Git", "bin", "bash.exe");
+			if (existsSync(candidate)) return candidate;
+		}
+	}
+	return undefined;
+}
+const bash = opt.skipCheck ? undefined : findBash();
+if (!opt.skipCheck && !bash) {
+	console.warn("package-windows: no bash found (Git for Windows?) — skipping the tool-surface check of the assembled tree. Run it on a machine with bash, or trust CI, before publishing.");
+}
+if (!opt.skipCheck && bash) {
 	console.log(`checking tool surface of ${tree} …`);
-	const r = spawnSync("bash", [join(REPO, "scripts", "check-tool-surface.sh")], {
+	const r = spawnSync(bash, [join(REPO, "scripts", "check-tool-surface.sh")], {
 		cwd: REPO,
 		stdio: "inherit",
 		env: { ...process.env, GAH_BIN: `${process.execPath} ${join(tree, "bundle", "cli.js")} --no-extensions`, GAH_PROVIDERS_FILE: join(tree, "gah-policy", "providers.json") },
