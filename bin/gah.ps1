@@ -1,4 +1,4 @@
-# gah — launch PI with GAH policy-pack loaded, ignoring any user-global
+﻿# gah - launch PI with GAH policy-pack loaded, ignoring any user-global
 # extensions/skills/themes that PI would otherwise auto-discover.
 #
 # PowerShell equivalent of bin/gah. The wrapper exists so that the policy

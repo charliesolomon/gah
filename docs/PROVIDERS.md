@@ -46,7 +46,9 @@ Schema and a worked example: [`packages/policy-pack/providers.example.json`](../
   `openai-responses`, `anthropic-messages`, etc. Most enterprise gateways
   and proxies are OpenAI-compatible → `openai-completions`.
 - `"apiKey": "$SOME_ENV_VAR"` resolves from the environment per request, so
-  the file itself holds no secrets.
+  the file itself holds no secrets. Omit `apiKey` entirely and the provider is
+  registered without one: the user runs `/login`, picks it, and the key is
+  stored in `auth.json`. The endpoint stays in the file either way.
 - **No file → nothing registered** (mechanism 1 still applies).
 - **Bad file → fail closed**: nothing registered, error in stderr + audit log.
 - Registered providers appear in `/login` alongside any allowlisted built-ins;

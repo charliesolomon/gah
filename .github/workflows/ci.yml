@@ -80,6 +80,11 @@ jobs:
         # What the model is offered vs. what the policy allows (issue #35).
         run: make check-tools
 
+      - name: Deployment package
+        # Assemble the example Windows package from this build and run the
+        # tool-surface check against the assembled tree (docs/DEPLOY-WINDOWS.md).
+        run: node scripts/package-windows.mjs --config templates/deploy/gah-deploy.example.json --out /tmp/gah-package
+
   scan-deps:
     name: dependency CVEs (npm audit + trivy)
     runs-on: ubuntu-latest

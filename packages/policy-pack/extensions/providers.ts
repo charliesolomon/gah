@@ -54,8 +54,12 @@ interface ProviderEntry {
 	baseUrl: string;
 	/** Wire protocol, e.g. "openai-completions", "openai-responses", "anthropic-messages". */
 	api: string;
-	/** Literal key, or "$ENV_VAR" to resolve from the environment per request. */
-	apiKey: string;
+	/**
+	 * Literal key, "$ENV_VAR" to resolve from the environment per request, or
+	 * omitted: the provider is registered without a key and /login collects one
+	 * into auth.json. The endpoint stays in this file either way.
+	 */
+	apiKey?: string;
 	models: ModelEntry[];
 }
 
@@ -83,8 +87,11 @@ function loadConfig(): ProvidersConfig | undefined {
 		throw new Error(`${CONFIG_PATH}: "providers" must be an array`);
 	}
 	for (const p of parsed.providers) {
-		if (!p.name || !p.baseUrl || !p.api || !p.apiKey || !Array.isArray(p.models) || p.models.length === 0) {
-			throw new Error(`${CONFIG_PATH}: provider entries need name, baseUrl, api, apiKey and a non-empty models array`);
+		if (!p.name || !p.baseUrl || !p.api || !Array.isArray(p.models) || p.models.length === 0) {
+			throw new Error(`${CONFIG_PATH}: provider entries need name, baseUrl, api and a non-empty models array`);
+		}
+		if (p.apiKey !== undefined && typeof p.apiKey !== "string") {
+			throw new Error(`${CONFIG_PATH}: provider ${p.name}: apiKey must be a string when present`);
 		}
 	}
 	return parsed;
@@ -129,13 +136,14 @@ export default function (pi: ExtensionAPI) {
 		pi.registerProvider(entry.name, {
 			baseUrl: entry.baseUrl,
 			api: entry.api as never,
-			apiKey: entry.apiKey,
+			...(entry.apiKey !== undefined ? { apiKey: entry.apiKey } : {}),
 			models: entry.models as never,
 		});
 		audit({
 			kind: "provider_registered",
 			provider: entry.name,
 			baseUrl: entry.baseUrl,
+			auth: entry.apiKey === undefined ? "login" : entry.apiKey.startsWith("$") ? "env" : "literal",
 			models: entry.models.map((m) => m.id),
 		});
 	}

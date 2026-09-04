@@ -11,18 +11,25 @@
 # definitions in each request, and compares.
 #
 # Needs a built bin/gah and a free localhost port. No real endpoint, no keys.
+# GAH_CLI=/path/to/package/bundle/cli.js checks an assembled deployment package
+# instead of bin/gah: node runs that file with --no-extensions and its baked
+# gah-policy/ loads via patch 0020. Quoted, so paths with spaces work.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
 WORK="$(mktemp -d)"
+# Under Git Bash on Windows, node gets Windows paths in arguments (converted
+# automatically) but not in environment variables: /tmp/tmp.X reaches it as a
+# path it cannot create. Hand it the native form for everything passed by env.
+if command -v cygpath >/dev/null 2>&1; then WORK_NATIVE="$(cygpath -w "$WORK")"; else WORK_NATIVE="$WORK"; fi
 MOCK_PID=""
 trap '[ -n "$MOCK_PID" ] && kill "$MOCK_PID" 2>/dev/null || true; rm -rf "$WORK"' EXIT
 
 # Any free port: a fixed one collides with a mock left over from an earlier,
 # interrupted run, and the failure then looks like "no request reached the mock".
-MOCK_LOG="$WORK/requests.log" MOCK_PORT=0 node scripts/mock-openai.mjs >"$WORK/mock.out" 2>&1 &
+MOCK_LOG="$WORK_NATIVE/requests.log" MOCK_PORT=0 node scripts/mock-openai.mjs >"$WORK/mock.out" 2>&1 &
 MOCK_PID=$!
 PORT=""
 for _ in $(seq 1 50); do
@@ -48,9 +55,15 @@ offered() {
 	# reproduce; a flaky guard is worse than none.
 	for _attempt in 1 2; do
 		: > "$WORK/requests.log"
-		GAH_CODING_AGENT_DIR="$WORK/agent" GAH_ALLOW_MODELS_JSON=1 GAH_BUILTIN_MODELS='' \
-		GAH_ALLOWED_HOSTS=127.0.0.1 GAH_ALLOW_NO_SKILLS=1 GAH_AUDIT_LOG="$WORK/audit.log" \
-			timeout 90 ./bin/gah -p --no-session --model mock/m1 "$@" "hi" >/dev/null 2>&1 || true
+		(
+			export GAH_CODING_AGENT_DIR="$WORK_NATIVE/agent" GAH_ALLOW_MODELS_JSON=1 GAH_BUILTIN_MODELS='' \
+				GAH_ALLOWED_HOSTS=127.0.0.1 GAH_ALLOW_NO_SKILLS=1 GAH_AUDIT_LOG="$WORK_NATIVE/audit.log"
+			if [ -n "${GAH_CLI:-}" ]; then
+				timeout 90 node "$GAH_CLI" --no-extensions -p --no-session --model mock/m1 "$@" "hi"
+			else
+				timeout 90 ./bin/gah -p --no-session --model mock/m1 "$@" "hi"
+			fi
+		) >/dev/null 2>&1 || true
 		[ -s "$WORK/requests.log" ] && break
 	done
 	[ -s "$WORK/requests.log" ] || { echo "(no request reached the mock)"; return; }

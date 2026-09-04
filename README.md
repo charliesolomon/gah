@@ -25,6 +25,8 @@ gah/
 ├── deploy/host/               ← shared SSH agent host (tmux launcher, per-user manifests)
 ├── deploy/windows/            ← laptop-side shortcut installer: one worked example, for TacticalRMM
 ├── templates/skills-repo/     ← scaffold written by `gah init`: skills, prompts, setup steps
+├── templates/deploy/          ← gah-deploy.json example + the Windows launcher/installer shipped in packages
+├── skills/                    ← skills for running GAH on GAH itself (package-deploy)
 ├── scripts/                   ← sync, patch, build helpers
 ├── ci/scans/                  ← SBOM, CVE, semgrep/CodeQL configs
 ├── docs/WORKFLOW.md           ← upstream sync + patch hygiene
@@ -33,6 +35,7 @@ gah/
 ├── docs/PROVIDERS.md          ← inference-provider restriction + approved endpoints
 ├── docs/SKILLS.md             ← the skills repository: gah init, layout, rollout
 ├── docs/SUPPLY-CHAIN.md       ← what reaches the network, and the fd/ripgrep install
+├── docs/DEPLOY-WINDOWS.md     ← one zip for consumers: package, install, auto-update, skills sync
 ├── docs/CONCEPT.html         ← the concept, for a non-technical audience (standalone, offline)
 └── .github/workflows/         ← scheduled upstream sync + scans
 ```
