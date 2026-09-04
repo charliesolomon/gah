@@ -1,6 +1,5 @@
 import { EventEmitter } from "node:events";
 import * as undici from "undici";
-import { gahGuardDispatcher, gahInstallNodeHttpGuard } from "./gah-egress.ts";
 
 export const DEFAULT_HTTP_IDLE_TIMEOUT_MS = 300_000;
 // Node's 250ms default can terminate valid connection attempts on high-latency routes.
@@ -96,11 +95,7 @@ export function configureHttpDispatcher(timeoutMs: number = DEFAULT_HTTP_IDLE_TI
 			factory: createUndiciOriginDispatcher,
 		}),
 	);
-	// GAH: every request through this dispatcher, and every node:http(s)/http2
-	// request that bypasses it, is checked against GAH_ALLOWED_HOSTS. Applied
-	// here so a rebuilt dispatcher (settings change) is guarded too.
-	gahInstallNodeHttpGuard();
-	undici.setGlobalDispatcher(gahGuardDispatcher(dispatcher));
+	undici.setGlobalDispatcher(dispatcher);
 	// Keep fetch and the dispatcher on the same undici implementation. Node 26.0's
 	// bundled fetch can otherwise consume compressed responses through npm undici's
 	// dispatcher without decompressing them, causing response.json() failures.

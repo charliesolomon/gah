@@ -81,7 +81,6 @@ import type {
 	WorkingIndicatorOptions,
 } from "../../core/extensions/index.ts";
 import { FooterDataProvider, type ReadonlyFooterDataProvider } from "../../core/footer-data-provider.ts";
-import { gahAudit } from "../../core/gah-audit.ts";
 import { configureHttpDispatcher, formatHttpIdleTimeoutMs } from "../../core/http-dispatcher.ts";
 import { type AppKeybinding, KeybindingsManager } from "../../core/keybindings.ts";
 import { createCompactionSummaryMessage } from "../../core/messages.ts";
@@ -967,7 +966,6 @@ export class InteractiveMode {
 			// Build startup instructions using keybinding hint helpers
 			const hint = (keybinding: AppKeybinding, description: string) => keyHint(keybinding, description);
 
-			const gahShellAllowed = /(^|,)(bash|powershell)(,|$)/.test(process.env.GAH_EFFECTIVE_TOOLS ?? "bash");
 			const expandedInstructions = [
 				hint("app.interrupt", "to interrupt"),
 				hint("app.clear", "to clear"),
@@ -982,9 +980,8 @@ export class InteractiveMode {
 				hint("app.thinking.toggle", "to expand thinking"),
 				hint("app.editor.external", "for external editor"),
 				rawKeyHint("/", "for commands"),
-				// GAH: the shell escape exists only when the policy allows a shell
-				// (policy.ts exports the enforced set before this banner is built).
-				...(gahShellAllowed ? [rawKeyHint("!", "to run bash"), rawKeyHint("!!", "to run bash (no context)")] : []),
+				rawKeyHint("!", "to run bash"),
+				rawKeyHint("!!", "to run bash (no context)"),
 				hint("app.message.followUp", "to queue follow-up"),
 				hint("app.message.dequeue", "to edit all queued messages"),
 				hint("app.clipboard.pasteImage", "to paste image (with text fallback)"),
@@ -994,7 +991,7 @@ export class InteractiveMode {
 				hint("app.interrupt", "interrupt"),
 				rawKeyHint(`${keyText("app.clear")}/${keyText("app.exit")}`, "clear/exit"),
 				rawKeyHint("/", "commands"),
-				...(gahShellAllowed ? [rawKeyHint("!", "bash")] : []),
+				rawKeyHint("!", "bash"),
 				hint("app.tools.expand", "more"),
 			].join(theme.fg("muted", " · "));
 			const compactOnboarding = theme.fg(
@@ -1003,7 +1000,7 @@ export class InteractiveMode {
 			);
 			const onboarding = theme.fg(
 				"dim",
-				`GAH enforces a tool allowlist and audits every call. Ask the agent what it can and can't do.`,
+				`Pi can explain its own features and look up its docs. Ask it how to use or extend Pi.`,
 			);
 			this.builtInHeader = new ExpandableText(
 				() => `${logo}\n${compactInstructions}\n${compactOnboarding}\n\n${onboarding}`,
@@ -3017,16 +3014,6 @@ export class InteractiveMode {
 				return;
 			}
 			if (text === "/share") {
-				// GAH: /share uploads the transcript to a GitHub gist through the gh
-				// CLI -- a child process the egress allowlist (0011) cannot see, and a
-				// transcript on a governed host is the organisation's data. Off unless
-				// the deployment sets GAH_ALLOW_SHARE=1.
-				if (process.env.GAH_ALLOW_SHARE !== "1") {
-					gahAudit({ kind: "blocked", reason: "share_disabled", command: "/share" });
-					this.showError("/share is disabled by GAH policy: session transcripts stay on this machine.");
-					this.editor.setText("");
-					return;
-				}
 				await this.handleShareCommand();
 				this.editor.setText("");
 				return;
