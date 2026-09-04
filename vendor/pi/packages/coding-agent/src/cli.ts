@@ -8,6 +8,12 @@ import { runServerProcess } from "./experimental/server.ts";
 import { runSessionWorkerProcess } from "./experimental/session-worker.ts";
 import { main } from "./main.ts";
 
+// GAH: the egress guard lives in configureHttpDispatcher() (0011). Upstream
+// only installs it for the main process; the experimental server and
+// session-worker roles below would otherwise talk to providers through an
+// unguarded default dispatcher. Install it before any role runs.
+configureHttpDispatcher();
+
 const internalProcessRole = consumeInternalProcessRole();
 if (internalProcessRole === "server") {
 	void runServerProcess(process.argv.slice(2)).catch(() => process.exit(1));
@@ -24,7 +30,7 @@ if (internalProcessRole === "server") {
 
 	// Configure undici's global dispatcher before provider SDKs issue requests.
 	// Runtime settings are applied once SettingsManager has loaded global/project settings.
-	configureHttpDispatcher();
+	// (GAH: already configured above, for every process role.)
 
 	main(process.argv.slice(2));
 }

@@ -1,6 +1,6 @@
-From a237f16c8fdf44feb2d16d255e4664ce3c6d54ce Mon Sep 17 00:00:00 2001
+From ab93725b8e5587a6ac619b1b2096210abc7eec92 Mon Sep 17 00:00:00 2001
 From: csolomon <charliesolomon@gmail.com>
-Date: Fri, 4 Sep 2026 15:33:15 -0700
+Date: Fri, 4 Sep 2026 15:37:34 -0700
 Subject: [PATCH] branded-cli: GAH_* environment names, and a --help page that
  describes this session
 
@@ -78,22 +78,28 @@ Claude-Session: https://claude.ai/code/session_011it956DeV4unyWw5VyvkDD
 Re-authored 2026-09-04 (#45, sync to v0.85.0): cli.ts dispatches internal
 process roles before main() and the help block gained SERVER_DIR/SERVER_ID;
 both are rebranded and mirrored like the rest.
+
+Also hoists configureHttpDispatcher() above the internal process role
+dispatch in cli.ts: upstream configured it for the main process only, so
+the experimental server and session-worker processes ran with an
+unguarded default dispatcher, outside the GAH_ALLOWED_HOSTS check that
+0011 installs there.
 ---
- packages/coding-agent/src/cli.ts            |   2 +
+ packages/coding-agent/src/cli.ts            |  10 +-
  packages/coding-agent/src/cli/args.ts       |  19 ++-
  packages/coding-agent/src/cli/gah-help.ts   | 170 ++++++++++++++++++++
  packages/coding-agent/src/core/gah-env.ts   |  72 +++++++++
  packages/coding-agent/src/rpc-entry.ts      |   2 +
  packages/coding-agent/test/gah-env.test.ts  |  36 +++++
  packages/coding-agent/test/gah-help.test.ts |  64 ++++++++
- 7 files changed, 358 insertions(+), 7 deletions(-)
+ 7 files changed, 365 insertions(+), 8 deletions(-)
  create mode 100644 vendor/pi/packages/coding-agent/src/cli/gah-help.ts
  create mode 100644 vendor/pi/packages/coding-agent/src/core/gah-env.ts
  create mode 100644 vendor/pi/packages/coding-agent/test/gah-env.test.ts
  create mode 100644 vendor/pi/packages/coding-agent/test/gah-help.test.ts
 
 diff --git a/packages/coding-agent/src/cli.ts b/packages/coding-agent/src/cli.ts
-index 3108a13b1..85f4f300b 100644
+index 3108a13b1..5ed9d863a 100644
 --- a/packages/coding-agent/src/cli.ts
 +++ b/packages/coding-agent/src/cli.ts
 @@ -1,4 +1,6 @@
@@ -103,6 +109,28 @@ index 3108a13b1..85f4f300b 100644
  import { APP_NAME } from "./config.ts";
  import { configureHttpDispatcher } from "./core/http-dispatcher.ts";
  import { consumeInternalProcessRole } from "./experimental/process.ts";
+@@ -6,6 +8,12 @@ import { runServerProcess } from "./experimental/server.ts";
+ import { runSessionWorkerProcess } from "./experimental/session-worker.ts";
+ import { main } from "./main.ts";
+ 
++// GAH: the egress guard lives in configureHttpDispatcher() (0011). Upstream
++// only installs it for the main process; the experimental server and
++// session-worker roles below would otherwise talk to providers through an
++// unguarded default dispatcher. Install it before any role runs.
++configureHttpDispatcher();
++
+ const internalProcessRole = consumeInternalProcessRole();
+ if (internalProcessRole === "server") {
+ 	void runServerProcess(process.argv.slice(2)).catch(() => process.exit(1));
+@@ -22,7 +30,7 @@ if (internalProcessRole === "server") {
+ 
+ 	// Configure undici's global dispatcher before provider SDKs issue requests.
+ 	// Runtime settings are applied once SettingsManager has loaded global/project settings.
+-	configureHttpDispatcher();
++	// (GAH: already configured above, for every process role.)
+ 
+ 	main(process.argv.slice(2));
+ }
 diff --git a/packages/coding-agent/src/cli/args.ts b/packages/coding-agent/src/cli/args.ts
 index 2ced290f9..292186658 100644
 --- a/packages/coding-agent/src/cli/args.ts
