@@ -33,7 +33,7 @@ install-hooks: ## Symlink scripts/git-hooks/* into .git/hooks/ (one-time per clo
 build: ## Incremental build of coding-agent (after patch edits)
 	cd $(PI_DIR) && npm --workspace packages/coding-agent run build
 
-build-all: ## Full build chain (upstream's own script — 9 packages at v0.84.4)
+build-all: ## Full build chain (upstream's own script — 10 packages at v0.85.0)
 	@# Run upstream's chain verbatim rather than mirroring it. Ours listed 4
 	@# packages while upstream had grown to 9, so `make build-all` silently built
 	@# a subset — the same class of invisible drift that broke the sync for

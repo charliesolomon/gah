@@ -34,7 +34,7 @@ page does not list.
 
 `npm install` is the one step that runs third-party code on the machine before
 anything is built, through packages' install scripts. Upstream's tree has five
-(as of v0.84.4): `canvas` (downloads a prebuilt binary from GitHub releases, or
+(as of v0.84.4, unchanged at v0.85.0): `canvas` (downloads a prebuilt binary from GitHub releases, or
 compiles from source), `esbuild` (validates a binary that already arrives as an
 optional package), `protobufjs` (generates helper files), `ssh2` (builds an
 optional native addon, via an example extension that is never shipped) and a
