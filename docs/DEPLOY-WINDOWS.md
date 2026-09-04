@@ -19,7 +19,8 @@ gah checkout + gah-deploy.json ──► package registry ◄──── Instal
 |---|---|
 | `bundle/` | upstream's self-contained build; runs on bare Node |
 | `dist/…`, `docs/`, `package.json` | the few assets the bundle reads beside itself (themes, HTML export, docs, version) |
-| `node_modules/jiti`, `…/photon-node` | the two packages the bundle leaves external |
+| `node_modules/jiti`, `…/photon-node`, `…/@earendil-works/chord` | the packages the bundle leaves external (the packager checks this list against upstream's bundle script) |
+| `node_modules/esbuild` | a generated stub, not esbuild. Upstream's experimental plugin bundler imports esbuild at startup; GAH never runs it, so the stub satisfies the import and throws a clear error if that path is ever reached, instead of shipping an 11 MB native binary. |
 | `gah-policy/` | the policy pack: `extensions/`, `SYSTEM.md` (your override if given), `providers.json` from the config. Force-loaded by patch 0020; auto-discovery is off. |
 | `tools/` | pinned `fd` and `ripgrep` archives plus `SHA256SUMS`; the installer verifies and unpacks them |
 | `gah.ps1` | the launcher (below) |

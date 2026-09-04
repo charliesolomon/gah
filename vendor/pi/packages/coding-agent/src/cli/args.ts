@@ -435,6 +435,8 @@ ${chalk.bold("Environment Variables:")}
   ${ENV_AGENT_DIR.padEnd(32)} - Config directory (default: ~/${CONFIG_DIR_NAME}/agent)
   ${ENV_SESSION_DIR.padEnd(32)} - Session storage directory (overridden by --session-dir)
   ${ENV}_PACKAGE_DIR                  - Override package directory (for Nix/Guix store paths)
+  ${ENV}_SERVER_DIR                   - Experimental server profile and socket directory (default: ~/.pi/server)
+  ${ENV}_SERVER_ID                    - Logical experimental server ID (overridden by --server-id)
   ${ENV}_OFFLINE                      - Disable startup network operations when set to 1/true/yes
   ${ENV}_TELEMETRY                    - Override install telemetry when set to 1/true/yes or 0/false/no
   ${ENV}_SHARE_VIEWER_URL             - Base URL for /share command (default: https://pi.dev/session/)

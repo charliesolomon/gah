@@ -34,7 +34,7 @@ page does not list.
 
 `npm install` is the one step that runs third-party code on the machine before
 anything is built, through packages' install scripts. Upstream's tree has five
-(as of v0.84.4): `canvas` (downloads a prebuilt binary from GitHub releases, or
+(as of v0.84.4, unchanged at v0.85.0): `canvas` (downloads a prebuilt binary from GitHub releases, or
 compiles from source), `esbuild` (validates a binary that already arrives as an
 optional package), `protobufjs` (generates helper files), `ssh2` (builds an
 optional native addon, via an example extension that is never shipped) and a
@@ -43,6 +43,12 @@ fresh clone with `npm ci --ignore-scripts`, a full build, and the tool-surface
 check — so every documented install and every CI job passes `--ignore-scripts`.
 The two deprecation notices npm prints (`prebuild-install`, `node-domexception`)
 are transitive to those same upstream dependencies and are not ours to fix.
+
+The Windows deployment package never runs `npm install` at all: it carries the
+packages the bundle leaves external (`jiti`, `photon-node`, `chord`) and a
+generated stub in place of `esbuild`, which upstream's experimental plugin
+bundler imports at startup and GAH never uses. The stub throws a clear error
+if that path is reached, so no esbuild binary ships (docs/DEPLOY-WINDOWS.md).
 
 ## fd and ripgrep
 

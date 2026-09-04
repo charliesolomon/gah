@@ -63,10 +63,15 @@ offered() {
 			else
 				timeout 90 ./bin/gah -p --no-session --model mock/m1 "$@" "hi"
 			fi
-		) >/dev/null 2>&1 || true
+		) >"$WORK/probe.log" 2>&1 || true
 		[ -s "$WORK/requests.log" ] && break
 	done
-	[ -s "$WORK/requests.log" ] || { echo "(no request reached the mock)"; return; }
+	if [ ! -s "$WORK/requests.log" ]; then
+		# Say why, or CI reports a bare miss for a crash at import time.
+		{ echo "--- last probe output (tail) ---"; tail -n 15 "$WORK/probe.log" 2>/dev/null; echo "--------------------------------"; } >&2
+		echo "(no request reached the mock)"
+		return
+	fi
 	node -e 'const l=require("fs").readFileSync(process.argv[1],"utf8").trim().split("\n").pop();console.log(JSON.parse(l).tools.join(","))' "$WORK/requests.log"
 }
 

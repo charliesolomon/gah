@@ -1,6 +1,6 @@
-From 3ae6c1a8ef042cad0f6b07d75c73572f88fc0a5e Mon Sep 17 00:00:00 2001
+From ab93725b8e5587a6ac619b1b2096210abc7eec92 Mon Sep 17 00:00:00 2001
 From: csolomon <charliesolomon@gmail.com>
-Date: Wed, 2 Sep 2026 15:37:31 -0700
+Date: Fri, 4 Sep 2026 15:37:34 -0700
 Subject: [PATCH] branded-cli: GAH_* environment names, and a --help page that
  describes this session
 
@@ -20,10 +20,11 @@ Rather than patch every read site -- a hunk per file, in files upstream
 touches often -- new file core/gah-env.ts mirrors each GAH_<NAME> onto
 PI_<NAME> once, before anything reads them. Upstream keeps reading PI_*;
 users write GAH_*. PI_* still works and wins if both are set, so nothing
-already configured changes behaviour. Twenty-one inbound names are
+already configured changes behaviour. Twenty-three inbound names are
 covered: the five from the issue (OFFLINE, SKIP_VERSION_CHECK, TELEMETRY,
 PACKAGE_DIR, CACHE_RETENTION) plus SHARE_VIEWER_URL and the tui/debug
-knobs; the list is one array in that file.
+knobs, and the experimental server's SERVER_DIR and SERVER_ID (added
+upstream in v0.85.0); the list is one array in that file.
 
 The module is imported first from cli.ts and rpc-entry.ts, and its prefix
 is a literal rather than derived from APP_NAME, for a bootstrap reason:
@@ -73,35 +74,65 @@ shell tool next to bash. Comment-only.
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_011it956DeV4unyWw5VyvkDD
+
+Re-authored 2026-09-04 (#45, sync to v0.85.0): cli.ts dispatches internal
+process roles before main() and the help block gained SERVER_DIR/SERVER_ID;
+both are rebranded and mirrored like the rest.
+
+Also hoists configureHttpDispatcher() above the internal process role
+dispatch in cli.ts: upstream configured it for the main process only, so
+the experimental server and session-worker processes ran with an
+unguarded default dispatcher, outside the GAH_ALLOWED_HOSTS check that
+0011 installs there.
 ---
- packages/coding-agent/src/cli.ts            |   2 +
- packages/coding-agent/src/cli/args.ts       |  15 +-
+ packages/coding-agent/src/cli.ts            |  10 +-
+ packages/coding-agent/src/cli/args.ts       |  19 ++-
  packages/coding-agent/src/cli/gah-help.ts   | 170 ++++++++++++++++++++
- packages/coding-agent/src/core/gah-env.ts   |  70 ++++++++
+ packages/coding-agent/src/core/gah-env.ts   |  72 +++++++++
  packages/coding-agent/src/rpc-entry.ts      |   2 +
  packages/coding-agent/test/gah-env.test.ts  |  36 +++++
  packages/coding-agent/test/gah-help.test.ts |  64 ++++++++
- 7 files changed, 354 insertions(+), 5 deletions(-)
+ 7 files changed, 365 insertions(+), 8 deletions(-)
  create mode 100644 vendor/pi/packages/coding-agent/src/cli/gah-help.ts
  create mode 100644 vendor/pi/packages/coding-agent/src/core/gah-env.ts
  create mode 100644 vendor/pi/packages/coding-agent/test/gah-env.test.ts
  create mode 100644 vendor/pi/packages/coding-agent/test/gah-help.test.ts
 
 diff --git a/packages/coding-agent/src/cli.ts b/packages/coding-agent/src/cli.ts
-index caa447229..23422a366 100644
+index 3108a13b1..5ed9d863a 100644
 --- a/packages/coding-agent/src/cli.ts
 +++ b/packages/coding-agent/src/cli.ts
-@@ -5,6 +5,8 @@
-  *
-  * Test with: npx tsx src/cli-new.ts [args...]
-  */
+@@ -1,4 +1,6 @@
+ #!/usr/bin/env node
 +// GAH: must run before config.ts reads the environment (see gah-env.ts).
 +import "./core/gah-env.ts";
  import { APP_NAME } from "./config.ts";
  import { configureHttpDispatcher } from "./core/http-dispatcher.ts";
+ import { consumeInternalProcessRole } from "./experimental/process.ts";
+@@ -6,6 +8,12 @@ import { runServerProcess } from "./experimental/server.ts";
+ import { runSessionWorkerProcess } from "./experimental/session-worker.ts";
  import { main } from "./main.ts";
+ 
++// GAH: the egress guard lives in configureHttpDispatcher() (0011). Upstream
++// only installs it for the main process; the experimental server and
++// session-worker roles below would otherwise talk to providers through an
++// unguarded default dispatcher. Install it before any role runs.
++configureHttpDispatcher();
++
+ const internalProcessRole = consumeInternalProcessRole();
+ if (internalProcessRole === "server") {
+ 	void runServerProcess(process.argv.slice(2)).catch(() => process.exit(1));
+@@ -22,7 +30,7 @@ if (internalProcessRole === "server") {
+ 
+ 	// Configure undici's global dispatcher before provider SDKs issue requests.
+ 	// Runtime settings are applied once SettingsManager has loaded global/project settings.
+-	configureHttpDispatcher();
++	// (GAH: already configured above, for every process role.)
+ 
+ 	main(process.argv.slice(2));
+ }
 diff --git a/packages/coding-agent/src/cli/args.ts b/packages/coding-agent/src/cli/args.ts
-index 8ad5da63e..76c02f523 100644
+index 2ced290f9..292186658 100644
 --- a/packages/coding-agent/src/cli/args.ts
 +++ b/packages/coding-agent/src/cli/args.ts
 @@ -5,6 +5,7 @@
@@ -132,15 +163,19 @@ index 8ad5da63e..76c02f523 100644
    --                             End option parsing; treat remaining arguments as messages/files
    --help, -h                     Show this help
    --version, -v                  Show version number
-@@ -429,10 +434,10 @@ ${chalk.bold("Environment Variables:")}
+@@ -429,12 +434,12 @@ ${chalk.bold("Environment Variables:")}
    AWS_REGION                       - AWS region for Amazon Bedrock (e.g., us-east-1)
    ${ENV_AGENT_DIR.padEnd(32)} - Config directory (default: ~/${CONFIG_DIR_NAME}/agent)
    ${ENV_SESSION_DIR.padEnd(32)} - Session storage directory (overridden by --session-dir)
 -  PI_PACKAGE_DIR                   - Override package directory (for Nix/Guix store paths)
+-  PI_SERVER_DIR                    - Experimental server profile and socket directory (default: ~/.pi/server)
+-  PI_SERVER_ID                     - Logical experimental server ID (overridden by --server-id)
 -  PI_OFFLINE                       - Disable startup network operations when set to 1/true/yes
 -  PI_TELEMETRY                     - Override install telemetry when set to 1/true/yes or 0/false/no
 -  PI_SHARE_VIEWER_URL              - Base URL for /share command (default: https://pi.dev/session/)
 +  ${ENV}_PACKAGE_DIR                  - Override package directory (for Nix/Guix store paths)
++  ${ENV}_SERVER_DIR                   - Experimental server profile and socket directory (default: ~/.pi/server)
++  ${ENV}_SERVER_ID                    - Logical experimental server ID (overridden by --server-id)
 +  ${ENV}_OFFLINE                      - Disable startup network operations when set to 1/true/yes
 +  ${ENV}_TELEMETRY                    - Override install telemetry when set to 1/true/yes or 0/false/no
 +  ${ENV}_SHARE_VIEWER_URL             - Base URL for /share command (default: https://pi.dev/session/)
@@ -325,10 +360,10 @@ index 000000000..31e88e5c7
 +}
 diff --git a/packages/coding-agent/src/core/gah-env.ts b/packages/coding-agent/src/core/gah-env.ts
 new file mode 100644
-index 000000000..74d3dd4c4
+index 000000000..3abd7de94
 --- /dev/null
 +++ b/packages/coding-agent/src/core/gah-env.ts
-@@ -0,0 +1,70 @@
+@@ -0,0 +1,72 @@
 +/**
 + * GAH: branded environment variable names.
 + *
@@ -363,6 +398,8 @@ index 000000000..74d3dd4c4
 +	"SKIP_VERSION_CHECK",
 +	"TELEMETRY",
 +	"PACKAGE_DIR",
++	"SERVER_DIR",
++	"SERVER_ID",
 +	"SHARE_VIEWER_URL",
 +	"CACHE_RETENTION",
 +	"EXPERIMENTAL",
