@@ -5,6 +5,7 @@
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import chalk from "chalk";
 import { APP_NAME, CONFIG_DIR_NAME, ENV_AGENT_DIR, ENV_SESSION_DIR } from "../config.ts";
+import { printGahHelp } from "./gah-help.ts";
 import type { ExtensionFlag } from "../core/extensions/types.ts";
 import type { TuiMode } from "../core/settings-manager.ts";
 
@@ -249,6 +250,10 @@ export function parseArgs(args: string[]): Args {
 }
 
 export function printHelp(extensionFlags?: ExtensionFlag[]): void {
+	// GAH: the short page is the default; --help --verbose prints this one (gah-help.ts).
+	if (printGahHelp(extensionFlags)) return;
+	// GAH: environment variables are documented under the branded prefix (gah-env.ts).
+	const ENV = APP_NAME.toUpperCase();
 	const extensionFlagsText =
 		extensionFlags && extensionFlags.length > 0
 			? `\n${chalk.bold("Extension CLI Flags:")}\n${extensionFlags
@@ -315,7 +320,7 @@ ${chalk.bold("Options:")}
   --tui-mode <mode>              TUI mode: regular (default) or fullscreen
   --approve, -a                  Trust project-local files for this run
   --no-approve, -na              Ignore project-local files for this run
-  --offline                      Disable startup network operations (same as PI_OFFLINE=1)
+  --offline                      Disable startup network operations (same as ${ENV}_OFFLINE=1)
   --                             End option parsing; treat remaining arguments as messages/files
   --help, -h                     Show this help
   --version, -v                  Show version number
@@ -429,12 +434,12 @@ ${chalk.bold("Environment Variables:")}
   AWS_REGION                       - AWS region for Amazon Bedrock (e.g., us-east-1)
   ${ENV_AGENT_DIR.padEnd(32)} - Config directory (default: ~/${CONFIG_DIR_NAME}/agent)
   ${ENV_SESSION_DIR.padEnd(32)} - Session storage directory (overridden by --session-dir)
-  PI_PACKAGE_DIR                   - Override package directory (for Nix/Guix store paths)
-  PI_SERVER_DIR                    - Experimental server profile and socket directory (default: ~/.pi/server)
-  PI_SERVER_ID                     - Logical experimental server ID (overridden by --server-id)
-  PI_OFFLINE                       - Disable startup network operations when set to 1/true/yes
-  PI_TELEMETRY                     - Override install telemetry when set to 1/true/yes or 0/false/no
-  PI_SHARE_VIEWER_URL              - Base URL for /share command (default: https://pi.dev/session/)
+  ${ENV}_PACKAGE_DIR                  - Override package directory (for Nix/Guix store paths)
+  ${ENV}_SERVER_DIR                   - Experimental server profile and socket directory (default: ~/.pi/server)
+  ${ENV}_SERVER_ID                    - Logical experimental server ID (overridden by --server-id)
+  ${ENV}_OFFLINE                      - Disable startup network operations when set to 1/true/yes
+  ${ENV}_TELEMETRY                    - Override install telemetry when set to 1/true/yes or 0/false/no
+  ${ENV}_SHARE_VIEWER_URL             - Base URL for /share command (default: https://pi.dev/session/)
 
 ${chalk.bold("Built-in Tool Names:")}
   read       - Read file contents

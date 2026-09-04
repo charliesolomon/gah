@@ -1,6 +1,6 @@
-From 0e143f5f514e4a45e3b9df8d4f1dec1a7334a117 Mon Sep 17 00:00:00 2001
+From a56800ff99f4a32703eaed9737a841145880047b Mon Sep 17 00:00:00 2001
 From: csolomon <charliesolomon@gmail.com>
-Date: Wed, 2 Sep 2026 10:24:12 -0700
+Date: Fri, 4 Sep 2026 15:33:53 -0700
 Subject: [PATCH] offline-runtime: no runtime downloads, no startup network
  calls
 
@@ -41,16 +41,21 @@ directory both resolve. Full build and smoke pass.
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_011it956DeV4unyWw5VyvkDD
+
+Re-authored 2026-09-04 (#45, sync to v0.85.0): upstream reworked the
+download path (musl builds, release lookup without the GitHub API) and
+the error text in ensureTool(); the replaced block is the same, only its
+context moved.
 ---
- packages/coding-agent/src/main.ts             |  8 +++-
- .../coding-agent/src/utils/tools-manager.ts   | 41 +++++++------------
- 2 files changed, 21 insertions(+), 28 deletions(-)
+ packages/coding-agent/src/main.ts             |  8 ++-
+ .../coding-agent/src/utils/tools-manager.ts   | 53 +++++--------------
+ 2 files changed, 21 insertions(+), 40 deletions(-)
 
 diff --git a/packages/coding-agent/src/main.ts b/packages/coding-agent/src/main.ts
-index 6769849b4..0839fc0ee 100644
+index c6734a0b4..09e634b81 100644
 --- a/packages/coding-agent/src/main.ts
 +++ b/packages/coding-agent/src/main.ts
-@@ -564,7 +564,13 @@ export interface MainOptions {
+@@ -675,7 +675,13 @@ export interface MainOptions {
  export async function main(args: string[], options?: MainOptions) {
  	resetTimings();
  	const extensionFactories = [...builtInExtensions, ...(options?.extensionFactories ?? [])];
@@ -66,10 +71,10 @@ index 6769849b4..0839fc0ee 100644
  		process.env.PI_OFFLINE = "1";
  		process.env.PI_SKIP_VERSION_CHECK = "1";
 diff --git a/packages/coding-agent/src/utils/tools-manager.ts b/packages/coding-agent/src/utils/tools-manager.ts
-index 23a71b5a1..d255b28e9 100644
+index f040f5247..c44a7f853 100644
 --- a/packages/coding-agent/src/utils/tools-manager.ts
 +++ b/packages/coding-agent/src/utils/tools-manager.ts
-@@ -344,31 +344,18 @@ export async function ensureTool(
+@@ -358,43 +358,18 @@ export async function ensureTool(
  	const config = TOOLS[tool];
  	if (!config) return undefined;
  
@@ -94,9 +99,21 @@ index 23a71b5a1..d255b28e9 100644
 -		onStatus?.({ type: "info", message: `${config.name} installed to ${path}` });
 -		return path;
 -	} catch (e) {
+-		// Include the error cause chain: fetch failures surface as a bare
+-		// "fetch failed" TypeError with the actionable detail (DNS, TLS,
+-		// timeout) hidden in the cause. Depth-capped to guard against
+-		// circular cause chains.
+-		const messages: string[] = [];
+-		for (
+-			let current: unknown = e, depth = 0;
+-			current instanceof Error && depth < 5;
+-			current = current.cause, depth++
+-		) {
+-			if (!messages.includes(current.message)) messages.push(current.message);
+-		}
 -		onStatus?.({
 -			type: "warning",
--			message: `Failed to download ${config.name}: ${e instanceof Error ? e.message : e}`,
+-			message: `Failed to download ${config.name}: ${messages.length > 0 ? messages.join(": ") : String(e)}`,
 -		});
 -		return undefined;
 -	}
