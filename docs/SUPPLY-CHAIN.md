@@ -44,6 +44,12 @@ check — so every documented install and every CI job passes `--ignore-scripts`
 The two deprecation notices npm prints (`prebuild-install`, `node-domexception`)
 are transitive to those same upstream dependencies and are not ours to fix.
 
+The Windows deployment package never runs `npm install` at all: it carries the
+packages the bundle leaves external (`jiti`, `photon-node`, `chord`) and a
+generated stub in place of `esbuild`, which upstream's experimental plugin
+bundler imports at startup and GAH never uses. The stub throws a clear error
+if that path is reached, so no esbuild binary ships (docs/DEPLOY-WINDOWS.md).
+
 ## fd and ripgrep
 
 The agent's `find` and `grep` tools shell out to `fd` and `rg` and fail without
