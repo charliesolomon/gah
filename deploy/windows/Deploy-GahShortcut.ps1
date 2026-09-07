@@ -47,6 +47,12 @@
     non-terminal-native staffer being asked to verify a fingerprint on first
     launch. Skipped if empty.
 
+.PARAMETER IconBase64
+    A .ico file, base64-encoded, for the shortcut. RMM tools pass arguments
+    split on spaces and offer no file drop, so the icon travels inside the
+    script body: the wrapper bakes it into this parameter's default at upload
+    time, the same way it bakes -HostKey. Written to
+    <profile>\AppData\Local\gah\shortcut.ico. Empty = the stock terminal icon.
 .PARAMETER ListProfiles
     Enumerate every profile on this machine (SID, account, path, last use) and
     exit. Run this first to get the exact -TargetUser string.
@@ -85,6 +91,9 @@ param(
     [Parameter(ParameterSetName = 'Install')]
     [Parameter(ParameterSetName = 'Uninstall')]
     [string]$ShortcutName = 'GAH Assistant',
+
+    [Parameter(ParameterSetName = 'Install')]
+    [string]$IconBase64 = '',
 
     [Parameter(ParameterSetName = 'List', Mandatory = $true)]
     [switch]$ListProfiles,
@@ -515,13 +524,41 @@ function Invoke-Install {
     # WScript.Shell cannot overwrite what it cannot open for write.
     if (Test-Path $lnk) { Grant-UserAccess -Path $lnk -Sid $Target.SID }
 
+    # Icon: an organisation's own .ico, carried in the script body (see
+    # -IconBase64). Lives beside the user's other per-app data, owned by them,
+    # so the .lnk can always resolve it and uninstall knows what to remove.
+    $iconLocation = "$env:SystemRoot\System32\SHELL32.dll,165"
+    $iconDir  = Join-Path $Target.Path 'AppData\Local\gah'
+    $iconPath = Join-Path $iconDir 'shortcut.ico'
+    if ($IconBase64 -ne '') {
+        try {
+            $iconBytes = [Convert]::FromBase64String($IconBase64)
+        } catch {
+            Die "-IconBase64 is not valid base64: $($_.Exception.Message)"
+        }
+        if (-not (Test-Path $iconDir)) {
+            New-Item -ItemType Directory -Path $iconDir -Force | Out-Null
+            Write-Step "created $iconDir"
+        }
+        Set-UserOwnedDir -Path $iconDir -Sid $Target.SID
+        if (Test-Path $iconPath) { Grant-UserAccess -Path $iconPath -Sid $Target.SID }
+        [IO.File]::WriteAllBytes($iconPath, $iconBytes)
+        Grant-UserAccess -Path $iconPath -Sid $Target.SID
+        $iconLocation = "$iconPath,0"
+        Write-Ok "icon: $iconPath ($($iconBytes.Length) bytes)"
+    } elseif (Test-Path $iconPath) {
+        # A previous install placed one and this run carries none: leave the
+        # file for uninstall, but do not point the shortcut at stale artwork.
+        Write-Step 'no -IconBase64 given -- using the stock icon'
+    }
+
     $sh  = New-Object -ComObject WScript.Shell
     $sc  = $sh.CreateShortcut($lnk)
     $sc.TargetPath       = $exe
     $sc.Arguments        = $arg
     $sc.Description      = "$ShortcutName on $JumpHost"
     $sc.WorkingDirectory = $Target.Path
-    $sc.IconLocation     = "$env:SystemRoot\System32\SHELL32.dll,165"
+    $sc.IconLocation     = $iconLocation
     $sc.Save()
     Grant-UserAccess -Path $lnk -Sid $Target.SID
     Write-Ok "shortcut: $lnk"
@@ -551,14 +588,23 @@ function Invoke-Uninstall {
 
     $desktop = Get-UserDesktop -Sid $Target.SID -ProfilePath $Target.Path
     $lnk     = Join-Path $desktop "$ShortcutName.lnk"
+    $iconDir  = Join-Path $Target.Path 'AppData\Local\gah'
+    $iconPath = Join-Path $iconDir 'shortcut.ico'
 
     Repair-ManagedAcls -Sid $Target.SID -Paths @(
-        $lnk, $keyPath, "$keyPath.pub", $known,
+        $lnk, $keyPath, "$keyPath.pub", $known, $iconPath,
         (Get-TerminalSettingsPath -ProfilePath $Target.Path),
         "$(Get-TerminalSettingsPath -ProfilePath $Target.Path).gah-bak")
 
     if (Test-Path $lnk) { Remove-Item $lnk -Force; Write-Ok "removed $lnk" }
     else { Write-Step 'shortcut not present' }
+
+    if (Test-Path $iconPath) {
+        Remove-Item $iconPath -Force; Write-Ok "removed $iconPath"
+        if (-not (Get-ChildItem -Path $iconDir -Force -ErrorAction SilentlyContinue)) {
+            Remove-Item $iconDir -Force -ErrorAction SilentlyContinue
+        }
+    }
 
     if ($KeepKey) {
         Write-Step 'keeping keypair (-KeepKey) -- host-side authorized_keys stays valid'
