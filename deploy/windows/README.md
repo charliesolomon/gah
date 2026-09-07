@@ -31,7 +31,8 @@ parameters — treat this one as a worked example.
 
 Everything organisation-specific is a parameter: `-JumpHost` (required),
 `-ShortcutName` (default `GAH Assistant`), `-HostKey`, `-IconBase64` (a `.ico`,
-base64, for the shortcut; written to the user's `AppData\Local\gah\shortcut.ico`). Some RMM API wrappers
+base64, for the shortcut; written to the user's `AppData\Local\gah\shortcut.ico`),
+`-WindowSize` (Windows Terminal `--size columns,rows`, default `120,45`) or `-Maximized`. Some RMM API wrappers
 split arguments on spaces; if yours does, bake such values into the script
 body at upload time instead of passing them.
 

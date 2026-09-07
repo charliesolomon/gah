@@ -53,6 +53,13 @@
     script body: the wrapper bakes it into this parameter's default at upload
     time, the same way it bakes -HostKey. Written to
     <profile>\AppData\Local\gah\shortcut.ico. Empty = the stock terminal icon.
+.PARAMETER WindowSize
+    Initial Windows Terminal window size as 'columns,rows' (default 120,45,
+    enough for a first-run welcome page plus the TUI). Passed as wt.exe
+    --size; empty = the terminal's own default. Ignored when Windows
+    Terminal is absent and the plain-console fallback is used.
+.PARAMETER Maximized
+    Open the terminal window maximized (wt.exe -M) instead of at -WindowSize.
 .PARAMETER ListProfiles
     Enumerate every profile on this machine (SID, account, path, last use) and
     exit. Run this first to get the exact -TargetUser string.
@@ -94,6 +101,12 @@ param(
 
     [Parameter(ParameterSetName = 'Install')]
     [string]$IconBase64 = '',
+
+    [Parameter(ParameterSetName = 'Install')]
+    [string]$WindowSize = '120,45',
+
+    [Parameter(ParameterSetName = 'Install')]
+    [switch]$Maximized,
 
     [Parameter(ParameterSetName = 'List', Mandatory = $true)]
     [switch]$ListProfiles,
@@ -504,8 +517,18 @@ function Invoke-Install {
 
     if ($wt) {
         $exe = $wt
-        $arg = $sshArgs
-        Write-Step "using Windows Terminal: $wt"
+        # Window options go before the command. They apply to the window this
+        # launch creates; a terminal set to reuse an existing window keeps
+        # that window's size.
+        $wtOpts = ''
+        if ($Maximized) {
+            $wtOpts = '-M '
+        } elseif ($WindowSize -ne '') {
+            if ($WindowSize -notmatch '^\d{2,3},\d{2,3}$') { Die "-WindowSize must be 'columns,rows', e.g. 120,45 (got '$WindowSize')" }
+            $wtOpts = "--size $WindowSize "
+        }
+        $arg = "$wtOpts$sshArgs"
+        Write-Step "using Windows Terminal: $wt $($wtOpts.Trim())"
     } else {
         $ssh = Find-Ssh
         if (-not $ssh) { Die 'neither wt.exe nor ssh.exe found for this user' }
