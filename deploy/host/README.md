@@ -95,9 +95,11 @@ Then per component:
    deny-all) so `bin/gah`'s `anthropic/*` dev default never applies here.
    `GAH_ALLOW_TOOLS` widens the policy-pack tool allowlist (e.g. `bash` for
    skills that drive shell scripts) and is audit-logged at session start.
-4. `exec bin/gah --no-skills --skill ~/.gah/skills-repo/skills` from
-   `~/work` — auto-discovery off, exactly the approved skills pinned, same
-   philosophy as `bin/gah` uses for extensions.
+4. `exec bin/gah --no-skills --skill <dir> …` from `~/work` — auto-discovery
+   off, one `--skill` per approved skill directory. Personal skills
+   (`~/.gah/my-skills`, optional `MY_SKILLS_REPO`) take precedence over shared
+   ones of the same name and the launcher warns when that happens; see
+   `docs/SKILLS.md` and `gah-launch` for the rules.
 
 When gah exits, tmux and the SSH connection close.
 
@@ -107,6 +109,7 @@ When gah exits, tmux and the SSH connection close.
 |---|---|
 | Update gah build | `sudo gah-update` (sessions pick it up on next launch) |
 | Update skills | merge a PR in the skills repo — every launch pulls |
+| Update a host-side checkout the launcher does not sync (an ops repo, a cron tool) | `ssh -A <admin>@<host> "git -C ~/<repo> pull --ff-only"` — the forwarded agent supplies the GitHub credential; `sudo -u <user> git pull` drops it and fails |
 | Change a user's models/tools | edit `/etc/gah/users.d/<user>.conf` |
 | Audit a user's tool calls | `~<user>/.gah/audit.log` (JSONL) |
 | Audit inference | Bedrock model invocation logging + CloudTrail (Phase 2) |
