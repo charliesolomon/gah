@@ -536,6 +536,10 @@ function Invoke-Install {
         } catch {
             Die "-IconBase64 is not valid base64: $($_.Exception.Message)"
         }
+        if (-not (Test-Path $iconDir)) {
+            New-Item -ItemType Directory -Path $iconDir -Force | Out-Null
+            Write-Step "created $iconDir"
+        }
         Set-UserOwnedDir -Path $iconDir -Sid $Target.SID
         if (Test-Path $iconPath) { Grant-UserAccess -Path $iconPath -Sid $Target.SID }
         [IO.File]::WriteAllBytes($iconPath, $iconBytes)
