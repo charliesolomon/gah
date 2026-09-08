@@ -4,12 +4,6 @@
 [![pi pinned](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/charliesolomon/gah/main/.github/badges/pi-pinned.json)](.sync-state)
 [![pi latest](https://img.shields.io/github/v/release/earendil-works/pi?label=pi%20latest&color=lightgrey)](https://github.com/earendil-works/pi/releases)
 
-The badges show the upstream PI version `main` is pinned to (from `.sync-state`)
-next to the latest PI release, so drift is visible at a glance. Syncing is a
-deliberate step ([docs/WORKFLOW.md](docs/WORKFLOW.md)); the daily
-[sync-canary](.github/workflows/sync-canary.yml) tests whether the next upstream
-tip still takes the patch series.
-
 A branded, policy-hardened distribution of the [PI coding agent](https://github.com/earendil-works/pi).
 
 GAH is structured as **two layers** so that customization survives upstream churn:
