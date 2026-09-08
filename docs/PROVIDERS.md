@@ -42,6 +42,14 @@ deny-all until the deployment sets it.**
 Schema and a worked example: [`packages/policy-pack/providers.example.json`](../packages/policy-pack/providers.example.json)
 (also shipped inside published artifacts at `dist/gah-policy/`).
 
+**Quick dev setup:** `make add-provider` (or `node scripts/add-provider.mjs`)
+prompts for a provider — name, base URL, protocol (defaults to
+`openai-responses`), auth, models — and writes `~/.gah/providers.json` for you,
+so you don't have to hand-write the schema to point a dev checkout at a corp
+inference server. It merges into an existing file, reads a literal key with the
+echo off (and `chmod 600`s the file), and prints the exact launch line for your
+shell. The deployed package builds the same file from its config instead.
+
 - Works for any endpoint speaking an API PI knows: `openai-completions`,
   `openai-responses`, `anthropic-messages`, etc. Most enterprise gateways
   and proxies are OpenAI-compatible → `openai-completions`.
