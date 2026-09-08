@@ -26,6 +26,15 @@ by session without parsing the transcript tree. Line `kind`s:
 | `turn` | each assistant turn | `model`, `provider`, `input`, `output`, `cacheRead`, `cacheWrite`, `totalTokens`, `cost` |
 | `prompt` | a `/template` invocation | `name`, `source` |
 
+**Rotation.** The log is date-rotated by the extension itself (it is user-owned,
+so no root logrotate is needed and the same mechanism covers the host, the
+Windows package, and dev). Once per session start, if `audit.log` holds lines
+from a previous day it is renamed to `audit-<that-date>.log`, and dated files
+older than the retention window are deleted. Retention is `GAH_AUDIT_RETENTION_DAYS`
+(default 30; `0` or negative keeps everything). A reader — the usage report,
+`gah-rmuser`'s archive — must take `audit.log` **and** `audit-*.log`. Rotation is
+best-effort and never blocks a write.
+
 `turn` and `prompt` are for a deployment's **usage report** — cost attribution
 by session and feature, and which prompts people actually press (issue #48).
 gah aggregates nothing; the report is the deployment's business. For Bedrock the

@@ -14,9 +14,9 @@
  * to widen or tighten what the agent can do.
  */
 
-import { appendFileSync, mkdirSync } from "node:fs";
+import { appendFileSync, mkdirSync, readdirSync, renameSync, statSync, unlinkSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	commandReferencesSecret,
@@ -29,6 +29,7 @@ import {
 	type SecretValue,
 } from "./lib/secrets.ts";
 import { promptTemplateName, turnUsage } from "./lib/usage.ts";
+import { datedPath, datedPattern, parseRetentionDays, rotationPlan, ymd } from "./lib/audit-rotate.ts";
 
 // --- Policy knobs ------------------------------------------------------------
 
@@ -68,15 +69,69 @@ const SHELL_TOOLS = new Set(["bash", "powershell"]);
 
 /** Where to append the audit log. Override with GAH_AUDIT_LOG. */
 const AUDIT_LOG_PATH = process.env.GAH_AUDIT_LOG ?? join(homedir(), ".gah", "audit.log");
+/** Keep dated audit files this many days; GAH_AUDIT_RETENTION_DAYS, default 30, <=0 = forever (#62). */
+const AUDIT_RETENTION_DAYS = parseRetentionDays(process.env.GAH_AUDIT_RETENTION_DAYS);
 
 // --- Implementation ----------------------------------------------------------
 
 /** Current session id, set at session_start; tags every audit line for grouping. */
 let SESSION_ID: string | undefined;
 
+/** Roll the log to a dated file when its content predates today, and prune old
+ * dated files past retention. Runs once per process, before the first append;
+ * best-effort, and never throws into the caller (a failed roll must not lose a
+ * line — we fall through and append to whatever audit.log is there). */
+let ROTATED = false;
+function rotateAudit(): void {
+	if (ROTATED) return;
+	ROTATED = true;
+	try {
+		const dir = dirname(AUDIT_LOG_PATH);
+		const base = basename(AUDIT_LOG_PATH);
+		let currentDate: string | null = null;
+		try {
+			currentDate = ymd(statSync(AUDIT_LOG_PATH).mtime);
+		} catch {
+			currentDate = null; // no current log yet
+		}
+		const pattern = datedPattern(base);
+		let existingDates: string[] = [];
+		try {
+			existingDates = readdirSync(dir)
+				.map((name) => pattern.exec(name)?.[1])
+				.filter((d): d is string => d !== undefined);
+		} catch {
+			existingDates = [];
+		}
+		const plan = rotationPlan({ currentDate, today: ymd(new Date()), existingDates, retentionDays: AUDIT_RETENTION_DAYS });
+		if (plan.rollToDate) {
+			const dest = datedPath(AUDIT_LOG_PATH, plan.rollToDate);
+			try {
+				statSync(dest); // another session already rolled today; leave both, appends restart audit.log
+			} catch {
+				try {
+					renameSync(AUDIT_LOG_PATH, dest);
+				} catch {
+					/* keep appending to the current file */
+				}
+			}
+		}
+		for (const date of plan.pruneDates) {
+			try {
+				unlinkSync(datedPath(AUDIT_LOG_PATH, date));
+			} catch {
+				/* already gone */
+			}
+		}
+	} catch {
+		/* rotation is best-effort; never block auditing */
+	}
+}
+
 function audit(entry: Record<string, unknown>): void {
 	try {
 		mkdirSync(dirname(AUDIT_LOG_PATH), { recursive: true });
+		rotateAudit();
 		appendFileSync(
 			AUDIT_LOG_PATH,
 			JSON.stringify({ ts: new Date().toISOString(), session: SESSION_ID, ...entry }) + "\n",

@@ -64,13 +64,14 @@ home="$(getent passwd "$user" | cut -d: -f6)"
 
 # --- Preserve the audit log before anything is destroyed ---
 #
-# ~/.gah/audit.log is the only host-side record of what the session did, so it
-# outlives the account by default.
-if [ -f "$home/.gah/audit.log" ]; then
-	archive="/var/log/gah-audit-$user-$(date +%Y%m%d-%H%M%S).log"
-	cp -p "$home/.gah/audit.log" "$archive"
+# ~/.gah/audit.log (and the dated files date-rotation rolled off, audit-*.log)
+# are the only host-side record of what the session did, so they outlive the
+# account by default. Archive the whole set as one tarball.
+if ls "$home"/.gah/audit.log "$home"/.gah/audit-*.log >/dev/null 2>&1; then
+	archive="/var/log/gah-audit-$user-$(date +%Y%m%d-%H%M%S).tar.gz"
+	tar -czf "$archive" -C "$home/.gah" $(cd "$home/.gah" && ls audit.log audit-*.log 2>/dev/null)
 	chmod 0600 "$archive"
-	echo "✓ archived audit log → $archive"
+	echo "✓ archived audit log(s) → $archive"
 fi
 
 # --- Kill any live session, or userdel refuses ---
