@@ -31,7 +31,7 @@ gah/
 ├── ci/scans/                  ← SBOM, CVE, semgrep/CodeQL configs
 ├── docs/WORKFLOW.md           ← upstream sync + patch hygiene
 ├── docs/WINDOWS.md            ← running on Windows (PowerShell)
-├── docs/GITLAB.md             ← distribution via enterprise GitLab (npm registry)
+├── docs/GITLAB.md             ← what an organisation's GitLab holds in a deployment
 ├── docs/PROVIDERS.md          ← inference-provider restriction + approved endpoints
 ├── docs/SKILLS.md             ← the skills repository: gah init, layout, rollout
 ├── docs/SUPPLY-CHAIN.md       ← what reaches the network, and the fd/ripgrep install
@@ -91,7 +91,7 @@ See [docs/WORKFLOW.md](docs/WORKFLOW.md) for the full sync ritual and patch hygi
 Running on Windows? See [docs/WINDOWS.md](docs/WINDOWS.md). Building and running
 work normally; only the sync and patch targets stay on Linux/macOS.
 
-Installing without a clone? [docs/GITLAB.md](docs/GITLAB.md) covers publishing `@<group>/gah` to an enterprise GitLab npm registry — the policy pack is baked into published artifacts via `patches/0020-bake-policy.patch`, so no wrapper script is needed.
+Deploying to people who will never clone this repo? [docs/DEPLOY-WINDOWS.md](docs/DEPLOY-WINDOWS.md) builds a self-contained package with the policy pack baked in (`patches/0020-bake-policy.patch`, so no wrapper script is needed) and [docs/GITLAB.md](docs/GITLAB.md) says what an organisation's GitLab holds for it.
 
 ## Why this shape
 
