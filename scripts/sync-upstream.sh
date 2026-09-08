@@ -34,6 +34,8 @@ record_state() {
      || git rev-parse --verify --quiet "$ref" \
      || echo unknown)
   printf 'ref=%s\nsha=%s\nsynced=%s\n' "$ref" "$sha" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$STATE_FILE"
+  # Keep the README's "pi pinned" badge (#67) in step with the pin.
+  node "$REPO_ROOT/scripts/pin-badge.mjs" || echo "warning: pin-badge not regenerated" >&2
 }
 
 cmd_init() {

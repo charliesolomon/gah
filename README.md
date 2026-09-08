@@ -1,6 +1,8 @@
 # Good Agent Harness (gah)
 
 [![ci](https://github.com/charliesolomon/gah/actions/workflows/ci.yml/badge.svg)](https://github.com/charliesolomon/gah/actions/workflows/ci.yml)
+[![pi pinned](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/charliesolomon/gah/main/.github/badges/pi-pinned.json)](.sync-state)
+[![pi latest](https://img.shields.io/github/v/release/earendil-works/pi?label=pi%20latest&color=lightgrey)](https://github.com/earendil-works/pi/releases)
 
 A branded, policy-hardened distribution of the [PI coding agent](https://github.com/earendil-works/pi).
 
