@@ -99,12 +99,14 @@ body of commit `639e0d7e`.
 
 ### On the automation
 
-`.github/workflows/upstream-sync.yml` attempts this every Monday and opens a PR when it
-succeeds. Be aware of its history: **it failed 15 consecutive times between 2026-05-18 and
-2026-08-28 without ever succeeding, and nothing surfaced that** — a scheduled workflow's
-only default signal is an email to whoever last edited it. It now files an issue on
-failure. Treat a long silence as suspicious rather than as good news, and check
-`gh run list --workflow upstream-sync` periodically.
+`.github/workflows/upstream-sync.yml` runs **on demand only** (`workflow_dispatch`),
+producing a PR with the re-applied patch series against a chosen ref. It used to run every
+Monday; that was dropped (#61) once the daily sync-canary below took over the early-warning
+job the schedule existed for. Be aware of its history: as a weekly job **it failed 15
+consecutive times between 2026-05-18 and 2026-08-28 without surfacing anything** — a
+scheduled workflow's only default signal is an email to whoever last edited it — which is
+exactly why the standing signal is now the canary, not this. Trigger it by hand
+(`gh workflow run upstream-sync.yml -f ref=<tag>`) or just run `make sync REF=<tag>` locally.
 
 `.github/workflows/sync-canary.yml` is the early warning in front of it. Every day at
 13:00 UTC it runs the same sequence against upstream **`main`** — reverse-apply, subtree

@@ -17,8 +17,9 @@ concurrency:
   cancel-in-progress: false
 
 on:
-  schedule:
-    - cron: "0 12 * * 1" # Mondays 12:00 UTC
+  # Manual only (#61): the daily sync-canary (sync-canary.yml) already warns
+  # when upstream breaks the patch series, which was the weekly auto-PR's job.
+  # Syncs are run by hand against a named tag: `make sync REF=<tag>`.
   workflow_dispatch:
     inputs:
       ref:
