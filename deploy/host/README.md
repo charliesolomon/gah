@@ -116,7 +116,7 @@ When gah exits, tmux and the SSH connection close.
 | Update skills | merge a PR in the skills repo — every launch pulls |
 | Update a host-side checkout the launcher does not sync (an ops repo, a cron tool) | `ssh -A <admin>@<host> "git -C ~/<repo> pull --ff-only"` — the forwarded agent supplies the GitHub credential; `sudo -u <user> git pull` drops it and fails |
 | Change a user's models/tools | edit `/etc/gah/users.d/<user>.conf` |
-| Audit a user's tool calls | `~<user>/.gah/audit.log` (JSONL) |
+| Audit a user's tool calls | `~<user>/.gah/audit.log` (JSONL; rolled daily to `audit-<date>.log`, kept 30 days — `GAH_AUDIT_RETENTION_DAYS` in the manifest to change, `0` = forever) |
 | Audit inference | Bedrock model invocation logging + CloudTrail (Phase 2) |
 | Offboard | `usermod -L <user>` + deactivate IAM keys |
 

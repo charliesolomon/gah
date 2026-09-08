@@ -68,6 +68,11 @@ GAH_ALLOWED_HOSTS="bedrock-runtime.us-west-1.amazonaws.com"
 # normally. Unset = none. Name every credentials file the manifest points at.
 GAH_SECRET_FILES="$HOME/*.env:$HOME/.aws/*"
 
+# Audit log retention. The log (~/.gah/audit.log) is rolled to audit-<date>.log
+# daily and dated files older than this many days are deleted. Default 30;
+# 0 or negative keeps everything. gah-rmuser archives the whole set on removal.
+#GAH_AUDIT_RETENTION_DAYS="30"
+
 # --- AWS ----------------------------------------------------------------------
 # Profile in ~/.aws/credentials holding this user's IAM keys (Phase 2).
 # REQUIRED for Bedrock models to appear: the agent treats amazon-bedrock as
