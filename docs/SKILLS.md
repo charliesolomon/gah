@@ -75,6 +75,52 @@ see [deploy/host/README.md](../deploy/host/README.md). Users may also set
 
 For a single run, `--skill <path>` works without either variable.
 
+### Two folders at once: a shared project plus your private one
+
+You can develop against your shared skills project **and** a second folder of
+private or not-yet-promoted skills in the same session. `GAH_SKILLS_DIR` gives
+the wrapper one folder; each extra `--skill <path>` adds another, and one
+`--skill` pointed at a project's `skills/` loads every `<name>/SKILL.md` under
+it. Keep the shared project in the variable and add the private one per run:
+
+```powershell
+# shared, tracked in git, in your PowerShell profile:
+$env:GAH_SKILLS_DIR = 'C:\dev\it-skills\skills'
+# add your private project (its prompts too, if it has any):
+.in\gah.ps1 --skill C:\dev\my-skills\skills --prompt-template C:\dev\my-skills\prompts
+```
+
+```bash
+GAH_SKILLS_DIR=~/dev/it-skills/skills   ./bin/gah --skill ~/dev/my-skills/skills --prompt-template ~/dev/my-skills/prompts
+```
+
+The wrapper auto-loads a `prompts/` sibling only for `GAH_SKILLS_DIR`, so name
+the private project's templates with `--prompt-template` explicitly. A profile
+function makes it one word:
+
+```powershell
+function gahdev { .in\gah.ps1 --skill C:\dev\my-skills\skills --prompt-template C:\dev\my-skills\prompts @args }
+```
+
+**Precedence is first-wins.** When both folders hold a skill of the *same name*,
+the one passed **first** is kept and the later one is reported as a collision at
+startup and skipped. `GAH_SKILLS_DIR` is always passed before command-line
+`--skill` flags, so **shared wins** by default — right when your private skills
+are new, distinct names. It only matters if you fork a shared skill to iterate
+before promoting it; then either rename the work-in-progress copy, or invert the
+order by passing both folders explicitly, private first (which also satisfies
+the skills check, so the variable is not needed for that run):
+
+```powershell
+.in\gah.ps1 --skill C:\dev\my-skills\skills --skill C:\dev\it-skills\skills
+```
+
+**Promoting** a private skill is a move: relocate its `<name>/` directory into
+the shared project's `skills/`, commit, and open a merge request. This mirrors
+the shared host, where personal skills in `~/.gah/my-skills` shadow shared ones
+and graduate the same way. The private folder need not be a git repo at all; a
+plain local directory works, only the shared project needs tracking.
+
 ### `--no-skills` is not an opt-out
 
 It means *do not auto-discover from the user-global config dir*. `gah-launch`
