@@ -1,12 +1,14 @@
 /**
  * GAH policy extension.
  *
- * Enforces four things on every session:
+ * Enforces four things on every session, and records a fifth:
  *   1. Tool allowlist — only tools listed in ALLOWED_TOOLS may run.
  *   2. Protected paths — write/edit operations to sensitive paths are blocked.
  *   3. Secret files (GAH_SECRET_FILES) — the model may neither read them by
  *      any tool nor see their values in any tool result (lib/secrets.ts).
- *   4. Audit log — every tool call is appended to an audit file.
+ *   4. Audit log — every tool call is appended to an audit file, tagged with
+ *      a session id, alongside per-turn model/token/cost usage and the prompt
+ *      templates people invoke (lib/usage.ts, for a deployment's usage report).
  *
  * This is the single file that defines our day-to-day risk posture. Edit it
  * to widen or tighten what the agent can do.
@@ -26,6 +28,7 @@ import {
 	resolveSecretFiles,
 	type SecretValue,
 } from "./lib/secrets.ts";
+import { promptTemplateName, turnUsage } from "./lib/usage.ts";
 
 // --- Policy knobs ------------------------------------------------------------
 
@@ -68,10 +71,16 @@ const AUDIT_LOG_PATH = process.env.GAH_AUDIT_LOG ?? join(homedir(), ".gah", "aud
 
 // --- Implementation ----------------------------------------------------------
 
+/** Current session id, set at session_start; tags every audit line for grouping. */
+let SESSION_ID: string | undefined;
+
 function audit(entry: Record<string, unknown>): void {
 	try {
 		mkdirSync(dirname(AUDIT_LOG_PATH), { recursive: true });
-		appendFileSync(AUDIT_LOG_PATH, JSON.stringify({ ts: new Date().toISOString(), ...entry }) + "\n");
+		appendFileSync(
+			AUDIT_LOG_PATH,
+			JSON.stringify({ ts: new Date().toISOString(), session: SESSION_ID, ...entry }) + "\n",
+		);
 	} catch {
 		// Audit failure must not break the agent. Surface via stderr only.
 		process.stderr.write(`[gah-policy] audit write failed: ${AUDIT_LOG_PATH}\n`);
@@ -122,7 +131,12 @@ export default function (pi: ExtensionAPI) {
 	// Set at session start, after every tool is registered; unknown names are
 	// ignored by the harness, so a name in the allowlist that this platform
 	// does not have (bash on Windows) is harmless.
-	pi.on("session_start", async () => {
+	pi.on("session_start", async (_event, ctx) => {
+		try {
+			SESSION_ID = ctx?.sessionManager?.getSessionId();
+		} catch {
+			SESSION_ID = undefined;
+		}
 		const registered = new Set(pi.getAllTools().map((tool) => tool.name));
 		const active = [...ALLOWED_TOOLS].filter((name) => registered.has(name));
 		pi.setActiveTools(active);
@@ -212,5 +226,23 @@ export default function (pi: ExtensionAPI) {
 		if (hits.length === 0) return undefined;
 		audit({ kind: "redacted", tool: (event as { toolName?: string }).toolName, hits });
 		return { content };
+	});
+
+	// Per-turn model usage: what the turn cost and on which model, for a usage
+	// report to attribute by session and feature. No network, local only. The
+	// authoritative Bedrock cost is the CloudWatch invocation log; this is for
+	// attribution and for providers without server-side logging.
+	pi.on("turn_end", async (event) => {
+		const usage = turnUsage(event.message);
+		if (usage) audit({ kind: "turn", turnIndex: event.turnIndex, ...usage });
+	});
+
+	// Prompt templates: a `/morning` expands client-side and otherwise leaves
+	// no trace. By this point built-in and extension commands have been handled
+	// and returned, so a leading "/name" here is a template.
+	pi.on("input", async (event) => {
+		const name = promptTemplateName(event.text);
+		if (name) audit({ kind: "prompt", name, source: event.source });
+		return undefined;
 	});
 }
