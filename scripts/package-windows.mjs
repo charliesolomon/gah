@@ -24,7 +24,7 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PINS } from "./install-tools.mjs";
@@ -73,7 +73,8 @@ const slug = String(cfg.org).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/
 const name = `gah-${slug}-${cfg.version}`;
 
 // --- Inputs from the build ----------------------------------------------
-const CA = join(REPO, "vendor", "pi", "packages", "coding-agent");
+const VENDOR = join(REPO, "vendor", "pi");
+const CA = join(VENDOR, "packages", "coding-agent");
 const bundle = join(CA, "dist", "bundle");
 if (!existsSync(join(bundle, "cli.js"))) fail(`no build at ${bundle} — run make build-all first`);
 const gahVersion = JSON.parse(readFileSync(join(CA, "package.json"), "utf8")).version;
@@ -103,14 +104,77 @@ for (const rel of ["dist/modes/interactive/theme", "dist/modes/interactive/asset
 	cpSync(join(CA, rel), join(tree, rel), { recursive: true });
 }
 for (const f of ["CHANGELOG.md", "README.md"]) if (existsSync(join(CA, f))) cpSync(join(CA, f), join(tree, f));
-// The bundle leaves two packages external (scripts/build-coding-agent-bundle.mjs):
-// jiti, which loads the policy pack's .ts extensions, and photon-node for image
-// resizing. Both are dependency-free. The published npm package gets them from
-// npm install; a zip that never runs npm install has to carry them.
-for (const dep of ["jiti", "@silvia-odwyer/photon-node"]) {
-	const src = join(REPO, "vendor", "pi", "node_modules", dep);
-	if (!existsSync(join(src, "package.json"))) fail(`missing ${src} — run npm ci in vendor/pi`);
-	cpSync(src, join(tree, "node_modules", dep), { recursive: true });
+// The bundle leaves a few packages external (scripts/build-coding-agent-bundle.mjs):
+// jiti, which loads the policy pack's .ts extensions; photon-node for image
+// resizing; and, since upstream v0.85.0, chord -- the agent's context runtime,
+// a workspace package the bundle imports by name. The published npm package
+// gets them from npm install; a zip that never runs npm install has to carry
+// them. chord's only dependency, esbuild, is handled separately below.
+const externals = [
+	{ name: "jiti", from: join(VENDOR, "node_modules", "jiti") },
+	{ name: "@silvia-odwyer/photon-node", from: join(VENDOR, "node_modules", "@silvia-odwyer", "photon-node") },
+	{ name: "@earendil-works/chord", from: join(VENDOR, "packages", "chord"), only: ["package.json", "dist", "README.md"] },
+];
+for (const { name, from, only } of externals) {
+	if (!existsSync(join(from, "package.json"))) fail(`missing ${from} — run npm ci and the build in vendor/pi`);
+	const dest = join(tree, "node_modules", name);
+	mkdirSync(dest, { recursive: true });
+	for (const entry of only ?? readdirSync(from)) {
+		if (!existsSync(join(from, entry))) continue;
+		cpSync(join(from, entry), join(dest, entry), { recursive: true, dereference: true });
+	}
+}
+// Drift guard: upstream's bundle script declares every package the bundle may
+// leave external (allowedExternalPackages). Each one that is not an optional
+// accelerator must be carried above. This fails with a package name when
+// upstream adds another external -- instead of the tool-surface check
+// reporting "no request reached the mock".
+{
+	const buildScript = readFileSync(join(VENDOR, "scripts", "build-coding-agent-bundle.mjs"), "utf8");
+	const m = buildScript.match(/allowedExternalPackages\s*=\s*new Set\(\[([\s\S]*?)\]\)/);
+	if (!m) fail("cannot find allowedExternalPackages in vendor/pi/scripts/build-coding-agent-bundle.mjs — update the drift guard in scripts/package-windows.mjs");
+	// Their callers fall back to JavaScript when the module is absent (upstream's comment).
+	const optional = new Set(["bufferutil", "utf-8-validate", "supports-color"]);
+	const carried = new Set(externals.map((e) => e.name));
+	const missing = new Set();
+	for (const [, spec] of m[1].matchAll(/"([^"]+)"/g)) {
+		const pkg = spec.startsWith("@") ? spec.split("/").slice(0, 2).join("/") : spec.split("/")[0];
+		if (!optional.has(pkg) && !carried.has(pkg)) missing.add(pkg);
+	}
+	if (missing.size > 0) {
+		fail(`the bundle may import packages this package does not carry: ${[...missing].sort().join(", ")} — add them to \`externals\` in scripts/package-windows.mjs`);
+	}
+}
+// chord's dist/node/bundle.js imports esbuild at module load, and the bundle
+// reaches it eagerly through the experimental plugin bundler -- a code path
+// GAH never runs (experimental features are off, extensions are not loaded).
+// npm would satisfy that import with esbuild plus an 11 MB platform binary.
+// The zip carries a stub instead: the same named exports, each throwing a
+// clear error, so startup resolves and the unused path fails loudly rather
+// than shipping a native binary for nothing. The export list is derived from
+// chord's actual import so a new upstream use fails here, not on a laptop.
+{
+	const chordBundle = readFileSync(join(VENDOR, "packages", "chord", "dist", "node", "bundle.js"), "utf8");
+	const names = new Set();
+	for (const m of chordBundle.matchAll(/import\s*\{([^}]*)\}\s*from\s*"esbuild"/g)) {
+		for (const n of m[1].split(",")) {
+			const name = n.trim().split(/\s+as\s+/)[0].trim();
+			if (name) names.add(name);
+		}
+	}
+	if (/import\s+(?:\*\s+as\s+\w+|\w+)\s+from\s*"esbuild"/.test(chordBundle)) {
+		fail("chord now imports esbuild as a namespace or default; the stub in scripts/package-windows.mjs only covers named imports");
+	}
+	if (names.size === 0) fail("chord no longer imports esbuild by name — drop or rework the stub in scripts/package-windows.mjs");
+	const stubDir = join(tree, "node_modules", "esbuild");
+	mkdirSync(stubDir, { recursive: true });
+	const message = "esbuild is not shipped in this GAH package: experimental plugin bundling is unavailable (see docs/DEPLOY-WINDOWS.md)";
+	const body = [...names].map((n) => `export function ${n}() {\n\tthrow new Error(${JSON.stringify(message)});\n}`).join("\n");
+	writeFileSync(join(stubDir, "index.js"), `// Generated by scripts/package-windows.mjs. Stands in for esbuild ${JSON.parse(readFileSync(join(VENDOR, "node_modules", "esbuild", "package.json"), "utf8")).version}.\n${body}\n`);
+	writeFileSync(
+		join(stubDir, "package.json"),
+		`${JSON.stringify({ name: "esbuild", version: "0.0.0-gah-stub", type: "module", main: "./index.js", exports: "./index.js" }, null, 2)}\n`,
+	);
 }
 mkdirSync(join(tree, "gah-policy", "extensions"), { recursive: true });
 cpSync(join(policyPack, "extensions"), join(tree, "gah-policy", "extensions"), { recursive: true });

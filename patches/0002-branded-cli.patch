@@ -1,6 +1,6 @@
-From 3ae6c1a8ef042cad0f6b07d75c73572f88fc0a5e Mon Sep 17 00:00:00 2001
+From 54b7c7b470914ba621536f39d8535929805646f3 Mon Sep 17 00:00:00 2001
 From: csolomon <charliesolomon@gmail.com>
-Date: Wed, 2 Sep 2026 15:37:31 -0700
+Date: Tue, 8 Sep 2026 06:57:29 -0700
 Subject: [PATCH] branded-cli: GAH_* environment names, and a --help page that
  describes this session
 
@@ -73,6 +73,11 @@ shell tool next to bash. Comment-only.
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_011it956DeV4unyWw5VyvkDD
+
+Re-authored 2026-09-08 (#45, #52: sync to v0.85.1): cli.ts is now three
+lines around setupCli(); the gah-env import keeps its place as the first
+import. Upstream moved the experimental process roles to a source-only
+entrypoint in 0.85.1, so no dispatcher hoist is needed here.
 ---
  packages/coding-agent/src/cli.ts            |   2 +
  packages/coding-agent/src/cli/args.ts       |  15 +-
@@ -88,18 +93,16 @@ Claude-Session: https://claude.ai/code/session_011it956DeV4unyWw5VyvkDD
  create mode 100644 vendor/pi/packages/coding-agent/test/gah-help.test.ts
 
 diff --git a/packages/coding-agent/src/cli.ts b/packages/coding-agent/src/cli.ts
-index caa447229..23422a366 100644
+index bdb184edf..2dac020c0 100644
 --- a/packages/coding-agent/src/cli.ts
 +++ b/packages/coding-agent/src/cli.ts
-@@ -5,6 +5,8 @@
-  *
-  * Test with: npx tsx src/cli-new.ts [args...]
-  */
+@@ -1,4 +1,6 @@
+ #!/usr/bin/env node
 +// GAH: must run before config.ts reads the environment (see gah-env.ts).
 +import "./core/gah-env.ts";
- import { APP_NAME } from "./config.ts";
- import { configureHttpDispatcher } from "./core/http-dispatcher.ts";
+ import { setupCli } from "./cli/setup.ts";
  import { main } from "./main.ts";
+ 
 diff --git a/packages/coding-agent/src/cli/args.ts b/packages/coding-agent/src/cli/args.ts
 index 8ad5da63e..76c02f523 100644
 --- a/packages/coding-agent/src/cli/args.ts
