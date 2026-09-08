@@ -49,7 +49,12 @@ echo ">>> gah build at $GAH_HOME (ref: $GAH_REF)"
 if [ -d "$GAH_HOME/.git" ]; then
 	git -C "$GAH_HOME" fetch --quiet origin
 	git -C "$GAH_HOME" checkout --quiet "$GAH_REF"
-	git -C "$GAH_HOME" pull --ff-only --quiet origin "$GAH_REF" 2>/dev/null || true
+	# Nothing on the host edits vendor/pi legitimately, so anything git sees
+	# there is build residue (npm once rewrote the lockfile). Discard it, then
+	# pull, and FAIL if the pull fails: an earlier version swallowed the error
+	# and reported a successful build of the previous checkout.
+	"$GAH_HOME/scripts/clean-vendor.sh" >/dev/null
+	git -C "$GAH_HOME" pull --ff-only --quiet origin "$GAH_REF"
 else
 	git clone --branch "$GAH_REF" "$GAH_REPO" "$GAH_HOME"
 fi

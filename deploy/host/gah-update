@@ -12,6 +12,9 @@ GAH_HOME="${GAH_HOME:-/opt/gah}"
 [ "$(id -u)" = 0 ] || { echo "gah-update must run as root" >&2; exit 1; }
 [ -d "$GAH_HOME/.git" ] || { echo "no gah checkout at $GAH_HOME — run setup.sh" >&2; exit 1; }
 
+# Discard build residue in vendor/pi first (nothing on the host edits it);
+# a dirty tree makes the fast-forward refuse.
+"$GAH_HOME/scripts/clean-vendor.sh" >/dev/null
 git -C "$GAH_HOME" pull --ff-only
 make -C "$GAH_HOME" install
 make -C "$GAH_HOME" build-all

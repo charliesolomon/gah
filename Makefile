@@ -17,7 +17,10 @@ install: ## Install npm deps in vendor/pi (run after first sync-init)
 	@# --ignore-scripts: none of the five install scripts in the tree is needed to
 	@# build or run gah, and one (canvas) downloads a binary from GitHub at install
 	@# time. See docs/SUPPLY-CHAIN.md "Install time".
-	cd $(PI_DIR) && npm install --ignore-scripts
+	@# npm ci, not npm install: the vendored lockfile is upstream's and is the
+	@# thing CI builds from. npm install rewrote it on the agent host, which
+	@# left vendor/pi dirty and made the next `git pull --ff-only` refuse.
+	cd $(PI_DIR) && npm ci --ignore-scripts
 
 install-tools: ## Install pinned, SHA-256-verified fd + ripgrep into ~/.gah/agent/bin (see docs/SUPPLY-CHAIN.md)
 	@# 0013-offline-runtime removed upstream's runtime download of these; the
