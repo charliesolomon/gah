@@ -2,6 +2,7 @@
   "$comment": "GAH deployment config. Copy into your organisation's deployment repo, fill in, then: node scripts/package-windows.mjs --config <this file>. Schema: docs/DEPLOY-WINDOWS.md.",
   "org": "Example Corp",
   "shortcutName": "Example Assistant",
+  "icon": null,
   "version": "1.0.0",
   "gitlab": {
     "url": "https://gitlab.example.com",

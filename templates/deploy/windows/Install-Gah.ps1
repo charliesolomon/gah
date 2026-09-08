@@ -161,6 +161,13 @@ if ($rc -ne 0 -and $env:GAH_FROM_SHORTCUT) { Write-Host ""; Read-Host "gah exite
 exit $rc
 '@ | Set-Content -LiteralPath $stub
 Copy-Item -LiteralPath (Join-Path $Dest 'Uninstall-Gah.ps1') -Destination (Join-Path $Root 'Uninstall-Gah.ps1') -Force
+# The shortcut icon lives beside the stub, not inside a versioned package
+# directory, so the shortcut keeps resolving after updates and a new package
+# can change the artwork.
+$iconPath = Join-Path $Root 'shortcut.ico'
+if ($Deploy.icon -and (Test-Path (Join-Path $Dest $Deploy.icon))) {
+    Copy-Item -LiteralPath (Join-Path $Dest $Deploy.icon) -Destination $iconPath -Force
+}
 Ok "current package: $($Deploy.packageName)"
 
 if (-not $Update) {
@@ -173,7 +180,8 @@ if (-not $Update) {
     $sc.Arguments = "-NoLogo -ExecutionPolicy Bypass -Command `"`$env:GAH_FROM_SHORTCUT='1'; & '$stub'`""
     $sc.WorkingDirectory = $env:USERPROFILE
     $sc.Description = "$($Deploy.shortcutName) (gah)"
-    $sc.IconLocation = "$env:SystemRoot\System32\SHELL32.dll,165"
+    if (Test-Path $iconPath) { $sc.IconLocation = "$iconPath,0" }
+    else { $sc.IconLocation = "$env:SystemRoot\System32\SHELL32.dll,165" }
     $sc.Save()
     Ok "desktop shortcut: $($Deploy.shortcutName)"
 

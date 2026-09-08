@@ -27,6 +27,7 @@ gah checkout + gah-deploy.json ──► package registry ◄──── Instal
 | `Install-Gah.ps1` | the installer (below) |
 | `Uninstall-Gah.ps1` | the uninstaller; also copied to `%LOCALAPPDATA%\gah\` so it survives updates |
 | `deploy.json`, `VERSION` | what the launcher and installer read; package, gah and upstream versions |
+| `shortcut.ico` | the shortcut icon, only when the config names one |
 
 The package is built by `scripts/package-windows.mjs`, which runs the
 tool-surface check (`scripts/check-tool-surface.sh`) against the assembled
@@ -51,6 +52,7 @@ Lives in **your** deployment repository, not in this one. Start from
 | `env` | `GAH_*` variables the launcher exports: `GAH_ALLOWED_HOSTS` (the inference host; unset means nothing is reachable), `GAH_BUILTIN_MODELS` (usually empty), `GAH_ALLOW_TOOLS` (usually empty; `powershell` to allow a shell), `GAH_SECRET_FILES` (credentials files the model may never see, `;`-separated globs, e.g. `%USERPROFILE%\\*.env`), `GAH_ALLOW_SHARE` |
 | `providers` | The contents of `providers.json` ([PROVIDERS.md](PROVIDERS.md)). `apiKey` may be a literal, `"$VAR"` (the installer prompts and stores `VAR` as a user environment variable), or omitted (the consumer runs `/login` once and the key lands in `auth.json`). The endpoint never leaves this file. |
 | `systemMd` | Optional path, relative to the config, of a `SYSTEM.md` override |
+| `icon` | Optional path, relative to the config, of a `.ico` for the desktop shortcut (16/32/48/256 sizes). Carried as `shortcut.ico`; the installer keeps it at `%LOCALAPPDATA%\gah\shortcut.ico` across updates. Absent = the stock terminal icon |
 | `windowsArch` | Default `["x64"]`; add `"arm64"` to ship both tool sets |
 
 ## Admin: build and publish

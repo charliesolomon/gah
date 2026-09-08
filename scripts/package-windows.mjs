@@ -178,6 +178,12 @@ for (const { name, from, only } of externals) {
 }
 mkdirSync(join(tree, "gah-policy", "extensions"), { recursive: true });
 cpSync(join(policyPack, "extensions"), join(tree, "gah-policy", "extensions"), { recursive: true });
+// Optional shortcut icon: a .ico beside the config, carried at the zip root.
+// The installer copies it to %LOCALAPPDATA%\gah\shortcut.ico (stable across
+// updates) and points the desktop shortcut at it; absent = the stock icon.
+const icon = cfg.icon ? resolve(dirname(opt.config), cfg.icon) : null;
+if (icon && !existsSync(icon)) fail(`icon not found: ${icon}`);
+if (icon) cpSync(icon, join(tree, "shortcut.ico"));
 const systemMd = cfg.systemMd ? resolve(dirname(opt.config), cfg.systemMd) : join(policyPack, "SYSTEM.md");
 if (!existsSync(systemMd)) fail(`SYSTEM.md not found: ${systemMd}`);
 cpSync(systemMd, join(tree, "gah-policy", "SYSTEM.md"));
@@ -208,6 +214,7 @@ writeFileSync(join(toolsDir, "SHA256SUMS"), `${sums.join("\n")}\n`);
 const deploy = {
 	org: cfg.org,
 	shortcutName: cfg.shortcutName ?? `${cfg.org} Assistant`,
+	icon: icon ? "shortcut.ico" : null,
 	version: cfg.version,
 	packageName: name,
 	gahVersion,
