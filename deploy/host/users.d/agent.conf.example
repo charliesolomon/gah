@@ -60,6 +60,14 @@ GAH_ALLOW_TOOLS="bash"
 # role; `*.amazonaws.com` covers both. See docs/PROVIDERS.md.
 GAH_ALLOWED_HOSTS="bedrock-runtime.us-west-1.amazonaws.com"
 
+# Files the model must never see, as path globs separated by ":" (";" on
+# Windows). No tool may read or write one, a shell command may not name one
+# (literally, via ~ or $HOME, or via a variable that holds its path), and any
+# secret VALUE found in them is redacted from every tool result before the
+# model or the transcript sees it. Scripts the skills call still source them
+# normally. Unset = none. Name every credentials file the manifest points at.
+GAH_SECRET_FILES="$HOME/*.env:$HOME/.aws/*"
+
 # --- AWS ----------------------------------------------------------------------
 # Profile in ~/.aws/credentials holding this user's IAM keys (Phase 2).
 # REQUIRED for Bedrock models to appear: the agent treats amazon-bedrock as

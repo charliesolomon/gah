@@ -72,7 +72,9 @@ Then per component:
    and drops a manifest at `/etc/gah/users.d/jsmith.conf` from the
    [template](users.d/agent.conf.example) — review it: skills repo/branch,
    `GAH_BUILTIN_MODELS` globs, `GAH_ALLOWED_HOSTS` (the Bedrock endpoint for
-   the region; nothing else is reachable), `GAH_ALLOW_TOOLS`.
+   the region; nothing else is reachable), `GAH_ALLOW_TOOLS`, and
+   `GAH_SECRET_FILES` naming every credentials file the manifest points at
+   (the model can neither read them nor see their values; scripts still can).
 3. **fd and ripgrep**: `setup.sh` installs the `fd-find` and `ripgrep`
    packages system-wide, so no per-user copy is needed and nothing is
    downloaded at runtime (docs/SUPPLY-CHAIN.md).
@@ -95,6 +97,9 @@ Then per component:
    deny-all) so `bin/gah`'s `anthropic/*` dev default never applies here.
    `GAH_ALLOW_TOOLS` widens the policy-pack tool allowlist (e.g. `bash` for
    skills that drive shell scripts) and is audit-logged at session start.
+   `GAH_SECRET_FILES` is why granting `bash` does not hand over the
+   credentials files: reads are refused, and the values are redacted from
+   every tool result regardless of how they were produced.
 4. `exec bin/gah --no-skills --skill <dir> …` from `~/work` — auto-discovery
    off, one `--skill` per approved skill directory. Personal skills
    (`~/.gah/my-skills`, optional `MY_SKILLS_REPO`) take precedence over shared

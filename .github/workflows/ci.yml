@@ -76,6 +76,9 @@ jobs:
       - name: Smoke test
         run: make smoke
 
+      - name: Policy pack unit tests
+        run: make test-policy
+
       - name: Tool surface
         # What the model is offered vs. what the policy allows (issue #35).
         run: make check-tools

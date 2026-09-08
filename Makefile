@@ -6,7 +6,7 @@
 PI_DIR := vendor/pi
 
 .DEFAULT_GOAL := help
-.PHONY: help install install-tools install-hooks build build-all build-offline smoke check-tools package-windows refresh-model-data patches bundle-policy clean-vendor sync sync-init status patch-new patch-export
+.PHONY: help install install-tools install-hooks build build-all build-offline smoke test-policy check-tools package-windows refresh-model-data patches bundle-policy clean-vendor sync sync-init status patch-new patch-export
 
 help: ## Show available targets
 	@awk 'BEGIN { FS = ":.*##"; printf "Usage: make <target> [VAR=value]\n\nTargets:\n" } \
@@ -52,6 +52,9 @@ build-offline: ## Rebuild reusing src/providers/data as-is (needs a prior build-
 	@# `npm run hydrate:model-data` to build against a full hydration.
 	cd $(PI_DIR)/packages/ai && npm run build:offline
 	cd $(PI_DIR) && npm --workspace packages/coding-agent run build
+
+test-policy: ## Unit tests for the policy pack (node:test via jiti; no build needed)
+	@node --import ./$(PI_DIR)/node_modules/jiti/lib/jiti-register.mjs --test packages/policy-pack/test/*.test.ts
 
 smoke: ## Quick smoke test of the built binary
 # GAH_ALLOW_NO_SKILLS: this exercises the harness, not an organization's skills
