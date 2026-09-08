@@ -6,11 +6,32 @@ The GAH policy layer, packaged as a [pi-package](https://github.com/earendil-wor
 
 | Path | Purpose |
 |------|---------|
-| `extensions/policy.ts` | Tool allowlist, audit logging, protected-path guard |
+| `extensions/policy.ts` | Tool allowlist, audit logging, protected-path guard, secret files, usage lines |
 | `extensions/branding.ts` | System-prompt header, footer/banner customization |
 | `extensions/providers.ts` | Approved inference endpoints from `providers.json` |
 | `model-data/` | The only built-in model data a build ships (`model-data/README.md`) |
 | `SYSTEM.md` | System-prompt override (loaded by `branding.ts`) |
+
+## The audit log
+
+Every session appends JSONL to `~/.gah/audit.log` (`$GAH_AUDIT_LOG`). Each line
+has a `ts` and, from session start onward, a `session` id so a report can group
+by session without parsing the transcript tree. Line `kind`s:
+
+| `kind` | When | Key fields |
+|---|---|---|
+| `policy` | session start / a widen | `reason` (`active_tools`, `allowlist_widened`, `secret_files`), `tools` |
+| `allowed` / `blocked` | each tool call | `tool`, `reason` (`not_allowlisted`, `protected_path`, `secret_file`, `shell_escape`), `input`/`path`/`command` |
+| `redacted` | a secret value removed from a tool result | `tool`, `hits` (`file`, `key`, `count`) |
+| `turn` | each assistant turn | `model`, `provider`, `input`, `output`, `cacheRead`, `cacheWrite`, `totalTokens`, `cost` |
+| `prompt` | a `/template` invocation | `name`, `source` |
+
+`turn` and `prompt` are for a deployment's **usage report** — cost attribution
+by session and feature, and which prompts people actually press (issue #48).
+gah aggregates nothing; the report is the deployment's business. For Bedrock the
+authoritative cost is the CloudWatch invocation log; the `turn` line attributes
+it, and covers providers without server-side logging. `cost` is what the
+provider reported, in the provider's units.
 
 ## Secret files
 

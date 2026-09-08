@@ -27,7 +27,7 @@ test("policy extension: secret file layers are wired", async (t) => {
 	t.after(() => rmSync(dir, { recursive: true, force: true }));
 	const mod = await import("../extensions/policy.ts");
 	mod.default(fakePi as any);
-	await handlers.session_start({});
+	await handlers.session_start({}, { sessionManager: { getSessionId: () => "test-session" } });
 
 	// Layer 1: a file tool on the secret path is refused.
 	const read = await handlers.tool_call({ toolName: "read", input: { path: secretFile } }, {});
@@ -56,9 +56,34 @@ test("policy extension: secret file layers are wired", async (t) => {
 	const clean = await handlers.tool_result({ toolName: "bash", toolCallId: "y", input: {}, isError: false, content: [{ type: "text", text: "nothing" }] });
 	assert.equal(clean, undefined);
 
+	// Per-turn usage line (issue #48).
+	await handlers.turn_end({
+		type: "turn_end",
+		turnIndex: 0,
+		message: { role: "assistant", model: "m1", provider: "p1", usage: { input: 1, output: 2, cacheRead: 3, cacheWrite: 4, totalTokens: 10, cost: { total: 0.5 } } },
+		toolResults: [],
+	});
+	// A user-message turn writes nothing.
+	await handlers.turn_end({ type: "turn_end", turnIndex: 1, message: { role: "user", content: "hi" }, toolResults: [] });
+
+	// Prompt-template line, and plain text writes nothing.
+	await handlers.input({ type: "input", text: "/morning", source: "interactive" });
+	await handlers.input({ type: "input", text: "what's next", source: "interactive" });
+
 	// Audit trail names the layer, never the value.
 	const audit = readFileSync(process.env.GAH_AUDIT_LOG!, "utf8");
 	assert.match(audit, /"reason":"secret_files"/);
+	// Every line written after session_start carries the session id from ctx.
+	// (A widen-at-load line can precede the session and legitimately has none.)
+	const lines = audit.trim().split("\n").map((l) => JSON.parse(l));
+	const sessioned = lines.filter((l) => l.reason !== "allowlist_widened");
+	assert.ok(sessioned.length >= 4 && sessioned.every((l) => l.session === "test-session"), "session-scoped lines tagged with the id");
+	const turn = lines.find((l) => l.kind === "turn");
+	assert.deepEqual({ model: turn.model, input: turn.input, output: turn.output, cost: turn.cost, turnIndex: turn.turnIndex }, { model: "m1", input: 1, output: 2, cost: 0.5, turnIndex: 0 });
+	assert.equal(lines.filter((l) => l.kind === "turn").length, 1, "only the assistant turn is recorded");
+	const prompt = lines.find((l) => l.kind === "prompt");
+	assert.deepEqual({ name: prompt.name, source: prompt.source }, { name: "morning", source: "interactive" });
+	assert.equal(lines.filter((l) => l.kind === "prompt").length, 1, "plain text is not a prompt");
 	assert.match(audit, /"reason":"secret_file","tool":"read"/);
 	assert.match(audit, /"reason":"secret_file","tool":"bash"/);
 	assert.match(audit, /"kind":"redacted"/);
