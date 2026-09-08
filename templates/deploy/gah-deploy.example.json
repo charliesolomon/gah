@@ -18,7 +18,8 @@
   "env": {
     "GAH_BUILTIN_MODELS": "",
     "GAH_ALLOWED_HOSTS": "inference.example.com",
-    "GAH_ALLOW_TOOLS": ""
+    "GAH_ALLOW_TOOLS": "",
+    "GAH_SECRET_FILES": ""
   },
   "providers": {
     "providers": [

@@ -1,10 +1,12 @@
 /**
  * GAH policy extension.
  *
- * Enforces three things on every session:
+ * Enforces four things on every session:
  *   1. Tool allowlist — only tools listed in ALLOWED_TOOLS may run.
  *   2. Protected paths — write/edit operations to sensitive paths are blocked.
- *   3. Audit log — every tool call is appended to an audit file.
+ *   3. Secret files (GAH_SECRET_FILES) — the model may neither read them by
+ *      any tool nor see their values in any tool result (lib/secrets.ts).
+ *   4. Audit log — every tool call is appended to an audit file.
  *
  * This is the single file that defines our day-to-day risk posture. Edit it
  * to widen or tighten what the agent can do.
@@ -14,6 +16,16 @@ import { appendFileSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import {
+	commandReferencesSecret,
+	describePatterns,
+	isSecretPath,
+	loadSecretValues,
+	parseSecretGlobs,
+	redactText,
+	resolveSecretFiles,
+	type SecretValue,
+} from "./lib/secrets.ts";
 
 // --- Policy knobs ------------------------------------------------------------
 
@@ -44,6 +56,13 @@ const PROTECTED_PATH_FRAGMENTS = [
 	"~/.aws/",
 ];
 
+/**
+ * Files the model must never see: path globs in GAH_SECRET_FILES, separated
+ * by the PATH delimiter. Unset = none. See lib/secrets.ts for the three layers.
+ */
+const SECRET_PATTERNS = parseSecretGlobs(process.env.GAH_SECRET_FILES);
+const SHELL_TOOLS = new Set(["bash", "powershell"]);
+
 /** Where to append the audit log. Override with GAH_AUDIT_LOG. */
 const AUDIT_LOG_PATH = process.env.GAH_AUDIT_LOG ?? join(homedir(), ".gah", "audit.log");
 
@@ -69,6 +88,25 @@ function isProtectedPath(path: string): boolean {
 	return PROTECTED_PATH_FRAGMENTS.some((frag) => expanded.includes(normalize(frag)));
 }
 
+/** Resolved lazily: setup steps may create a secret file just before launch. */
+let secretFiles: string[] | null = null;
+let secretValues: SecretValue[] | null = null;
+function secrets(): { files: string[]; values: SecretValue[] } {
+	if (secretFiles === null || secretValues === null) {
+		secretFiles = resolveSecretFiles(SECRET_PATTERNS);
+		secretValues = loadSecretValues(secretFiles);
+	}
+	return { files: secretFiles, values: secretValues };
+}
+
+function secretMessage(ref: string): string {
+	return (
+		`"${ref}" is a secret store (GAH_SECRET_FILES: ${describePatterns(SECRET_PATTERNS)}). ` +
+		"The assistant may not read, print, copy or write it. The tools and scripts that need those " +
+		"credentials read the file themselves; call them instead, and if one is failing report the error it prints."
+	);
+}
+
 export default function (pi: ExtensionAPI) {
 	if (EXTRA_ALLOWED_TOOLS.length > 0) {
 		audit({ kind: "policy", reason: "allowlist_widened", tools: EXTRA_ALLOWED_TOOLS });
@@ -89,6 +127,10 @@ export default function (pi: ExtensionAPI) {
 		const active = [...ALLOWED_TOOLS].filter((name) => registered.has(name));
 		pi.setActiveTools(active);
 		audit({ kind: "policy", reason: "active_tools", tools: active });
+		if (SECRET_PATTERNS.length > 0) {
+			const { files, values } = secrets();
+			audit({ kind: "policy", reason: "secret_files", patterns: SECRET_PATTERNS, files: files.length, values: values.length });
+		}
 	});
 
 	// The `!command` / `!!command` editor prefix runs a shell as the USER, not
@@ -129,8 +171,46 @@ export default function (pi: ExtensionAPI) {
 			}
 		}
 
-		// 3. Audit allowed calls
+		// 3. Secret files: no tool may read or write one, and a shell command may
+		//    not name one. The values are redacted from results below regardless.
+		if (SECRET_PATTERNS.length > 0) {
+			const cwd = process.cwd();
+			const path = (event.input as { path?: string }).path;
+			if (typeof path === "string" && isSecretPath(path, SECRET_PATTERNS, cwd)) {
+				audit({ kind: "blocked", reason: "secret_file", tool: event.toolName, path });
+				return { block: true, reason: secretMessage(path) };
+			}
+			if (SHELL_TOOLS.has(event.toolName)) {
+				const command = (event.input as { command?: string }).command ?? "";
+				const ref = commandReferencesSecret(command, SECRET_PATTERNS, secrets().files, process.env, cwd);
+				if (ref !== null) {
+					audit({ kind: "blocked", reason: "secret_file", tool: event.toolName, path: ref });
+					return { block: true, reason: secretMessage(ref) };
+				}
+			}
+		}
+
+		// 4. Audit allowed calls
 		audit({ kind: "allowed", tool: event.toolName, input: event.input });
 		return undefined;
+	});
+
+	// Secret values never reach the model or the transcript, whatever produced
+	// them: a cat, a script that echoed too much, a stack trace. Text content
+	// only; images are left alone.
+	pi.on("tool_result", async (event) => {
+		if (SECRET_PATTERNS.length === 0) return undefined;
+		const { values } = secrets();
+		if (values.length === 0) return undefined;
+		const hits: { file: string; key: string; count: number }[] = [];
+		const content = event.content.map((part) => {
+			if (part.type !== "text") return part;
+			const r = redactText(part.text, values);
+			hits.push(...r.hits);
+			return r.hits.length > 0 ? { ...part, text: r.text } : part;
+		});
+		if (hits.length === 0) return undefined;
+		audit({ kind: "redacted", tool: (event as { toolName?: string }).toolName, hits });
+		return { content };
 	});
 }
