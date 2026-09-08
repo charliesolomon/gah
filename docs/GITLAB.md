@@ -1,124 +1,78 @@
-# Distributing gah from enterprise GitLab
+# GitLab's role in a deployment
 
-GitHub stays the development home (patches, upstream sync, CI scans). The
-enterprise GitLab instance is a **distribution endpoint**: it carries a
-read-only mirror of this repo and publishes the installable npm package from
-`.gitlab-ci.yml`.
+GitHub stays the development home: patches, upstream syncs, CI scans, and the
+organisation-neutral code. An organisation's GitLab holds what its consumers
+touch, and nothing else. There is **no mirror of this repository on GitLab, no
+npm publish, and no GitLab pipeline**; an earlier design had all three, and
+this page replaces it.
 
-The published artifact enforces policy without the `bin/gah` wrapper:
-`patches/0020-bake-policy.patch` makes the CLI force-load extensions from
-`dist/gah-policy/` (created by `scripts/bundle-policy.sh`) and disables
-extension auto-discovery. Dev builds have no `gah-policy/` dir and keep using
-the wrapper.
+## Two projects, and what each holds
 
-## 1. Set up the mirror
+| Project | Holds | Who reads it |
+|---|---|---|
+| **Deployment project** (e.g. `it/gah-deploy`) | The organisation's `gah-deploy.json`, its `SYSTEM.md` and icon if any, a README for consumers, and the **generic package registry** where each package version's zip and `.sha256` are published | The admin publishes; the packaged launcher checks it for updates at every start |
+| **Skills project** (e.g. `it/it-skills`) | The skills repository: `skills/`, `prompts/`, `setup/`, `context/`, `bin/` | The launcher fetches the branch head through the repository archive API at every start |
 
-Create an empty project on the GitLab instance (e.g. `<group>/gah`), then
-pick one of:
+Both are ordinary GitLab projects. Nothing in them is built by GitLab.
 
-### Option A — GitLab pull mirror (Premium/Ultimate)
+## The flow
 
-Project → **Settings → Repository → Mirroring repositories**:
+1. **Build on the admin's machine.** From a checkout of this repository on any
+   OS with Node: `node scripts/package-windows.mjs --config gah-deploy.json`
+   assembles the zip, runs the tool-surface check against a mock endpoint, and
+   writes the checksum ([DEPLOY-WINDOWS.md](DEPLOY-WINDOWS.md)).
+2. **Publish to the deployment project.** `scripts/publish-gitlab.mjs` uploads
+   the zip and its checksum to
+   `<gitlab>/api/v4/projects/<deployment project>/packages/generic/<package>/<version>/`.
+   It needs a token with `api` scope on that project. Behind mutual TLS, pass
+   the client certificate with `--cert` and the upload goes through curl.
+3. **Consumers install once** from the zip and the deployment project's README
+   ([the template](../templates/deploy/DEPLOY-PROJECT-README.md)). From then on
+   the launcher self-updates from the registry and re-syncs skills from the
+   skills project on every launch.
 
-- Git repository URL: `https://github.com/charliesolomon/gah.git`
-- Direction: **Pull**
-- Authentication: a GitHub PAT with `repo` read scope (the repo is private)
-- Enable **Trigger pipelines for mirror updates** so tags run the publish job
+## Access
 
-GitLab polls every ~30 minutes; "Update now" forces a sync. Tags are
-mirrored, which is what drives releases.
+- **Public-to-the-organisation projects** need no token on the consumer side.
+  Otherwise each consumer needs a personal access token with `read_api`,
+  which the installer asks for and stores as a user environment variable.
+- **Mutual TLS** in front of GitLab: the installer offers the consumer's
+  certificates, ranked by what git already uses for that host; the launcher
+  presents the chosen one. **Proxies** come from the machine's environment
+  unless the config says otherwise. Details in
+  [DEPLOY-WINDOWS.md](DEPLOY-WINDOWS.md#certificates-and-proxies).
+- The agent process itself never talks to GitLab. Updates and skills sync run
+  in the launcher before the agent starts, so the agent's egress allowlist
+  still names only the inference host.
 
-### Option B — push mirror from GitHub Actions (any GitLab tier)
+## Versioning
 
-Add a GitLab deploy token (or project access token) with `write_repository`
-scope as a GitHub secret (`GITLAB_MIRROR_TOKEN`), then add this workflow on
-the GitHub side:
+Two version numbers, deliberately independent:
 
-```yaml
-# .github/workflows/mirror-gitlab.yml
-name: mirror-to-gitlab
-on:
-  push:
-    branches: [main]
-    tags: ["v*"]
-jobs:
-  mirror:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with: { fetch-depth: 0 }
-      - run: |
-          git push --force \
-            "https://gitlab-ci-token:${{ secrets.GITLAB_MIRROR_TOKEN }}@<gitlab-host>/<group>/gah.git" \
-            "refs/remotes/origin/main:refs/heads/main" "refs/tags/*:refs/tags/*"
-```
+- **gah's version** is upstream's, `0.85.1` for a build from the v0.85.1 sync,
+  plus the gah commit it was built from. Both are recorded in the package's
+  `VERSION` file and in `deploy.json`. This repository does not cut release
+  tags of its own; a package is built from a commit on `main`.
+- **The package version** is `version` in `gah-deploy.json` and is the
+  organisation's: it moves when the organisation changes anything in its
+  package, a new gah build, a config change, a new icon. The launcher updates
+  a consumer when the registry holds a higher one. Semantic versioning, so
+  `1.2.0` follows `1.1.9`.
 
-Pushed tags trigger the GitLab pipeline automatically — no Premium needed.
+Bumping the package version without a new gah build is normal; shipping a new
+gah build without bumping the package version means nobody updates.
 
-Either way: **never commit on the GitLab side.** It's a mirror; changes flow
-GitHub → GitLab only.
+## What the old design needed and this one does not
 
-## 2. The pipeline
+- A GitLab mirror of this repository: only a GitLab pipeline needed the source
+  there. Deleted along with `.gitlab-ci.yml`.
+- The project npm registry and `npm install -g` on consumer machines: consumers
+  needed npm and registry access, and got a bare CLI with no providers, no
+  allowlist environment, no skills sync, no `fd`/`ripgrep`, and no updates.
+  The zip carries all of that.
+- Git for Windows on consumer machines: Node is the only prerequisite. Git
+  Bash matters only when a deployment grants the `bash` tool.
 
-`.gitlab-ci.yml` is already in the repo, so the mirror picks it up as-is:
-
-- **build** (default branch + `v*` tags): `npm ci --ignore-scripts`, build the four
-  workspaces, `bundle-policy.sh`, smoke test. Keeps the mirror provably
-  releasable.
-- **publish** (`v*` tags only): renames the package to
-  `@<root-group>/gah`, sets the version from the tag, and publishes
-  `vendor/pi/packages/coding-agent` to the **project npm registry** using
-  the built-in `CI_JOB_TOKEN` — no secrets to configure.
-
-Two details worth knowing:
-
-- `npm publish --ignore-scripts` is deliberate: upstream's `prepublishOnly`
-  runs clean+build, which would wipe `dist/gah-policy` and ship an
-  **unpoliced** artifact.
-- The npm scope defaults to the GitLab **root group** (`GAH_NPM_SCOPE`
-  variable). GitLab's instance-level npm endpoint only resolves packages
-  whose scope matches the root namespace; the project-level endpoint works
-  with any scope.
-
-## 3. Cut a release
-
-From the GitHub repo (tags flow through the mirror):
-
-```bash
-git tag v0.74.0-gah.1   # <upstream-version>-gah.<n>
-git push origin v0.74.0-gah.1
-```
-
-The suffix keeps our release cadence independent of upstream's: bump `.n`
-for policy/patch changes on the same upstream, move the base version on each
-upstream sync. (Semver treats `-gah.N` as a prerelease, so pin exact versions
-when installing.)
-
-## 4. Install on a user machine
-
-Once per machine (token = a GitLab deploy token with `read_package_registry`):
-
-```bash
-npm config set @<root-group>:registry https://<gitlab-host>/api/v4/projects/<project-id>/packages/npm/
-npm config set -- //<gitlab-host>/api/v4/projects/<project-id>/packages/npm/:_authToken <token>
-npm install -g @<root-group>/gah@0.74.0-gah.1
-gah
-```
-
-Same commands in PowerShell on Windows (npm is cross-platform; Git for
-Windows is still required — see [WINDOWS.md](WINDOWS.md)). No clone, no
-build, and the policy pack is baked in — `gah` launches policed with no
-wrapper involved.
-
-## Verifying a published artifact
-
-Sanity-check that a release is actually policed:
-
-```bash
-npm view @<root-group>/gah --registry https://<gitlab-host>/api/v4/projects/<project-id>/packages/npm/
-npx --yes @<root-group>/gah --version
-ls "$(npm root -g)/@<root-group>/gah/dist/gah-policy/extensions"   # must list policy.ts, branding.ts
-```
-
-If `gah-policy/` is missing from a published package, the release is bad —
-yank it and check that the publish job ran `--ignore-scripts`.
+If a future deployment wants GitLab to run the package build, that is a
+pipeline in the **deployment project**, running the two steps above with a
+checkout of this repository as a build input; it still needs no mirror.

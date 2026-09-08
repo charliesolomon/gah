@@ -121,5 +121,6 @@ inference host. `--help` and `--version` skip steps 1, 2 and 4.
   API and a root-owned manifest instead of `deploy.json`.
 - A **RHEL9 per-machine package** is planned as phase 2 of #41 and reuses this
   config schema; nothing in it is Windows-specific except `windowsArch`.
-- The **GitLab npm package** ([GITLAB.md](GITLAB.md)) is the `npm install -g`
-  route for people who already have npm and registry access.
+- [GITLAB.md](GITLAB.md) describes what the organisation's GitLab holds for
+  this package (deployment project, skills project) and why no mirror,
+  npm registry or GitLab pipeline is involved.
