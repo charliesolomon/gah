@@ -5,10 +5,7 @@
  * createAgentSession() options. The SDK does the heavy lifting.
  */
 
-import { existsSync, readdirSync } from "node:fs";
-import { dirname, resolve } from "node:path";
 import { createInterface } from "node:readline";
-import { fileURLToPath } from "node:url";
 import { type ImageContent, modelsAreEqual } from "@earendil-works/pi-ai";
 import { setCapabilityOverrides } from "@earendil-works/pi-tui";
 import chalk from "chalk";
@@ -564,13 +561,7 @@ export interface MainOptions {
 export async function main(args: string[], options?: MainOptions) {
 	resetTimings();
 	const extensionFactories = [...builtInExtensions, ...(options?.extensionFactories ?? [])];
-	// GAH: always run in upstream's offline mode. It gates every startup
-	// network call that is not inference -- the fd/ripgrep download, the npm
-	// version check, the install-report ping to pi.dev, the remote
-	// model-catalogue refresh and the package update check. GAH's network
-	// contract is "approved inference endpoints only" (docs/SUPPLY-CHAIN.md).
-	// --offline and PI_OFFLINE remain accepted and are simply redundant.
-	const offlineMode = true;
+	const offlineMode = args.includes("--offline") || isTruthyEnvFlag(process.env.PI_OFFLINE);
 	if (offlineMode) {
 		process.env.PI_OFFLINE = "1";
 		process.env.PI_SKIP_VERSION_CHECK = "1";
@@ -714,30 +705,7 @@ export async function main(args: string[], options?: MainOptions) {
 	const trustPromptMode: AppMode = parsed.help || parsed.listModels !== undefined ? "print" : appMode;
 	const projectTrustByCwd = new Map<string, boolean>();
 
-	let resolvedExtensionPaths = resolveCliPaths(cwd, parsed.extensions);
-	// GAH: a `gah-policy/extensions/` dir next to the built entry point (created
-	// by the publish pipeline, absent in dev builds) is force-loaded and turns
-	// off extension auto-discovery — the same posture bin/gah enforces with
-	// --no-extensions + explicit --extension flags.
-	// Search upward from the running module rather than assuming it sits at the
-	// bundle root: the bundler emits this code into dist/bundle/chunks/, so
-	// import.meta.url is one level deeper than the published gah-policy/ dir.
-	// Getting this wrong fails SILENTLY — existsSync is simply false and the
-	// policy pack never loads — so probe a couple of levels.
-	const gahPolicyStart = dirname(fileURLToPath(import.meta.url));
-	const gahPolicyExtDir = [
-		resolve(gahPolicyStart, "gah-policy", "extensions"),
-		resolve(gahPolicyStart, "..", "gah-policy", "extensions"),
-		resolve(gahPolicyStart, "..", "..", "gah-policy", "extensions"),
-	].find((candidate) => existsSync(candidate));
-	if (gahPolicyExtDir) {
-		const baked = readdirSync(gahPolicyExtDir)
-			.filter((f) => /\.(ts|js|mjs)$/.test(f))
-			.sort()
-			.map((f) => resolve(gahPolicyExtDir, f));
-		resolvedExtensionPaths = [...baked, ...(resolvedExtensionPaths ?? [])];
-		parsed.noExtensions = true;
-	}
+	const resolvedExtensionPaths = resolveCliPaths(cwd, parsed.extensions);
 	const resolvedSkillPaths = resolveCliPaths(cwd, parsed.skills);
 	const resolvedPromptTemplatePaths = resolveCliPaths(cwd, parsed.promptTemplates);
 	const resolvedThemePaths = resolveCliPaths(cwd, parsed.themes);

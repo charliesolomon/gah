@@ -344,18 +344,31 @@ export async function ensureTool(
 	const config = TOOLS[tool];
 	if (!config) return undefined;
 
-	// GAH: never download at runtime. Upstream fetches whatever GitHub calls the
-	// latest release, unpinned and unverified, the first time the tool is
-	// missing. GAH installs fd and ripgrep at deployment time instead -- from
-	// the system package manager, or pinned and SHA-256-checked by
-	// scripts/install-tools.mjs -- and this function only ever looks them up.
-	// See docs/SUPPLY-CHAIN.md. downloadTool() above is intentionally left
-	// unreferenced so the patch stays a single hunk.
-	onStatus?.({
-		type: "warning",
-		message:
-			`${config.name} not found. GAH does not download tools at runtime: install it on PATH ` +
-			`or into ${TOOLS_DIR} (node scripts/install-tools.mjs -- see docs/SUPPLY-CHAIN.md).`,
-	});
-	return undefined;
+	if (isOfflineModeEnabled()) {
+		onStatus?.({ type: "warning", message: `${config.name} not found. Offline mode enabled, skipping download.` });
+		return undefined;
+	}
+
+	// On Android/Termux, Linux binaries don't work due to Bionic libc incompatibility.
+	// Users must install via pkg.
+	if (platform() === "android") {
+		const pkgName = TERMUX_PACKAGES[tool] ?? tool;
+		onStatus?.({ type: "warning", message: `${config.name} not found. Install with: pkg install ${pkgName}` });
+		return undefined;
+	}
+
+	// Tool not found - download it
+	onStatus?.({ type: "info", message: `${config.name} not found. Downloading...` });
+
+	try {
+		const path = await downloadTool(tool);
+		onStatus?.({ type: "info", message: `${config.name} installed to ${path}` });
+		return path;
+	} catch (e) {
+		onStatus?.({
+			type: "warning",
+			message: `Failed to download ${config.name}: ${e instanceof Error ? e.message : e}`,
+		});
+		return undefined;
+	}
 }
