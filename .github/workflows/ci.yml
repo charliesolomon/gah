@@ -56,6 +56,9 @@ jobs:
       - name: Check vendor tree matches upstream + patches
         run: ./scripts/check-vendor-clean.sh
 
+      - name: Check the pinned-version badge matches .sync-state
+        run: node scripts/pin-badge.mjs --check
+
       - name: Install deps
         # npm ci, not npm install: the lockfile is the input, never an output.
         # npm install can silently rewrite it in the runner, which is one of the

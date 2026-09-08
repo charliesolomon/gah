@@ -52,6 +52,12 @@ Never commit changes to `vendor/pi/` outside the patch flow (`patches/README.md`
 
 Sync on **release tags**, not `main`. Releases batch upstream changes so we don't pay merge cost per commit.
 
+`.sync-state` records the pinned ref, and `scripts/sync-upstream.sh pull` regenerates
+`.github/badges/pi-pinned.json` from it so the README "pi pinned" badge tracks the pin
+(#67). CI checks the badge matches `.sync-state` (`node scripts/pin-badge.mjs --check`),
+so a re-authored sync that writes `.sync-state` by hand must also run
+`node scripts/pin-badge.mjs` and commit the result.
+
 The vendor tree is committed **with patches applied** (clones run without a
 patch step), so every sync starts by reverse-applying the series — otherwise
 the subtree pull merges into a patched tree and `apply-patches.sh` has
