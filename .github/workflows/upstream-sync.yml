@@ -35,7 +35,7 @@ jobs:
       issues: write        # required by the failure-reporting step below
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
