@@ -52,7 +52,9 @@
     split on spaces and offer no file drop, so the icon travels inside the
     script body: the wrapper bakes it into this parameter's default at upload
     time, the same way it bakes -HostKey. Written to
-    <profile>\AppData\Local\gah\shortcut.ico. Empty = the stock terminal icon.
+    <profile>\AppData\Local\gah\shortcut-<sha8>.ico (the name carries a hash of
+    the artwork so Explorer's icon cache cannot keep showing a replaced icon);
+    older shortcut*.ico files are removed. Empty = the stock terminal icon.
 .PARAMETER WindowSize
     Initial Windows Terminal window size as 'columns,rows' (default 120,45,
     enough for a first-run welcome page plus the TUI). Passed as wt.exe
@@ -455,7 +457,7 @@ function Invoke-Install {
     Repair-ManagedAcls -Sid $Target.SID -Paths @(
         $pubPath, $known,
         (Get-TerminalSettingsPath -ProfilePath $Target.Path),
-        "$(Get-TerminalSettingsPath -ProfilePath $Target.Path).gah-bak")
+        "$(Get-TerminalSettingsPath -ProfilePath $Target.Path).gah-bak"))
 
     $keygen = Find-SshKeygen
     if (-not $keygen) { Die 'ssh-keygen.exe not found -- install the Windows OpenSSH client feature first.' }
@@ -552,13 +554,18 @@ function Invoke-Install {
     # so the .lnk can always resolve it and uninstall knows what to remove.
     $iconLocation = "$env:SystemRoot\System32\SHELL32.dll,165"
     $iconDir  = Join-Path $Target.Path 'AppData\Local\gah'
-    $iconPath = Join-Path $iconDir 'shortcut.ico'
     if ($IconBase64 -ne '') {
         try {
             $iconBytes = [Convert]::FromBase64String($IconBase64)
         } catch {
             Die "-IconBase64 is not valid base64: $($_.Exception.Message)"
         }
+        # The file name carries a hash of the artwork. Explorer's icon cache is
+        # keyed by path and survives logoff, so rewriting the same path shows the
+        # OLD icon indefinitely (seen 2026-09-08); a new name is a new cache key.
+        $sha = [Security.Cryptography.SHA256]::Create()
+        $hash = ([BitConverter]::ToString($sha.ComputeHash($iconBytes)) -replace '-', '').Substring(0, 8).ToLower()
+        $iconPath = Join-Path $iconDir "shortcut-$hash.ico"
         if (-not (Test-Path $iconDir)) {
             New-Item -ItemType Directory -Path $iconDir -Force | Out-Null
             Write-Step "created $iconDir"
@@ -567,9 +574,13 @@ function Invoke-Install {
         if (Test-Path $iconPath) { Grant-UserAccess -Path $iconPath -Sid $Target.SID }
         [IO.File]::WriteAllBytes($iconPath, $iconBytes)
         Grant-UserAccess -Path $iconPath -Sid $Target.SID
+        # Older artwork under any previous name goes; only the current icon stays.
+        Get-ChildItem -Path $iconDir -Filter 'shortcut*.ico' -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -ne $iconPath } |
+            ForEach-Object { Grant-UserAccess -Path $_.FullName -Sid $Target.SID; Remove-Item $_.FullName -Force; Write-Step "removed old icon $($_.Name)" }
         $iconLocation = "$iconPath,0"
         Write-Ok "icon: $iconPath ($($iconBytes.Length) bytes)"
-    } elseif (Test-Path $iconPath) {
+    } elseif (Get-ChildItem -Path $iconDir -Filter 'shortcut*.ico' -ErrorAction SilentlyContinue) {
         # A previous install placed one and this run carries none: leave the
         # file for uninstall, but do not point the shortcut at stale artwork.
         Write-Step 'no -IconBase64 given -- using the stock icon'
@@ -612,10 +623,10 @@ function Invoke-Uninstall {
     $desktop = Get-UserDesktop -Sid $Target.SID -ProfilePath $Target.Path
     $lnk     = Join-Path $desktop "$ShortcutName.lnk"
     $iconDir  = Join-Path $Target.Path 'AppData\Local\gah'
-    $iconPath = Join-Path $iconDir 'shortcut.ico'
+    $iconPaths = @(Get-ChildItem -Path $iconDir -Filter 'shortcut*.ico' -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName })
 
-    Repair-ManagedAcls -Sid $Target.SID -Paths @(
-        $lnk, $keyPath, "$keyPath.pub", $known, $iconPath,
+    Repair-ManagedAcls -Sid $Target.SID -Paths (@(
+        $lnk, $keyPath, "$keyPath.pub", $known) + $iconPaths + @(
         (Get-TerminalSettingsPath -ProfilePath $Target.Path),
         "$(Get-TerminalSettingsPath -ProfilePath $Target.Path).gah-bak")
 
