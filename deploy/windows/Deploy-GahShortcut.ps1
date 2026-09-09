@@ -633,11 +633,11 @@ function Invoke-Uninstall {
     if (Test-Path $lnk) { Remove-Item $lnk -Force; Write-Ok "removed $lnk" }
     else { Write-Step 'shortcut not present' }
 
-    if (Test-Path $iconPath) {
-        Remove-Item $iconPath -Force; Write-Ok "removed $iconPath"
-        if (-not (Get-ChildItem -Path $iconDir -Force -ErrorAction SilentlyContinue)) {
-            Remove-Item $iconDir -Force -ErrorAction SilentlyContinue
-        }
+    foreach ($ip in $iconPaths) {
+        if (Test-Path $ip) { Remove-Item $ip -Force; Write-Ok "removed $ip" }
+    }
+    if ((Test-Path $iconDir) -and -not (Get-ChildItem -Path $iconDir -Force -ErrorAction SilentlyContinue)) {
+        Remove-Item $iconDir -Force -ErrorAction SilentlyContinue
     }
 
     if ($KeepKey) {
