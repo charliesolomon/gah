@@ -11,7 +11,8 @@
 // with the arguments in $MOCK_ARGS (JSON object, default {"path":"."}), split
 // mid-fence across chunks, and a request whose history already holds a
 // <tool_result> gets "done". Each log line also records hasTools, the message
-// roles, and whether the system prompt carried the text protocol.
+// roles, and whether the system prompt carried the text protocol. MOCK_CUT=1
+// drops the closing fence and ends that reply with finish_reason "length".
 // GET /models lists m1 (with a vLLM-style max_model_len) and /responses is
 // 404, so scripts/probe-endpoint.mjs can be tried against this mock too.
 import { appendFileSync } from "node:fs";
@@ -22,6 +23,9 @@ const port = Number(process.env.MOCK_PORT || 0); // 0 = any free port; the chose
 const prompted = process.env.MOCK_MODE === "prompted";
 const mockTool = process.env.MOCK_TOOL || "ls";
 const mockArgs = JSON.parse(process.env.MOCK_ARGS || '{"path":"."}');
+// MOCK_CUT=1: end the tool-block reply before its closing fence with
+// finish_reason "length", as a gateway seen on #74 does.
+const cutBeforeFence = process.env.MOCK_CUT === "1";
 if (!log) {
 	console.error("mock-openai: MOCK_LOG is required");
 	process.exit(2);
@@ -80,9 +84,10 @@ http
 				say("Let me look.\n``");
 				say(`\`tool\nTOOL_NAME: ${mockTool}\n`);
 				for (const [k, v] of Object.entries(mockArgs)) say(`BEGIN_ARG: ${k}\n${typeof v === "string" ? v : JSON.stringify(v)}\nEND_ARG\n`);
-				say("```\n");
+				if (!cutBeforeFence) say("```\n");
 			}
-			chunk({ id: "mock", object: "chat.completion.chunk", choices: [{ index: 0, delta: {}, finish_reason: "stop" }] });
+			const finish = cutBeforeFence && prompted && !hasResult && !marker && !protocolPing ? "length" : "stop";
+			chunk({ id: "mock", object: "chat.completion.chunk", choices: [{ index: 0, delta: {}, finish_reason: finish }] });
 			res.write("data: [DONE]\n\n");
 			res.end();
 		});

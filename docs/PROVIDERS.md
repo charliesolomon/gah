@@ -109,10 +109,13 @@ after the "system message tools" of continue.dev:
 - The streamed text is scanned for such blocks and each becomes an ordinary
   tool call. From there nothing changes: the agent loop executes it, the
   allowlist, protected paths and secret files apply, and the audit log gets the
-  same `allowed`/`blocked` line a native call gets. A block cut off by the
-  output limit is reported as `length` and not executed, as upstream does for a
-  truncated native call. Argument values are coerced by the tool's schema, so a
-  `number` argument arrives as a number.
+  same `allowed`/`blocked` line a native call gets. A block cut off inside an
+  argument value is reported as `length` and not executed, as upstream does for
+  a truncated native call; a block missing only its closing fence is whole and
+  runs, because some gateways end the stream with `length` exactly there (a
+  Gemini gateway counting thinking tokens against the output cap did). Argument
+  values are coerced by the tool's schema, so a `number` argument arrives as a
+  number.
 
 The implementation is `packages/policy-pack/extensions/lib/prompted-tools.ts`,
 wired through the `streamSimple` hook of the provider config: the HTTP call is
@@ -135,8 +138,9 @@ Two things a gateway can still break, and how to find out which:
 
 For a session that still fabricates, set `GAH_PROMPTED_DEBUG=<file>`: every
 prompted request appends one JSON line with the outbound shape (system prompt
-length, whether it carried the protocol, message roles) and the model's raw
-reply text with the calls parsed from it. The file is the operator's choice
+length, whether it carried the protocol, message roles), the stop reason the
+provider reported and the one the wrapper decided, and the model's raw reply
+text with the calls parsed from it. The file is the operator's choice
 and holds conversation text, so keep it out of the repo.
 
 What it does not do: parallel tool calls (the prompt asks for one per reply),

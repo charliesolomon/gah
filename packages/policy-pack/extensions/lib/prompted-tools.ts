@@ -281,13 +281,20 @@ export class ToolBlockParser {
 		return out;
 	}
 
-	/** End of stream: flush held text, or close an unterminated block. */
+	/**
+	 * End of stream: flush held text, or close an unterminated block. A block
+	 * that has its name and no argument left open is complete even without
+	 * the closing fence: some gateways end the stream with "length" exactly
+	 * there (a Gemini gateway counting thinking tokens against the output cap
+	 * did), and the call is whole. Only a cut inside an argument value is
+	 * reported incomplete.
+	 */
 	finish(): ParsedPiece[] {
 		const out: ParsedPiece[] = [];
 		if (this.line.length > 0) this.handleLine(this.line, false, out);
 		this.line = "";
 		this.emitted = 0;
-		if (this.state !== "text") this.finishBlock(false, out);
+		if (this.state !== "text") this.finishBlock(this.state === "block", out);
 		return out;
 	}
 
@@ -449,6 +456,9 @@ export interface PromptedDebugEntry {
 	protocolInSystem: boolean;
 	roles: string[];
 	stopReason: string;
+	/** What the base streamer reported before this wrapper decided, and the provider's raw finish reason. */
+	baseStopReason?: string;
+	rawStopReason?: string;
 	text: string;
 	calls: { name: string; args: Record<string, unknown> }[];
 	error?: string;
@@ -476,6 +486,7 @@ export function promptedStream(
 	const parser = new ToolBlockParser(tools);
 	const placement = promptedOptions.placement ?? "system";
 	let rawText = "";
+	let baseStopReason: string | undefined;
 	const report = (error?: string) => {
 		if (!promptedOptions.debug) return;
 		try {
@@ -487,6 +498,8 @@ export function promptedStream(
 				protocolInSystem: rewritten.systemPrompt?.includes("TOOL_NAME: <tool name>") ?? false,
 				roles: rewritten.messages.map((m) => m.role),
 				stopReason: output.stopReason,
+				...(baseStopReason ? { baseStopReason } : {}),
+				...(output.rawStopReason ? { rawStopReason: output.rawStopReason } : {}),
 				text: rawText,
 				calls: output.content
 					.filter((c): c is ToolCall => c.type === "toolCall")
@@ -642,6 +655,7 @@ export function promptedStream(
 						}
 						break;
 					case "done": {
+						baseStopReason = event.reason;
 						emitPieces(parser.finish());
 						closeText();
 						const m = event.message;
@@ -652,10 +666,11 @@ export function promptedStream(
 						if (m.providerThinkingLevel) output.providerThinkingLevel = m.providerThinkingLevel;
 						if (m.diagnostics) output.diagnostics = m.diagnostics;
 						if (m.endTurn !== undefined) output.endTurn = m.endTurn;
-						// A block cut off by the token limit must not run: "length" makes
-						// the agent loop fail the call instead of executing it.
-						const reason =
-							event.reason === "length" || truncatedCall ? "length" : sawCall ? "toolUse" : event.reason;
+						// A call cut off inside an argument must not run: "length" makes
+						// the agent loop fail it instead of executing it. A structurally
+						// complete call runs even when the base reported "length", since
+						// the protocol shows the arguments are whole (see finish()).
+						const reason = truncatedCall ? "length" : sawCall ? "toolUse" : event.reason;
 						output.stopReason = reason;
 						report();
 						out.push({ type: "done", reason, message: output });

@@ -11,7 +11,9 @@
 #   - the wire never carried tools or tool roles, and the prompt carried the protocol;
 #   - the parsed call reached the policy: `ls` is audited as allowed;
 #   - a `write` to a protected path is audited as blocked and the file is not
-#     written, i.e. the policy sees prompted calls exactly as native ones.
+#     written, i.e. the policy sees prompted calls exactly as native ones;
+#   - a gateway that ends the stream with "length" before the closing fence
+#     (MOCK_CUT=1, seen on #74) still gets its whole call executed.
 #     (A tool outside the allowlist is not active at all, so upstream answers
 #     "not found" before any policy hook; that path is the same for native
 #     calls and is not what this checks.)
@@ -39,13 +41,14 @@ check() {
 }
 
 # Starts the mock for one scenario and runs gah once. $1 = tool the mock
-# calls, $2 = its arguments as a JSON object.
+# calls, $2 = its arguments as a JSON object, $3 = 1 to cut the reply before
+# the closing fence.
 scenario() {
-	local tool="$1" args="${2:-}"
+	local tool="$1" args="${2:-}" cut="${3:-0}"
 	[ -n "$args" ] || args='{"path":"."}'
 	[ -n "$MOCK_PID" ] && { kill "$MOCK_PID" 2>/dev/null || true; MOCK_PID=""; }
 	: > "$WORK/mock.out"; : > "$WORK/requests.log"; : > "$WORK/audit.log"
-	MOCK_LOG="$WORK_NATIVE/requests.log" MOCK_PORT=0 MOCK_MODE=prompted MOCK_TOOL="$tool" MOCK_ARGS="$args" \
+	MOCK_LOG="$WORK_NATIVE/requests.log" MOCK_PORT=0 MOCK_MODE=prompted MOCK_TOOL="$tool" MOCK_ARGS="$args" MOCK_CUT="$cut" \
 		node scripts/mock-openai.mjs >"$WORK/mock.out" 2>&1 &
 	MOCK_PID=$!
 	local port=""
@@ -87,6 +90,12 @@ if scenario ls; then
 	check "second request carried the result as text, no tool role" "$([ "$(field 2 hasResult)" = true ] && [ "$(field 2 hasToolRoles)" = false ] && echo 1 || echo 0)"
 	check "policy audited the prompted call to ls as allowed" "$(grep -q '"kind":"allowed".*"tool":"ls"' "$WORK/audit.log" && echo 1 || echo 0)"
 	check "the reply reached the user"                        "$(grep -q 'done' "$WORK/probe.log" && echo 1 || echo 0)"
+fi
+
+echo "-- stream ends with length before the closing fence --"
+if scenario ls '{"path":"."}' 1; then
+	check "the whole call still ran (ls audited as allowed)"   "$(grep -q '"kind":"allowed".*"tool":"ls"' "$WORK/audit.log" && echo 1 || echo 0)"
+	check "the result went back and the reply reached the user" "$([ "$(requests)" -ge 2 ] && [ "$(field 2 hasResult)" = true ] && grep -q 'done' "$WORK/probe.log" && echo 1 || echo 0)"
 fi
 
 echo "-- write to a protected path --"

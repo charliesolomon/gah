@@ -260,9 +260,18 @@ test("parser keeps multi-line argument values verbatim, including blank lines", 
 	assert.equal(pieces[0].args.path, body);
 });
 
-test("parser returns a truncated block as an incomplete call", () => {
+test("parser: a block cut inside an argument value is incomplete", () => {
 	const pieces = run(["```tool\nTOOL_NAME: read\nBEGIN_ARG: path\ndocs/GI"]);
 	assert.deepEqual(pieces, [{ type: "call", name: "read", args: { path: "docs/GI" }, complete: false }]);
+});
+
+test("parser: a block missing only its closing fence is complete", () => {
+	// What a gateway that stops the stream right before the fence produces (#74).
+	assert.deepEqual(run(["```tool\nTOOL_NAME: ls\nBEGIN_ARG: path\n.\nEND_ARG\n"]), [
+		{ type: "call", name: "ls", args: { path: "." }, complete: true },
+	]);
+	assert.deepEqual(run(["```tool\nTOOL_NAME: ls\n"]), [{ type: "call", name: "ls", args: {}, complete: true }]);
+	assert.deepEqual(run(["```tool\nTOOL_NAME: ls"]), [{ type: "call", name: "ls", args: {}, complete: true }]);
 });
 
 test("parser gives back a ```tool fence that never names a tool", () => {
@@ -407,7 +416,7 @@ test("promptedStream passes a plain reply through with the base stop reason", as
 	assert.deepEqual(done.message.content, [{ type: "text", text: "Just text." }]);
 });
 
-test("promptedStream reports length when the block was cut off, so the call is not run", async () => {
+test("promptedStream reports length when the block was cut inside an argument, so the call is not run", async () => {
 	const { events } = await collect(
 		promptedStream(fakeBase(["```tool\nTOOL_NAME: read\nBEGIN_ARG: path\nx"], "length") as any, model, {
 			messages: [],
@@ -417,6 +426,31 @@ test("promptedStream reports length when the block was cut off, so the call is n
 	const done = events.at(-1);
 	assert.equal(done.reason, "length");
 	assert.equal(done.message.content[0].type, "toolCall");
+});
+
+test("promptedStream runs a whole call even when the base said length before the closing fence", async () => {
+	const entries: any[] = [];
+	const { events } = await collect(
+		promptedStream(
+			fakeBase(["```tool\nTOOL_NAME: ls\nBEGIN_ARG: path\n.\nEND_ARG\n"], "length") as any,
+			model,
+			{ messages: [], tools } as any,
+			undefined,
+			{ debug: (e) => entries.push(e) },
+		),
+	);
+	const done = events.at(-1);
+	assert.equal(done.reason, "toolUse");
+	assert.deepEqual(done.message.content, [
+		{ type: "toolCall", id: done.message.content[0].id, name: "ls", arguments: { path: "." } },
+	]);
+	assert.equal(entries[0].stopReason, "toolUse");
+	assert.equal(entries[0].baseStopReason, "length");
+	// No calls at all: a plain length stays length.
+	const plain = await collect(
+		promptedStream(fakeBase(["half a sen"], "length") as any, model, { messages: [], tools } as any),
+	);
+	assert.equal(plain.events.at(-1).reason, "length");
 });
 
 test("promptedStream turns a base error into an error event", async () => {
