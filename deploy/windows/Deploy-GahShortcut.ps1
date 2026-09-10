@@ -457,7 +457,7 @@ function Invoke-Install {
     Repair-ManagedAcls -Sid $Target.SID -Paths @(
         $pubPath, $known,
         (Get-TerminalSettingsPath -ProfilePath $Target.Path),
-        "$(Get-TerminalSettingsPath -ProfilePath $Target.Path).gah-bak"))
+        "$(Get-TerminalSettingsPath -ProfilePath $Target.Path).gah-bak")
 
     $keygen = Find-SshKeygen
     if (-not $keygen) { Die 'ssh-keygen.exe not found -- install the Windows OpenSSH client feature first.' }
