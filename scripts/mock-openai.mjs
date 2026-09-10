@@ -57,6 +57,12 @@ http
 			const hasToolRoles = messages.some((m) => m.role === "tool" || m.tool_calls);
 			const protocolInPrompt = messages.some((m) => (m.role === "system" || m.role === "developer") && text(m).includes("TOOL_NAME:"));
 			const hasResult = messages.some((m) => m.role === "user" && text(m).includes("<tool_result"));
+			// For probe-endpoint.mjs: this mock honours a system prompt and follows
+			// the text protocol, so a probe against it shows the full happy path.
+			const systemText = messages.filter((m) => m.role === "system" || m.role === "developer").map(text).join("\n");
+			const userText = messages.filter((m) => m.role === "user").map(text).join("\n");
+			const marker = systemText.match(/reply with the single word (\w+)/i)?.[1];
+			const protocolPing = /TOOL_NAME: <tool name>/.test(`${systemText}\n${userText}`) && /ping/.test(userText);
 			appendFileSync(log, `${JSON.stringify({ path: req.url, tools, hasTools, hasToolRoles, roles, protocolInPrompt, hasResult })}\n`);
 			if (prompted && (hasTools || hasToolRoles)) {
 				res.writeHead(400, { "content-type": "application/json" });
@@ -66,7 +72,9 @@ http
 			res.writeHead(200, { "content-type": "text/event-stream" });
 			const chunk = (d) => res.write(`data: ${JSON.stringify(d)}\n\n`);
 			const say = (content) => chunk({ id: "mock", object: "chat.completion.chunk", choices: [{ index: 0, delta: { role: "assistant", content }, finish_reason: null }] });
-			if (!prompted) say("ok");
+			if (marker) say(marker);
+			else if (protocolPing) say("```tool\nTOOL_NAME: ping\n```\n");
+			else if (!prompted) say("ok");
 			else if (hasResult) say("done");
 			else {
 				say("Let me look.\n``");

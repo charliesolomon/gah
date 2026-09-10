@@ -20,7 +20,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
-import { formatReport, probeEndpoint, toolModeFor } from "./probe-endpoint.mjs";
+import { formatReport, probeEndpoint, promptPlacementFor, toolModeFor } from "./probe-endpoint.mjs";
 
 /**
  * Build a validated provider entry from collected answers (pure, testable).
@@ -38,6 +38,7 @@ export function buildProvider({
 	contextWindow,
 	maxTokens,
 	tools,
+	toolsPrompt,
 	modelInfo = {},
 }) {
 	const models = ids.map((id) => ({
@@ -56,6 +57,7 @@ export function buildProvider({
 		api,
 		...(apiKey !== undefined ? { apiKey } : {}),
 		...(tools === "prompted" ? { tools } : {}),
+		...(tools === "prompted" && toolsPrompt === "user" ? { toolsPrompt } : {}),
 		models,
 	};
 }
@@ -278,11 +280,22 @@ async function main() {
 				) || 16384
 			: 16384;
 	let tools;
+	let toolsPrompt;
 	if (probedTools === "prompted") {
 		const why = report.tools === "refused" ? "refuses tool calls" : "ignores tool definitions";
 		tools = (await askYesNo(`The endpoint ${why}. Use the prompted tool protocol ("tools": "prompted")?`, true))
 			? "prompted"
 			: "native";
+		if (tools === "prompted") {
+			toolsPrompt = promptPlacementFor(report);
+			if (toolsPrompt === "user") {
+				stdout.write('  (protocol followed only from the user turn: writing "toolsPrompt": "user")\n');
+			}
+			if (report.protocol === "not-followed")
+				stdout.write(
+					"  ! the model did not follow the protocol in the probe; expect fabricated answers until a model that does is chosen\n",
+				);
+		}
 	}
 
 	const provider = buildProvider({
@@ -296,6 +309,7 @@ async function main() {
 		contextWindow,
 		maxTokens,
 		tools,
+		toolsPrompt,
 		modelInfo,
 	});
 

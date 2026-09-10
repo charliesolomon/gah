@@ -35,7 +35,14 @@ import { dirname, join } from "node:path";
 import { type AssistantMessageEventStream, getApiProvider } from "@earendil-works/pi-ai";
 import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { promptedStream, TOOL_MODES, type ToolMode } from "./lib/prompted-tools.ts";
+import {
+	PROMPT_PLACEMENTS,
+	type PromptedDebugEntry,
+	promptedStream,
+	type PromptPlacement,
+	TOOL_MODES,
+	type ToolMode,
+} from "./lib/prompted-tools.ts";
 
 const CONFIG_PATH = process.env.GAH_PROVIDERS_FILE ?? join(homedir(), ".gah", "providers.json");
 const AUDIT_LOG_PATH = process.env.GAH_AUDIT_LOG ?? join(homedir(), ".gah", "audit.log");
@@ -51,6 +58,8 @@ interface ModelEntry {
 	maxTokens: number;
 	/** Per-model override of the provider's `tools` mode. */
 	tools?: ToolMode;
+	/** Per-model override of the provider's `toolsPrompt` placement. */
+	toolsPrompt?: PromptPlacement;
 }
 
 interface ProviderEntry {
@@ -72,6 +81,13 @@ interface ProviderEntry {
 	 * override via ModelEntry.tools.
 	 */
 	tools?: ToolMode;
+	/**
+	 * Where the prompted protocol goes: "system" (default) appends it to the
+	 * system prompt; "user" prepends it to the current user turn, for a
+	 * gateway that drops system prompts (probe-endpoint.mjs reports which
+	 * placement the model followed). Only meaningful with tools "prompted".
+	 */
+	toolsPrompt?: PromptPlacement;
 	models: ModelEntry[];
 }
 
@@ -110,6 +126,13 @@ function loadConfig(): ProvidersConfig | undefined {
 				throw new Error(`${CONFIG_PATH}: provider ${p.name}: tools must be one of ${TOOL_MODES.join(", ")}`);
 			}
 		}
+		for (const placement of [p.toolsPrompt, ...p.models.map((m) => m.toolsPrompt)]) {
+			if (placement !== undefined && !PROMPT_PLACEMENTS.includes(placement)) {
+				throw new Error(
+					`${CONFIG_PATH}: provider ${p.name}: toolsPrompt must be one of ${PROMPT_PLACEMENTS.join(", ")}`,
+				);
+			}
+		}
 		// The composer routes a custom streamSimple only for models on the
 		// provider's own api; a prompted model on another api would silently
 		// go native, so refuse the config instead.
@@ -131,6 +154,28 @@ export function promptedModelIds(entry: ProviderEntry): Set<string> {
 		if ((m.tools ?? entry.tools ?? "native") === "prompted") ids.add(m.id);
 	}
 	return ids;
+}
+
+/** Where a model's protocol text goes; model overrides provider, default system. */
+export function promptPlacementFor(entry: ProviderEntry, modelId: string): PromptPlacement {
+	const m = entry.models.find((x) => x.id === modelId);
+	return m?.toolsPrompt ?? entry.toolsPrompt ?? "system";
+}
+
+/**
+ * GAH_PROMPTED_DEBUG=<file>: one JSON line per prompted request with the
+ * outbound shape and the model's raw text, for diagnosing a gateway that
+ * still fabricates (#42). Off unless set; the file is the operator's choice.
+ */
+const PROMPTED_DEBUG_PATH = process.env.GAH_PROMPTED_DEBUG;
+function promptedDebug(entry: PromptedDebugEntry): void {
+	if (!PROMPTED_DEBUG_PATH) return;
+	try {
+		mkdirSync(dirname(PROMPTED_DEBUG_PATH), { recursive: true });
+		appendFileSync(PROMPTED_DEBUG_PATH, `${JSON.stringify(entry)}\n`);
+	} catch {
+		process.stderr.write(`[gah-providers] prompted debug write failed: ${PROMPTED_DEBUG_PATH}\n`);
+	}
 }
 
 export default function (pi: ExtensionAPI) {
@@ -187,7 +232,10 @@ export default function (pi: ExtensionAPI) {
 							if (!prompted.has(model.id)) return base.streamSimple(model, context, options);
 							// Same async-iteration + result() contract; the class itself is
 							// type-only through the extension alias of pi-ai's root entry.
-							return promptedStream(base, model, context, options) as unknown as AssistantMessageEventStream;
+							return promptedStream(base, model, context, options, {
+								placement: promptPlacementFor(entry, model.id),
+								debug: PROMPTED_DEBUG_PATH ? promptedDebug : undefined,
+							}) as unknown as AssistantMessageEventStream;
 						},
 					}
 				: {}),
@@ -198,7 +246,13 @@ export default function (pi: ExtensionAPI) {
 			baseUrl: entry.baseUrl,
 			auth: entry.apiKey === undefined ? "login" : entry.apiKey.startsWith("$") ? "env" : "literal",
 			models: entry.models.map((m) => m.id),
-			...(prompted.size > 0 ? { promptedTools: [...prompted] } : {}),
+			...(prompted.size > 0
+				? {
+						promptedTools: [...prompted],
+						toolsPrompt: Object.fromEntries([...prompted].map((id) => [id, promptPlacementFor(entry, id)])),
+						...(PROMPTED_DEBUG_PATH ? { promptedDebug: PROMPTED_DEBUG_PATH } : {}),
+					}
+				: {}),
 		});
 	}
 }

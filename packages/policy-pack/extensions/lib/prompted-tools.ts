@@ -48,6 +48,9 @@ import type {
 
 export type ToolMode = "native" | "prompted";
 export const TOOL_MODES: readonly ToolMode[] = ["native", "prompted"];
+/** Where the protocol text goes: the system prompt, or the front of the current user turn. */
+export type PromptPlacement = "system" | "user";
+export const PROMPT_PLACEMENTS: readonly PromptPlacement[] = ["system", "user"];
 
 const OPEN_PREFIX = "```tool";
 const FENCE_OPEN = /^```\s*tool\s*$/;
@@ -142,12 +145,22 @@ export function renderToolResult(result: ToolResultMessage): string {
 
 // --- Context rewriting ---------------------------------------------------------
 
+export interface RewriteOptions {
+	/**
+	 * "system" (default) appends the protocol to the system prompt. "user"
+	 * prepends it to the last user message instead, for a gateway that drops
+	 * system prompts; the request is rebuilt from the stored context every
+	 * turn, so nothing accumulates in the session.
+	 */
+	placement?: PromptPlacement;
+}
+
 /**
- * The request as the server must see it: tools in the system prompt, tool
- * traffic in the history rendered as text, no tools array. Consecutive tool
- * results merge into one user message.
+ * The request as the server must see it: tools in the system prompt (or the
+ * current user turn), tool traffic in the history rendered as text, no tools
+ * array. Consecutive tool results merge into one user message.
  */
-export function rewriteContext(context: Context): Context {
+export function rewriteContext(context: Context, options: RewriteOptions = {}): Context {
 	const tools = context.tools ?? [];
 	const messages: Message[] = [];
 	let pendingResults: ToolResultMessage[] = [];
@@ -186,10 +199,21 @@ export function rewriteContext(context: Context): Context {
 		messages.push(msg);
 	}
 	flushResults();
-	const systemPrompt =
-		tools.length > 0
-			? `${context.systemPrompt ? `${context.systemPrompt.trimEnd()}\n\n` : ""}${renderToolsPrompt(tools)}`
-			: context.systemPrompt;
+	if (tools.length === 0) return { systemPrompt: context.systemPrompt, messages, tools: undefined };
+	const protocol = renderToolsPrompt(tools);
+	if (options.placement === "user") {
+		const last = messages.length - 1;
+		const target = messages[last];
+		if (target?.role === "user") {
+			const content: (TextContent | ImageContent)[] =
+				typeof target.content === "string" ? [{ type: "text", text: target.content }] : [...target.content];
+			messages[last] = { ...target, content: [{ type: "text", text: `${protocol}\n\n---\n\n` }, ...content] };
+		} else {
+			messages.push({ role: "user", content: protocol, timestamp: Date.now() });
+		}
+		return { systemPrompt: context.systemPrompt, messages, tools: undefined };
+	}
+	const systemPrompt = `${context.systemPrompt ? `${context.systemPrompt.trimEnd()}\n\n` : ""}${protocol}`;
 	return { systemPrompt, messages, tools: undefined };
 }
 
@@ -416,6 +440,25 @@ function nextCallId(): string {
 	return `prompted-${Date.now().toString(36)}-${callCounter}`;
 }
 
+/** One line per request, for GAH_PROMPTED_DEBUG: what went out and what the model wrote back. */
+export interface PromptedDebugEntry {
+	ts: string;
+	model: string;
+	placement: PromptPlacement;
+	systemPromptChars: number;
+	protocolInSystem: boolean;
+	roles: string[];
+	stopReason: string;
+	text: string;
+	calls: { name: string; args: Record<string, unknown> }[];
+	error?: string;
+}
+
+export interface PromptedStreamOptions extends RewriteOptions {
+	/** Receives one entry per request; providers.ts appends it to $GAH_PROMPTED_DEBUG. */
+	debug?: (entry: PromptedDebugEntry) => void;
+}
+
 /**
  * Stream a request through `base` with the rewritten context, and re-emit its
  * events with tool blocks converted to toolCall content. Text and thinking
@@ -426,10 +469,35 @@ export function promptedStream(
 	model: Model<string>,
 	context: Context,
 	options?: SimpleStreamOptions,
+	promptedOptions: PromptedStreamOptions = {},
 ): PromptedEventStream {
 	const out = new PromptedEventStream();
 	const tools = context.tools ?? [];
 	const parser = new ToolBlockParser(tools);
+	const placement = promptedOptions.placement ?? "system";
+	let rawText = "";
+	const report = (error?: string) => {
+		if (!promptedOptions.debug) return;
+		try {
+			promptedOptions.debug({
+				ts: new Date().toISOString(),
+				model: model.id,
+				placement,
+				systemPromptChars: rewritten.systemPrompt?.length ?? 0,
+				protocolInSystem: rewritten.systemPrompt?.includes("TOOL_NAME: <tool name>") ?? false,
+				roles: rewritten.messages.map((m) => m.role),
+				stopReason: output.stopReason,
+				text: rawText,
+				calls: output.content
+					.filter((c): c is ToolCall => c.type === "toolCall")
+					.map((c) => ({ name: c.name, args: c.arguments })),
+				...(error ? { error } : {}),
+			});
+		} catch {
+			/* debug output must never break a request */
+		}
+	};
+	const rewritten = rewriteContext(context, { placement });
 	const output: AssistantMessage = {
 		role: "assistant",
 		content: [],
@@ -513,19 +581,21 @@ export function promptedStream(
 	const fail = (reason: "error" | "aborted", message: string) => {
 		output.stopReason = reason;
 		output.errorMessage = message;
+		report(message);
 		out.push({ type: "error", reason, error: output });
 		out.end(output);
 	};
 
 	(async () => {
 		try {
-			const inner = base.streamSimple(model, rewriteContext(context), options);
+			const inner = base.streamSimple(model, rewritten, options);
 			for await (const event of inner) {
 				switch (event.type) {
 					case "start":
 						out.push({ type: "start", partial: output });
 						break;
 					case "text_delta":
+						rawText += event.delta;
 						emitPieces(parser.feed(event.delta));
 						break;
 					case "text_start":
@@ -587,6 +657,7 @@ export function promptedStream(
 						const reason =
 							event.reason === "length" || truncatedCall ? "length" : sawCall ? "toolUse" : event.reason;
 						output.stopReason = reason;
+						report();
 						out.push({ type: "done", reason, message: output });
 						out.end(output);
 						return;

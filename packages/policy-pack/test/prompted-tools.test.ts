@@ -159,6 +159,40 @@ test("rewriteContext without tools leaves the prompt alone but still scrubs hist
 	assert.equal(out.messages[0].role, "user");
 });
 
+test("rewriteContext placement user: protocol goes to the front of the last user turn, not the system prompt", () => {
+	const ctx: any = {
+		systemPrompt: "S",
+		tools,
+		messages: [
+			{ role: "user", content: "first", timestamp: 1 },
+			{
+				role: "toolResult",
+				toolCallId: "c",
+				toolName: "ls",
+				content: [{ type: "text", text: "x" }],
+				isError: false,
+				timestamp: 2,
+			},
+		],
+	};
+	const out = rewriteContext(ctx, { placement: "user" });
+	assert.equal(out.systemPrompt, "S");
+	const last = out.messages.at(-1) as any;
+	assert.equal(last.role, "user");
+	assert.match(last.content[0].text, /^# Tool calling: text protocol/);
+	assert.match(last.content[1].text, /<tool_result tool="ls"/);
+	assert.equal((out.messages[0] as any).content, "first", "earlier turns untouched");
+	// A string user message is wrapped the same way.
+	const plain = rewriteContext(
+		{ systemPrompt: "S", tools, messages: [{ role: "user", content: "hi", timestamp: 1 }] } as any,
+		{ placement: "user" },
+	);
+	assert.deepEqual(
+		(plain.messages[0] as any).content.map((c: any) => c.text.slice(0, 8)),
+		["# Tool c", "hi"],
+	);
+});
+
 // --- parser --------------------------------------------------------------------
 
 function run(chunks: string[]): any[] {
@@ -331,6 +365,34 @@ test("promptedStream emits a toolCall block and stops with toolUse", async () =>
 		["Sure.\n", ["toolCall", "ls", { path: "." }]],
 	);
 	assert.match(done.message.content[1].id, /^prompted-/);
+});
+
+test("promptedStream honours placement and reports to the debug sink", async () => {
+	const capture: { context?: any } = {};
+	const entries: any[] = [];
+	const base = fakeBase(["Text then\n```tool\nTOOL_NAME: ls\n```\n"], "stop", capture);
+	await collect(
+		promptedStream(
+			base as any,
+			model,
+			{ systemPrompt: "S", messages: [{ role: "user", content: "go", timestamp: 1 }], tools } as any,
+			undefined,
+			{
+				placement: "user",
+				debug: (e) => entries.push(e),
+			},
+		),
+	);
+	assert.equal(capture.context.systemPrompt, "S", "system prompt left alone");
+	assert.match(capture.context.messages[0].content[0].text, /^# Tool calling/);
+	assert.equal(entries.length, 1);
+	const e = entries[0];
+	assert.equal(e.placement, "user");
+	assert.equal(e.protocolInSystem, false);
+	assert.deepEqual(e.roles, ["user"]);
+	assert.equal(e.text, "Text then\n```tool\nTOOL_NAME: ls\n```\n");
+	assert.deepEqual(e.calls, [{ name: "ls", args: {} }]);
+	assert.equal(e.stopReason, "toolUse");
 });
 
 test("promptedStream passes a plain reply through with the base stop reason", async () => {

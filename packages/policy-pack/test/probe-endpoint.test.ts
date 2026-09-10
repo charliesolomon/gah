@@ -7,7 +7,10 @@ import {
 	parseModelList,
 	probeBody,
 	probeEndpoint,
+	promptPlacementFor,
+	sawToolBlock,
 	sawToolCall,
+	systemBody,
 	toolModeFor,
 } from "../../../scripts/probe-endpoint.mjs";
 import { buildProvider } from "../../../scripts/add-provider.mjs";
@@ -50,6 +53,23 @@ const sse = {
 	contentType: "text/event-stream",
 	text: 'data: {"choices":[{"delta":{"content":"OK"}}]}\n\ndata: [DONE]\n\n',
 };
+const PING_BLOCK = "Sure.\n```tool\nTOOL_NAME: ping\n```";
+const reply = (content: string) => ({ status: 200, json: { choices: [{ message: { role: "assistant", content } }] } });
+/** A model behind a Chat Completions endpoint: honours the system prompt (or not), follows the protocol (from where). */
+function answer(body: any, opts: { honourSystem?: boolean; followFrom?: "system" | "user" | "never" } = {}) {
+	const { honourSystem = true, followFrom = "system" } = opts;
+	const system = body.messages.find((m: any) => m.role === "system")?.content ?? "";
+	const user = body.messages.find((m: any) => m.role === "user")?.content ?? "";
+	if (honourSystem && /PINEAPPLE/.test(system)) return reply("PINEAPPLE");
+	const protocolIn = /TOOL_NAME: <tool name>/.test(system)
+		? "system"
+		: /TOOL_NAME: <tool name>/.test(user)
+			? "user"
+			: null;
+	if (protocolIn === "system" && honourSystem && followFrom === "system") return reply(PING_BLOCK);
+	if (protocolIn === "user" && followFrom !== "never") return reply(PING_BLOCK);
+	return chatOk;
+}
 
 test("parseModelList reads OpenAI, vLLM, LiteLLM, OpenRouter and Ollama shapes", () => {
 	assert.deepEqual(parseModelList({ data: [{ id: "a" }, { id: "b", max_model_len: 32768 }] }), [
@@ -93,7 +113,7 @@ test("a gateway that refuses tools: completions only, streaming, tools refused -
 			return { status: 200, json: { data: [{ id: "gemini-flash", max_model_len: 1000000 }, { id: "gpt-4.1" }] } };
 		if (path === "/chat/completions") {
 			if (body.tools) return { status: 400, json: { error: { message: "tools are disabled on this endpoint" } } };
-			return body.stream ? sse : chatOk;
+			return body.stream ? sse : answer(body);
 		}
 		return undefined;
 	}, seen);
@@ -113,10 +133,66 @@ test("a gateway that refuses tools: completions only, streaming, tools refused -
 		seen.every((r) => !r.path.includes("k")),
 		"key never in a URL",
 	);
+	assert.equal(report.systemPrompt, "honoured");
+	assert.equal(report.protocol, "system");
+	assert.equal(promptPlacementFor(report), undefined, "system placement is the default, nothing to write");
 	const text = formatReport(report);
 	assert.match(text, /Tool calls: refused/);
 	assert.match(text, /"tools": "prompted"/);
+	assert.match(text, /System prompt: reaches the model/);
+	assert.match(text, /Prompted tool protocol: followed \(protocol in the system prompt\)/);
 	assert.match(text, /gemini-flash {2}\(context 1000000\)/);
+});
+
+test("sawToolBlock and systemBody", () => {
+	assert.ok(sawToolBlock(PING_BLOCK));
+	assert.ok(sawToolBlock("```tool\r\nTOOL_NAME:   ping\r\n```"));
+	assert.ok(!sawToolBlock("I would call ping but cannot."));
+	const sys = systemBody("openai-completions", "m", "SYS", "USER");
+	assert.deepEqual(
+		sys.messages.map((m: any) => m.role),
+		["system", "user"],
+	);
+	const usr = systemBody("openai-completions", "m", "SYS", "USER", "user");
+	assert.deepEqual(
+		usr.messages.map((m: any) => m.role),
+		["user"],
+	);
+	assert.match(usr.messages[0].content, /^SYS\n\n---\n\nUSER$/);
+	const resp = systemBody("openai-responses", "m", "SYS", "USER");
+	assert.equal(resp.instructions, "SYS");
+	assert.equal(resp.input, "USER");
+});
+
+test("a gateway that drops system prompts: protocol followed only from the user turn -> toolsPrompt user", async () => {
+	const fetchFn = fakeFetch((path, body) => {
+		if (path === "/models") return { status: 200, json: { data: [{ id: "m" }] } };
+		if (path === "/chat/completions")
+			return body.stream ? sse : answer(body, { honourSystem: false, followFrom: "user" });
+		return undefined;
+	});
+	const report = await probeEndpoint({ baseUrl: BASE, fetchFn });
+	assert.equal(report.tools, "ignored");
+	assert.equal(report.systemPrompt, "ignored");
+	assert.equal(report.protocol, "user");
+	assert.equal(promptPlacementFor(report), "user");
+	const text = formatReport(report);
+	assert.match(text, /System prompt: IGNORED/);
+	assert.match(text, /"toolsPrompt": "user"/);
+});
+
+test("a model that never follows the protocol is reported as not-followed", async () => {
+	const fetchFn = fakeFetch((path, body) => {
+		if (path === "/models") return { status: 200, json: { data: [{ id: "m" }] } };
+		if (path === "/chat/completions") return body.stream ? sse : answer(body, { followFrom: "never" });
+		return undefined;
+	});
+	const report = await probeEndpoint({ baseUrl: BASE, fetchFn });
+	assert.equal(report.systemPrompt, "honoured");
+	assert.equal(report.protocol, "not-followed");
+	assert.equal(promptPlacementFor(report), undefined);
+	assert.match(formatReport(report), /NOT FOLLOWED/);
+	assert.match(formatReport(report), /GAH_PROMPTED_DEBUG/);
 });
 
 test("a gateway that silently strips tools -> ignored -> prompted", async () => {
@@ -129,6 +205,8 @@ test("a gateway that silently strips tools -> ignored -> prompted", async () => 
 	assert.equal(report.tools, "ignored");
 	assert.equal(toolModeFor(report), "prompted");
 	assert.match(formatReport(report), /Tool calls: ignored/);
+	assert.equal(report.systemPrompt, "ignored", "this fake never echoes the marker");
+	assert.equal(report.protocol, "not-followed");
 });
 
 test("a full-featured endpoint: Responses preferred, tools native", async () => {
@@ -150,6 +228,8 @@ test("a full-featured endpoint: Responses preferred, tools native", async () => 
 	assert.equal(report.streaming, true);
 	assert.equal(report.tools, "native");
 	assert.equal(toolModeFor(report), "native");
+	assert.equal(report.systemPrompt, undefined, "no protocol probes when tools are native");
+	assert.equal(report.protocol, undefined);
 });
 
 test("nothing answers: report says so and never throws", async () => {
@@ -190,6 +270,21 @@ test("buildProvider writes per-model limits from the probe and the prompted mode
 		modelInfo: { a: { id: "a", contextWindow: 1000000, maxTokens: 8192 } },
 	});
 	assert.equal(p.tools, "prompted");
+	assert.ok(!("toolsPrompt" in p), "system placement is the default and is not written");
+	const viaUser = buildProvider({
+		name: "u",
+		baseUrl: BASE,
+		api: "openai-completions",
+		apiKey: "$K",
+		ids: ["m"],
+		reasoning: false,
+		image: false,
+		contextWindow: 1,
+		maxTokens: 1,
+		tools: "prompted",
+		toolsPrompt: "user",
+	});
+	assert.equal(viaUser.toolsPrompt, "user");
 	assert.deepEqual(
 		p.models.map((m) => [m.id, m.contextWindow, m.maxTokens]),
 		[

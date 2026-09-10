@@ -59,8 +59,10 @@ OpenRouter and Ollama-style keys are recognised); one tiny request each to
 defaults of the questions that follow, and the tool probe decides the
 `"tools"` mode below: a tool call back means native; a rejection, or an
 accepted request with no call back (the definitions were stripped), means
-prompted. Nothing is written by the probe, and the key is never put on a
-command line.
+prompted. For a prompted endpoint it then checks that a system prompt reaches
+the model and that the model follows the text protocol, from the system
+prompt or, failing that, from the user turn. Nothing is written by the probe,
+and the key is never put on a command line.
 
 - Works for any endpoint speaking an API PI knows: `openai-completions`,
   `openai-responses`, `anthropic-messages`, etc. Most enterprise gateways
@@ -118,6 +120,24 @@ still upstream's own streamer for the provider's `api`, so auth, proxies and
 the egress allowlist below are unchanged. `make check-prompted` runs `bin/gah`
 against `scripts/mock-openai.mjs` playing such a gateway and asserts all of the
 above; `make test-policy` covers the parser and the rewriting.
+
+Two things a gateway can still break, and how to find out which:
+
+- **The system prompt does not reach the model.** Then the protocol never
+  does either, and the model answers as if it had no tools. The probe reports
+  `System prompt: IGNORED` for this and, if the model follows the protocol
+  when it is placed at the front of the user turn instead, recommends
+  `"toolsPrompt": "user"` (per provider or per model). The request is rebuilt
+  from the stored context on every turn, so nothing accumulates in the session.
+- **The model does not follow the protocol.** The probe reports
+  `Prompted tool protocol: NOT FOLLOWED`. Nothing in GAH can make such a
+  model call tools; pick another model on that endpoint.
+
+For a session that still fabricates, set `GAH_PROMPTED_DEBUG=<file>`: every
+prompted request appends one JSON line with the outbound shape (system prompt
+length, whether it carried the protocol, message roles) and the model's raw
+reply text with the calls parsed from it. The file is the operator's choice
+and holds conversation text, so keep it out of the repo.
 
 What it does not do: parallel tool calls (the prompt asks for one per reply),
 and it cannot stop a model that decides not to emit a block from making things

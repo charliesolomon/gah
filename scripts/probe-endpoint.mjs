@@ -78,6 +78,58 @@ const PING_TOOL_RESPONSES = {
 const SAY_OK = "Reply with the single word OK.";
 const CALL_PING = "Call the ping tool now. Do not reply with text.";
 
+// Does a system prompt reach the model at all? A gateway that drops it also
+// drops the prompted tool protocol, whichever the model is.
+const SYSTEM_MARKER = "PINEAPPLE";
+const SYSTEM_TEST = `Whatever the user asks, reply with the single word ${SYSTEM_MARKER} and nothing else.`;
+const SYSTEM_TEST_USER = "What is 2 + 2?";
+
+// A compact copy of the protocol packages/policy-pack/extensions/lib/prompted-tools.ts
+// renders (same block shape, one tool), to see whether this model follows it
+// before a session depends on it.
+const PROTOCOL_TEST = [
+	"# Tool calling: text protocol",
+	"",
+	"This endpoint does not accept native tool calls, so tools are called in text. To call a tool, end your reply with one fenced block in exactly this form:",
+	"",
+	"```tool",
+	"TOOL_NAME: <tool name>",
+	"BEGIN_ARG: <argument name>",
+	"<argument value>",
+	"END_ARG",
+	"```",
+	"",
+	"Rules: one tool call per reply, at the end; stop after the closing fence. Never guess what a tool would return.",
+	"",
+	"Available tools:",
+	"",
+	"## ping",
+	"Reports that tool calling works.",
+	"Arguments: none",
+].join("\n");
+const PROTOCOL_TEST_USER = "Use the ping tool now, then stop.";
+
+/** The model answered a prompted-protocol request with a ping block. */
+export function sawToolBlock(text) {
+	return /```\s*tool[\s\S]*?TOOL_NAME:\s*ping/.test(text);
+}
+
+/** Chat/Responses body carrying a system prompt (or the same text at the front of the user turn). */
+export function systemBody(api, model, system, user, placement = "system") {
+	const userText = placement === "user" ? `${system}\n\n---\n\n${user}` : user;
+	if (api === "openai-responses") {
+		return { model, ...(placement === "system" ? { instructions: system } : {}), input: userText, stream: false };
+	}
+	return {
+		model,
+		messages: [
+			...(placement === "system" ? [{ role: "system", content: system }] : []),
+			{ role: "user", content: userText },
+		],
+		stream: false,
+	};
+}
+
 /** The request body for one probe. */
 export function probeBody(api, model, { stream = false, tools = false } = {}) {
 	if (api === "openai-responses") {
@@ -157,6 +209,8 @@ export async function probeEndpoint({
 		apis: {},
 		streaming: undefined,
 		tools: undefined,
+		systemPrompt: undefined,
+		protocol: undefined,
 		notes: [],
 	};
 
@@ -244,7 +298,39 @@ export async function probeEndpoint({
 	} else {
 		report.tools = "ignored";
 	}
+	if (report.tools === "native") return report;
+
+	// 5. The prompted protocol needs two things a gateway can break: the system
+	//    prompt must reach the model, and the model must follow the block
+	//    format. Check both, and fall back to the user turn for the protocol.
+	const sys = await call(
+		"POST",
+		probePath(report.api),
+		systemBody(report.api, report.model, SYSTEM_TEST, SYSTEM_TEST_USER),
+	);
+	report.systemPrompt = sys.ok ? (sys.text.includes(SYSTEM_MARKER) ? "honoured" : "ignored") : "failed";
+	if (!sys.ok) report.notes.push(`system prompt probe failed (${sys.error ?? errorSummary(sys.status, sys.text)})`);
+	for (const placement of ["system", "user"]) {
+		if (placement === "system" && report.systemPrompt === "ignored") continue;
+		const r = await call(
+			"POST",
+			probePath(report.api),
+			systemBody(report.api, report.model, PROTOCOL_TEST, PROTOCOL_TEST_USER, placement),
+		);
+		if (r.ok && sawToolBlock(r.text)) {
+			report.protocol = placement;
+			break;
+		}
+		if (!r.ok)
+			report.notes.push(`protocol probe (${placement}) failed (${r.error ?? errorSummary(r.status, r.text)})`);
+	}
+	if (!report.protocol) report.protocol = "not-followed";
 	return report;
+}
+
+/** The providers.json `toolsPrompt` placement a probe result calls for, if any. */
+export function promptPlacementFor(report) {
+	return report.protocol === "user" ? "user" : undefined;
 }
 
 /** The providers.json `tools` mode a probe result calls for. */
@@ -281,6 +367,27 @@ export function formatReport(report) {
 		lines.push(`Tool calls: ${meaning}`);
 		const mode = toolModeFor(report);
 		if (mode === "prompted") lines.push(`  -> set "tools": "prompted" on this provider (docs/PROVIDERS.md)`);
+	}
+	if (report.systemPrompt) {
+		const meaning = {
+			honoured: "reaches the model",
+			ignored: "IGNORED: the model did not follow it",
+			failed: "could not be tested",
+		}[report.systemPrompt];
+		lines.push(`System prompt: ${meaning}`);
+	}
+	if (report.protocol) {
+		const meaning = {
+			system: "followed (protocol in the system prompt)",
+			user: "followed only when placed in the user turn",
+			"not-followed": "NOT FOLLOWED: the model answered without a tool block",
+		}[report.protocol];
+		lines.push(`Prompted tool protocol: ${meaning}`);
+		if (report.protocol === "user") lines.push(`  -> also set "toolsPrompt": "user" on this provider`);
+		if (report.protocol === "not-followed")
+			lines.push(
+				"  -> this model will fabricate instead of calling tools; try another model on this endpoint, or run a session with GAH_PROMPTED_DEBUG=<file> to see its raw replies",
+			);
 	}
 	for (const n of report.notes) lines.push(`note: ${n}`);
 	return lines.join("\n");
