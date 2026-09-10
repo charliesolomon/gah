@@ -2,8 +2,11 @@
 // Run: make test-policy
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { buildProvider } from "../../../scripts/add-provider.mjs";
 import {
+	ABSURD_MAX_TOKENS,
 	formatReport,
+	limitsFromError,
 	parseModelList,
 	probeBody,
 	probeEndpoint,
@@ -13,7 +16,6 @@ import {
 	systemBody,
 	toolModeFor,
 } from "../../../scripts/probe-endpoint.mjs";
-import { buildProvider } from "../../../scripts/add-provider.mjs";
 
 const BASE = "https://gw.example.com/openai/v1";
 
@@ -56,8 +58,20 @@ const sse = {
 const PING_BLOCK = "Sure.\n```tool\nTOOL_NAME: ping\n```";
 const reply = (content: string) => ({ status: 200, json: { choices: [{ message: { role: "assistant", content } }] } });
 /** A model behind a Chat Completions endpoint: honours the system prompt (or not), follows the protocol (from where). */
-function answer(body: any, opts: { honourSystem?: boolean; followFrom?: "system" | "user" | "never" } = {}) {
-	const { honourSystem = true, followFrom = "system" } = opts;
+const capError = {
+	status: 400,
+	json: {
+		error: {
+			message: `max_tokens is too large: ${ABSURD_MAX_TOKENS}. This model supports at most 8192 completion tokens, whereas you provided ${ABSURD_MAX_TOKENS}.`,
+		},
+	},
+};
+function answer(
+	body: any,
+	opts: { honourSystem?: boolean; followFrom?: "system" | "user" | "never"; clamp?: boolean } = {},
+) {
+	const { honourSystem = true, followFrom = "system", clamp = false } = opts;
+	if (body.max_tokens === ABSURD_MAX_TOKENS && !clamp) return capError;
 	const system = body.messages.find((m: any) => m.role === "system")?.content ?? "";
 	const user = body.messages.find((m: any) => m.role === "user")?.content ?? "";
 	if (honourSystem && /PINEAPPLE/.test(system)) return reply("PINEAPPLE");
@@ -118,7 +132,10 @@ test("a gateway that refuses tools: completions only, streaming, tools refused -
 		return undefined;
 	}, seen);
 	const report = await probeEndpoint({ baseUrl: BASE, apiKey: "k", fetchFn });
-	assert.deepEqual(report.models, [{ id: "gemini-flash", contextWindow: 1000000 }, { id: "gpt-4.1" }]);
+	assert.deepEqual(report.models, [
+		{ id: "gemini-flash", contextWindow: 1000000, maxTokens: 8192 },
+		{ id: "gpt-4.1" },
+	]);
 	assert.equal(report.model, "gemini-flash");
 	assert.equal(report.api, "openai-completions");
 	assert.match(report.apis["openai-responses"], /^404/);
@@ -136,12 +153,59 @@ test("a gateway that refuses tools: completions only, streaming, tools refused -
 	assert.equal(report.systemPrompt, "honoured");
 	assert.equal(report.protocol, "system");
 	assert.equal(promptPlacementFor(report), undefined, "system placement is the default, nothing to write");
+	assert.deepEqual(report.outputCap, {
+		enforced: true,
+		maxTokens: 8192,
+		note: `400: max_tokens is too large: ${ABSURD_MAX_TOKENS}. This model supports at most 8192 completion tokens, whereas you provided ${ABSURD_MAX_TOKENS}.`.slice(
+			0,
+			165,
+		),
+	});
+	assert.equal(report.models[0].maxTokens, 8192, "the probed model gets the cap the endpoint stated");
+	assert.equal(report.models[1].maxTokens, undefined, "other models are not assumed");
+	assert.match(formatReport(report), /Max output tokens: 8192 \(the endpoint said so\)/);
 	const text = formatReport(report);
 	assert.match(text, /Tool calls: refused/);
 	assert.match(text, /"tools": "prompted"/);
 	assert.match(text, /System prompt: reaches the model/);
 	assert.match(text, /Prompted tool protocol: followed \(protocol in the system prompt\)/);
-	assert.match(text, /gemini-flash {2}\(context 1000000\)/);
+	assert.match(text, /gemini-flash {2}\(context 1000000, max output 8192\)/);
+});
+
+test("limitsFromError reads the common error shapes", () => {
+	assert.deepEqual(
+		limitsFromError(
+			"max_tokens is too large: 100000000. This model supports at most 16384 completion tokens, whereas you provided 100000000.",
+		),
+		{ maxTokens: 16384 },
+	);
+	assert.deepEqual(
+		limitsFromError(
+			"This model's maximum context length is 128000 tokens. However, you requested 100000010 tokens (10 in the messages, 100000000 in the completion).",
+		),
+		{ contextWindow: 128000 },
+	);
+	assert.deepEqual(
+		limitsFromError(
+			"max_tokens: 100000000 > 65536, which is the maximum allowed number of output tokens for this model",
+		),
+		{ maxTokens: 65536 },
+	);
+	assert.deepEqual(limitsFromError("The maximum allowed value for max_output_tokens is 65,536."), {
+		maxTokens: 65536,
+	});
+	assert.deepEqual(limitsFromError("Invalid request"), {});
+});
+
+test("an endpoint that clamps the output cap silently is reported as not enforced", async () => {
+	const fetchFn = fakeFetch((path, body) => {
+		if (path === "/models") return { status: 200, json: { data: [{ id: "m" }] } };
+		if (path === "/chat/completions") return body.stream ? sse : answer(body, { clamp: true });
+		return undefined;
+	});
+	const report = await probeEndpoint({ baseUrl: BASE, fetchFn });
+	assert.deepEqual(report.outputCap, { enforced: false, note: `accepted max_tokens: ${ABSURD_MAX_TOKENS}` });
+	assert.match(formatReport(report), /Max output tokens: not enforced/);
 });
 
 test("sawToolBlock and systemBody", () => {

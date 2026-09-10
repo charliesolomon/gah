@@ -257,6 +257,8 @@ async function main() {
 	const known = Object.values(modelInfo);
 	const withoutContext = ids.filter((id) => !modelInfo[id]?.contextWindow);
 	const withoutMax = ids.filter((id) => !modelInfo[id]?.maxTokens);
+	if (report?.outputCap?.enforced === false)
+		stdout.write("  (the endpoint ignores the output cap you send, so maxTokens is documentation here)\n");
 	if (known.length > 0 && withoutContext.length < ids.length)
 		stdout.write(
 			`  (context window known for ${ids.length - withoutContext.length} of ${ids.length} models from the probe)\n`,
