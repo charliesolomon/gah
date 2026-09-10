@@ -109,6 +109,36 @@ const PROTOCOL_TEST = [
 ].join("\n");
 const PROTOCOL_TEST_USER = "Use the ping tool now, then stop.";
 
+// An output cap far beyond any model. The error that rejects it usually
+// states the real limit, and a 200 means the endpoint clamps silently.
+export const ABSURD_MAX_TOKENS = 100_000_000;
+
+/**
+ * Read the limits an endpoint states when it rejects an oversized output cap.
+ * Two shapes are common: "supports at most N completion tokens" (the output
+ * cap) and "maximum context length is N tokens" (the context window). Any
+ * other message: the largest number that is not the one we sent, if it is
+ * plausibly a token count.
+ */
+export function limitsFromError(text, sent = ABSURD_MAX_TOKENS) {
+	const out = {};
+	const clean = text.replace(/[,_](?=\d{3}\b)/g, "");
+	const cap = clean.match(
+		/(?:at most|maximum(?: allowed)?(?: value)?(?: of| for| is)?|max(?:imum)?_?output_?tokens?[^\d]{0,40}?)\s*[:=]?\s*(\d{3,})\s*(?:completion|output)?\s*tokens?/i,
+	);
+	const ctx = clean.match(/context (?:length|window)(?: is| of)?\s*[:=]?\s*(\d{3,})/i);
+	if (ctx) out.contextWindow = Number(ctx[1]);
+	if (cap && Number(cap[1]) !== sent && Number(cap[1]) !== out.contextWindow) out.maxTokens = Number(cap[1]);
+	if (out.maxTokens === undefined && !cap) {
+		// Not the value we sent, nor anything near it (a message may restate it plus the prompt size).
+		const numbers = (clean.match(/\d{3,}/g) ?? [])
+			.map(Number)
+			.filter((n) => n < sent / 10 && n !== out.contextWindow && n >= 256);
+		if (numbers.length > 0) out.maxTokens = Math.max(...numbers);
+	}
+	return out;
+}
+
 /** The model answered a prompted-protocol request with a ping block. */
 export function sawToolBlock(text) {
 	return /```\s*tool[\s\S]*?TOOL_NAME:\s*ping/.test(text);
@@ -211,6 +241,7 @@ export async function probeEndpoint({
 		tools: undefined,
 		systemPrompt: undefined,
 		protocol: undefined,
+		outputCap: undefined,
 		notes: [],
 	};
 
@@ -277,13 +308,47 @@ export async function probeEndpoint({
 		return report;
 	}
 
-	// 3. Streaming.
+	// 3. Output cap. Ask for far more than any model can produce: a rejection
+	//    usually names the real limit (and sometimes the context window), a 200
+	//    means the endpoint clamps silently and the cap in providers.json is
+	//    documentation, not a control.
+	const capField = report.api === "openai-responses" ? "max_output_tokens" : "max_tokens";
+	let cap = await call("POST", probePath(report.api), {
+		...probeBody(report.api, report.model),
+		[capField]: ABSURD_MAX_TOKENS,
+	});
+	if (
+		!cap.ok &&
+		capField === "max_tokens" &&
+		/max_completion_tokens/.test(cap.text) &&
+		!/at most|maximum/i.test(cap.text)
+	) {
+		cap = await call("POST", probePath(report.api), {
+			...probeBody(report.api, report.model),
+			max_completion_tokens: ABSURD_MAX_TOKENS,
+		});
+	}
+	if (cap.ok) {
+		report.outputCap = { enforced: false, note: `accepted ${capField}: ${ABSURD_MAX_TOKENS}` };
+	} else if (cap.status === 0) {
+		report.notes.push(`output cap probe failed (${cap.error})`);
+	} else {
+		const limits = limitsFromError(cap.text);
+		report.outputCap = { enforced: true, ...limits, note: errorSummary(cap.status, cap.text) };
+		const m = report.models.find((x) => x.id === report.model);
+		if (m) {
+			if (limits.maxTokens && !m.maxTokens) m.maxTokens = limits.maxTokens;
+			if (limits.contextWindow && !m.contextWindow) m.contextWindow = limits.contextWindow;
+		}
+	}
+
+	// 4. Streaming.
 	const s = await call("POST", probePath(report.api), probeBody(report.api, report.model, { stream: true }));
 	report.streaming = s.ok && (/text\/event-stream/i.test(s.contentType) || /^data:/m.test(s.text));
 	if (s.ok && !report.streaming) report.notes.push("stream: true was accepted but the reply was not an event stream");
 	if (!s.ok) report.notes.push(`streaming request failed (${s.error ?? errorSummary(s.status, s.text)})`);
 
-	// 4. Tools. Three outcomes matter for providers.json:
+	// 5. Tools. Three outcomes matter for providers.json:
 	//    native   - the model answered the ping with a tool call
 	//    refused  - the request with tools was rejected while the same request
 	//               without tools succeeded (a gateway policy, #42)
@@ -300,7 +365,7 @@ export async function probeEndpoint({
 	}
 	if (report.tools === "native") return report;
 
-	// 5. The prompted protocol needs two things a gateway can break: the system
+	// 6. The prompted protocol needs two things a gateway can break: the system
 	//    prompt must reach the model, and the model must follow the block
 	//    format. Check both, and fall back to the user turn for the protocol.
 	const sys = await call(
@@ -357,6 +422,18 @@ export function formatReport(report) {
 	if (report.model) lines.push(`Probed with: ${report.model}`);
 	for (const [api, result] of Object.entries(report.apis)) lines.push(`${api}: ${result}`);
 	if (report.api) lines.push(`Protocol to use: ${report.api}`);
+	if (report.outputCap) {
+		const c = report.outputCap;
+		if (!c.enforced)
+			lines.push(
+				`Max output tokens: not enforced by the endpoint (${c.note}); it clamps silently, so maxTokens is documentation here`,
+			);
+		else if (c.maxTokens)
+			lines.push(
+				`Max output tokens: ${c.maxTokens} (the endpoint said so${c.contextWindow ? `; context window ${c.contextWindow}` : ""})`,
+			);
+		else lines.push(`Max output tokens: enforced, but the limit was not stated (${c.note})`);
+	}
 	if (report.streaming !== undefined) lines.push(`Streaming: ${report.streaming ? "yes" : "no"}`);
 	if (report.tools) {
 		const meaning = {
@@ -395,8 +472,8 @@ export function formatReport(report) {
 
 // --- CLI ---------------------------------------------------------------------------
 
+import { argv, env, exit, stderr, stdout } from "node:process";
 import { fileURLToPath } from "node:url";
-import { argv, env, exit, stdout, stderr } from "node:process";
 
 function flag(name) {
 	const i = argv.indexOf(name);

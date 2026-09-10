@@ -13,8 +13,9 @@
 // <tool_result> gets "done". Each log line also records hasTools, the message
 // roles, and whether the system prompt carried the text protocol. MOCK_CUT=1
 // drops the closing fence and ends that reply with finish_reason "length".
-// GET /models lists m1 (with a vLLM-style max_model_len) and /responses is
-// 404, so scripts/probe-endpoint.mjs can be tried against this mock too.
+// GET /models lists m1 (with a vLLM-style max_model_len), /responses is 404,
+// and a max_tokens above 32768 is rejected with OpenAI's wording, so
+// scripts/probe-endpoint.mjs can be tried against this mock too.
 import { appendFileSync } from "node:fs";
 import http from "node:http";
 
@@ -68,6 +69,12 @@ http
 			const marker = systemText.match(/reply with the single word (\w+)/i)?.[1];
 			const protocolPing = /TOOL_NAME: <tool name>/.test(`${systemText}\n${userText}`) && /ping/.test(userText);
 			appendFileSync(log, `${JSON.stringify({ path: req.url, tools, hasTools, hasToolRoles, roles, protocolInPrompt, hasResult })}\n`);
+			const askedCap = json.max_tokens ?? json.max_completion_tokens;
+			if (typeof askedCap === "number" && askedCap > 32768) {
+				res.writeHead(400, { "content-type": "application/json" });
+				res.end(JSON.stringify({ error: { message: `max_tokens is too large: ${askedCap}. This model supports at most 32768 completion tokens, whereas you provided ${askedCap}.` } }));
+				return;
+			}
 			if (prompted && (hasTools || hasToolRoles)) {
 				res.writeHead(400, { "content-type": "application/json" });
 				res.end(JSON.stringify({ error: { message: "tool calls are disabled on this endpoint" } }));
