@@ -628,7 +628,7 @@ function Invoke-Uninstall {
     Repair-ManagedAcls -Sid $Target.SID -Paths (@(
         $lnk, $keyPath, "$keyPath.pub", $known) + $iconPaths + @(
         (Get-TerminalSettingsPath -ProfilePath $Target.Path),
-        "$(Get-TerminalSettingsPath -ProfilePath $Target.Path).gah-bak")
+        "$(Get-TerminalSettingsPath -ProfilePath $Target.Path).gah-bak"))
 
     if (Test-Path $lnk) { Remove-Item $lnk -Force; Write-Ok "removed $lnk" }
     else { Write-Step 'shortcut not present' }
