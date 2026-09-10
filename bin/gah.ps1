@@ -96,23 +96,38 @@ Run the build first:
     exit 1
 }
 
+# Environment variables are process-wide in PowerShell, so anything this script
+# sets stays in the caller's session after it returns (#76: `gci env:` showed
+# the launcher's defaults as if the user had set them). Everything set below is
+# undone on exit; node gets the values while it runs.
+$Restore = @{}
+function Set-Default($name, $value) {
+    if (Test-Path "Env:$name") { return }
+    $Restore[$name] = $null
+    Set-Item -Path "Env:$name" -Value $value
+}
+
 # Dev default: expose built-in Anthropic models (patch 0010 hides everything
 # otherwise). Deployments override or unset this; published artifacts have no
 # wrapper and default to deny-all.
-if (-not (Test-Path Env:GAH_BUILTIN_MODELS)) {
-    $env:GAH_BUILTIN_MODELS = "anthropic/*"
+#
+# "none" means none. PowerShell removes a variable that is assigned an empty
+# string, so `$env:GAH_BUILTIN_MODELS = ''` leaves it unset and the default
+# above would apply (#76). Unset is exactly what patch 0010 treats as none, so
+# the launcher drops the variable for the run and puts "none" back afterwards.
+if ($env:GAH_BUILTIN_MODELS -eq 'none') {
+    $Restore['GAH_BUILTIN_MODELS'] = 'none'
+    Remove-Item Env:GAH_BUILTIN_MODELS
+} else {
+    Set-Default 'GAH_BUILTIN_MODELS' 'anthropic/*'
 }
 
 # Workstation default: read ~\.gah\agent\models.json. See bin/gah for why.
-if (-not (Test-Path Env:GAH_ALLOW_MODELS_JSON)) {
-    $env:GAH_ALLOW_MODELS_JSON = "1"
-}
+Set-Default 'GAH_ALLOW_MODELS_JSON' '1'
 
 # Workstation default: no egress restriction (patch 0011 denies all when
 # unset). See bin/gah for why, and docs/PROVIDERS.md to lock it down.
-if (-not (Test-Path Env:GAH_ALLOWED_HOSTS)) {
-    $env:GAH_ALLOWED_HOSTS = "*"
-}
+Set-Default 'GAH_ALLOWED_HOSTS' '*'
 
 # --- Onboarding / setup steps ----------------------------------------------
 # The skills repo may ship numbered, idempotent setup steps (setup\NN-*.ps1)
@@ -141,11 +156,20 @@ if ($env:GAH_SKILLS_DIR -and -not $env:GAH_SKIP_SETUP -and -not $InfoOnly) {
 
 # --no-extensions disables auto-discovery from the user-global and project
 # config dirs; explicit --extension flags re-add exactly what GAH ships.
-& node $PiCli `
-    --no-extensions `
-    @SkillArgs `
-    --extension (Join-Path $PolicyDir "policy.ts") `
-    --extension (Join-Path $PolicyDir "branding.ts") `
-    --extension (Join-Path $PolicyDir "providers.ts") `
-    @args
-exit $LASTEXITCODE
+$ExitCode = 1
+try {
+    & node $PiCli `
+        --no-extensions `
+        @SkillArgs `
+        --extension (Join-Path $PolicyDir "policy.ts") `
+        --extension (Join-Path $PolicyDir "branding.ts") `
+        --extension (Join-Path $PolicyDir "providers.ts") `
+        @args
+    $ExitCode = $LASTEXITCODE
+} finally {
+    foreach ($name in $Restore.Keys) {
+        if ($null -eq $Restore[$name]) { Remove-Item "Env:$name" -ErrorAction SilentlyContinue }
+        else { Set-Item -Path "Env:$name" -Value $Restore[$name] }
+    }
+}
+exit $ExitCode
