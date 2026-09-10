@@ -73,27 +73,40 @@ export function mergeProvider(config, provider) {
 // Lines are queued as they arrive rather than read with rl.question(): with a
 // piped stdin (a scripted run, a test) readline emits every line at once and
 // drops the ones no question is waiting for. Interactive use is unchanged.
-const rl = createInterface({ input: stdin, output: stdout, terminal: !!stdin.isTTY });
 const pendingLines = [];
 let lineWaiter = null;
 let inputClosed = false;
-rl.on("line", (line) => {
-	if (lineWaiter) {
-		const resolve = lineWaiter;
-		lineWaiter = null;
-		resolve(line);
-	} else {
-		pendingLines.push(line);
-	}
-});
-rl.on("close", () => {
-	inputClosed = true;
-	if (lineWaiter) {
-		const resolve = lineWaiter;
-		lineWaiter = null;
-		resolve(null);
-	}
-});
+let rl = null;
+
+/**
+ * (Re)attach readline to stdin. askHidden() detaches it first: a readline in
+ * terminal mode echoes every keystroke and turns the Enter after a secret
+ * into a queued line, which then answered the next question by itself.
+ */
+function openReadline() {
+	const iface = createInterface({ input: stdin, output: stdout, terminal: !!stdin.isTTY });
+	iface.on("line", (line) => {
+		if (lineWaiter) {
+			const resolve = lineWaiter;
+			lineWaiter = null;
+			resolve(line);
+		} else {
+			pendingLines.push(line);
+		}
+	});
+	iface.on("close", () => {
+		if (rl !== iface) return; // closed on purpose by askHidden, not end of input
+		inputClosed = true;
+		if (lineWaiter) {
+			const resolve = lineWaiter;
+			lineWaiter = null;
+			resolve(null);
+		}
+	});
+	rl = iface;
+	inputClosed = false;
+}
+openReadline();
 
 async function readLine() {
 	if (pendingLines.length > 0) return pendingLines.shift();
@@ -131,6 +144,10 @@ const BACKSPACE = /[\u0008\u007f]/;
 
 /** Read a line with the echo off, for a secret. */
 async function askHidden(question) {
+	// Readline must not see these keystrokes: detach it for the duration.
+	const previous = rl;
+	rl = null;
+	previous.close();
 	stdout.write(`${question}: `);
 	const wasRaw = stdin.isRaw ?? false;
 	stdin.setRawMode?.(true);
@@ -144,6 +161,8 @@ async function askHidden(question) {
 					stdin.removeListener("data", onData);
 					stdin.setRawMode?.(wasRaw);
 					stdout.write("\n");
+					openReadline();
+					pendingLines.length = 0; // nothing typed during the secret counts as an answer
 					resolve();
 					return;
 				} else if (ch === CTRL_C) {
