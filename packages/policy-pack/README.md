@@ -9,6 +9,7 @@ The GAH policy layer, packaged as a [pi-package](https://github.com/earendil-wor
 | `extensions/policy.ts` | Tool allowlist, audit logging, protected-path guard, secret files, usage lines |
 | `extensions/branding.ts` | System-prompt header, footer/banner customization |
 | `extensions/providers.ts` | Approved inference endpoints from `providers.json` |
+| `extensions/lib/prompted-tools.ts` | Tool calling as a text protocol, for a provider marked `"tools": "prompted"` (a gateway that refuses native tool calls, #42) |
 | `model-data/` | The only built-in model data a build ships (`model-data/README.md`) |
 | `SYSTEM.md` | System-prompt override (loaded by `branding.ts`) |
 

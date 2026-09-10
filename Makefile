@@ -6,7 +6,7 @@
 PI_DIR := vendor/pi
 
 .DEFAULT_GOAL := help
-.PHONY: help install install-tools install-hooks build build-all build-offline smoke test-policy add-provider check-tools package-windows refresh-model-data patches bundle-policy clean-vendor sync sync-init status patch-new patch-export
+.PHONY: help install install-tools install-hooks build build-all build-offline smoke test-policy add-provider check-tools check-prompted package-windows refresh-model-data patches bundle-policy clean-vendor sync sync-init status patch-new patch-export
 
 help: ## Show available targets
 	@awk 'BEGIN { FS = ":.*##"; printf "Usage: make <target> [VAR=value]\n\nTargets:\n" } \
@@ -79,6 +79,9 @@ smoke: ## Quick smoke test of the built binary
 
 check-tools: ## Assert the model is offered exactly the policy's tool allowlist (mock endpoint, no keys)
 	./scripts/check-tool-surface.sh
+
+check-prompted: ## Assert tool use works through a gateway with tool calls disabled ("tools": "prompted", #42)
+	./scripts/check-prompted-tools.sh
 
 package-windows: ## Build a Windows deployment package. Usage: make package-windows DEPLOY=path/to/gah-deploy.json
 	@test -n "$(DEPLOY)" || { echo "usage: make package-windows DEPLOY=<gah-deploy.json>"; exit 2; }

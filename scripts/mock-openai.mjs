@@ -3,11 +3,23 @@
 // every request's tool definitions to $MOCK_LOG (one JSON line per request)
 // and answers with a two-chunk SSE stream saying "ok". Listens on
 // 127.0.0.1:$MOCK_PORT. Used by scripts/check-tool-surface.sh.
+//
+// MOCK_MODE=prompted plays a gateway that has tool calls disabled
+// (scripts/check-prompted-tools.sh): a request carrying a `tools` field or a
+// tool/assistant tool_calls message is answered 400, the first request gets a
+// text reply containing a ```tool block that calls $MOCK_TOOL (default ls)
+// with the arguments in $MOCK_ARGS (JSON object, default {"path":"."}), split
+// mid-fence across chunks, and a request whose history already holds a
+// <tool_result> gets "done". Each log line also records hasTools, the message
+// roles, and whether the system prompt carried the text protocol.
 import { appendFileSync } from "node:fs";
 import http from "node:http";
 
 const log = process.env.MOCK_LOG;
 const port = Number(process.env.MOCK_PORT || 0); // 0 = any free port; the chosen one is printed
+const prompted = process.env.MOCK_MODE === "prompted";
+const mockTool = process.env.MOCK_TOOL || "ls";
+const mockArgs = JSON.parse(process.env.MOCK_ARGS || '{"path":"."}');
 if (!log) {
 	console.error("mock-openai: MOCK_LOG is required");
 	process.exit(2);
@@ -19,14 +31,35 @@ http
 		req.on("data", (c) => (body += c));
 		req.on("end", () => {
 			let tools = [];
+			let json = {};
 			try {
-				const json = JSON.parse(body);
+				json = JSON.parse(body);
 				tools = (json.tools ?? []).map((t) => t.function?.name ?? t.name);
 			} catch {}
-			appendFileSync(log, `${JSON.stringify({ path: req.url, tools })}\n`);
+			const messages = Array.isArray(json.messages) ? json.messages : [];
+			const text = (m) => (typeof m.content === "string" ? m.content : (m.content ?? []).map((c) => c.text ?? "").join(""));
+			const roles = messages.map((m) => m.role);
+			const hasTools = "tools" in json;
+			const hasToolRoles = messages.some((m) => m.role === "tool" || m.tool_calls);
+			const protocolInPrompt = messages.some((m) => (m.role === "system" || m.role === "developer") && text(m).includes("TOOL_NAME:"));
+			const hasResult = messages.some((m) => m.role === "user" && text(m).includes("<tool_result"));
+			appendFileSync(log, `${JSON.stringify({ path: req.url, tools, hasTools, hasToolRoles, roles, protocolInPrompt, hasResult })}\n`);
+			if (prompted && (hasTools || hasToolRoles)) {
+				res.writeHead(400, { "content-type": "application/json" });
+				res.end(JSON.stringify({ error: { message: "tool calls are disabled on this endpoint" } }));
+				return;
+			}
 			res.writeHead(200, { "content-type": "text/event-stream" });
 			const chunk = (d) => res.write(`data: ${JSON.stringify(d)}\n\n`);
-			chunk({ id: "mock", object: "chat.completion.chunk", choices: [{ index: 0, delta: { role: "assistant", content: "ok" }, finish_reason: null }] });
+			const say = (content) => chunk({ id: "mock", object: "chat.completion.chunk", choices: [{ index: 0, delta: { role: "assistant", content }, finish_reason: null }] });
+			if (!prompted) say("ok");
+			else if (hasResult) say("done");
+			else {
+				say("Let me look.\n``");
+				say(`\`tool\nTOOL_NAME: ${mockTool}\n`);
+				for (const [k, v] of Object.entries(mockArgs)) say(`BEGIN_ARG: ${k}\n${typeof v === "string" ? v : JSON.stringify(v)}\nEND_ARG\n`);
+				say("```\n");
+			}
 			chunk({ id: "mock", object: "chat.completion.chunk", choices: [{ index: 0, delta: {}, finish_reason: "stop" }] });
 			res.write("data: [DONE]\n\n");
 			res.end();

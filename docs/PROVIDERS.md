@@ -65,6 +65,53 @@ shell. The deployed package builds the same file from its config instead.
   (`anthropic`, `github-copilot`, `openai-codex`) not listed in `keepOAuth`
   are removed from `/login`.
 
+### Gateways that refuse tool calls: `"tools": "prompted"`
+
+Some corporate gateways strip or reject the `tools` field as a matter of
+policy, even when the model behind them supports tools. The request then
+reaches the model with no tools at all, and instead of saying so the model
+fabricates what a directory listing or a file might have contained
+([#42](https://github.com/charliesolomon/gah/issues/42)). The gateway in #35
+that returned tool calls with empty names is the same family.
+
+Set `"tools": "prompted"` on such a provider (or on one model inside it; the
+default is `"native"`) and `providers.ts` gives it a text protocol instead,
+after the "system message tools" of continue.dev:
+
+- The tool definitions are rendered into the system prompt, and the request
+  carries no `tools` array. Earlier tool calls and results in the history are
+  rendered as text, so the wire never carries a `tool_calls` or `tool` role.
+- The model is asked to end a reply that needs a tool with one fenced block:
+
+  ````
+  ```tool
+  TOOL_NAME: read
+  BEGIN_ARG: path
+  docs/GITLAB.md
+  END_ARG
+  ```
+  ````
+
+- The streamed text is scanned for such blocks and each becomes an ordinary
+  tool call. From there nothing changes: the agent loop executes it, the
+  allowlist, protected paths and secret files apply, and the audit log gets the
+  same `allowed`/`blocked` line a native call gets. A block cut off by the
+  output limit is reported as `length` and not executed, as upstream does for a
+  truncated native call. Argument values are coerced by the tool's schema, so a
+  `number` argument arrives as a number.
+
+The implementation is `packages/policy-pack/extensions/lib/prompted-tools.ts`,
+wired through the `streamSimple` hook of the provider config: the HTTP call is
+still upstream's own streamer for the provider's `api`, so auth, proxies and
+the egress allowlist below are unchanged. `make check-prompted` runs `bin/gah`
+against `scripts/mock-openai.mjs` playing such a gateway and asserts all of the
+above; `make test-policy` covers the parser and the rewriting.
+
+What it does not do: parallel tool calls (the prompt asks for one per reply),
+and it cannot stop a model that decides not to emit a block from making things
+up. The prompt is firm about that, and the `/rrr` template in a skills repo is
+the quick acceptance test: it must name real files.
+
 ## Mechanism 3 — `GAH_ALLOWED_HOSTS`: network egress allowlist
 
 `patches/0011-egress-allowlist.patch`. Comma-separated hostname globs; no HTTP

@@ -86,6 +86,10 @@ jobs:
         # What the model is offered vs. what the policy allows (issue #35).
         run: make check-tools
 
+      - name: Prompted tool calling
+        # Tool use through a gateway that refuses native tool calls (issue #42).
+        run: make check-prompted
+
       - name: Deployment package
         # Assemble the example Windows package from this build and run the
         # tool-surface check against the assembled tree (docs/DEPLOY-WINDOWS.md).

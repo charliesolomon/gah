@@ -32,8 +32,10 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { type AssistantMessageEventStream, getApiProvider } from "@earendil-works/pi-ai";
 import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { promptedStream, TOOL_MODES, type ToolMode } from "./lib/prompted-tools.ts";
 
 const CONFIG_PATH = process.env.GAH_PROVIDERS_FILE ?? join(homedir(), ".gah", "providers.json");
 const AUDIT_LOG_PATH = process.env.GAH_AUDIT_LOG ?? join(homedir(), ".gah", "audit.log");
@@ -47,6 +49,8 @@ interface ModelEntry {
 	cost: { input: number; output: number; cacheRead: number; cacheWrite: number };
 	contextWindow: number;
 	maxTokens: number;
+	/** Per-model override of the provider's `tools` mode. */
+	tools?: ToolMode;
 }
 
 interface ProviderEntry {
@@ -60,6 +64,14 @@ interface ProviderEntry {
 	 * into auth.json. The endpoint stays in this file either way.
 	 */
 	apiKey?: string;
+	/**
+	 * How tool calls reach the model. "native" (default) sends the API's tool
+	 * definitions. "prompted" is for a gateway that refuses them: tools are
+	 * described in the system prompt and the model's fenced ```tool blocks are
+	 * parsed back into tool calls (lib/prompted-tools.ts, #42). Per-model
+	 * override via ModelEntry.tools.
+	 */
+	tools?: ToolMode;
 	models: ModelEntry[];
 }
 
@@ -93,8 +105,32 @@ function loadConfig(): ProvidersConfig | undefined {
 		if (p.apiKey !== undefined && typeof p.apiKey !== "string") {
 			throw new Error(`${CONFIG_PATH}: provider ${p.name}: apiKey must be a string when present`);
 		}
+		for (const mode of [p.tools, ...p.models.map((m) => m.tools)]) {
+			if (mode !== undefined && !TOOL_MODES.includes(mode)) {
+				throw new Error(`${CONFIG_PATH}: provider ${p.name}: tools must be one of ${TOOL_MODES.join(", ")}`);
+			}
+		}
+		// The composer routes a custom streamSimple only for models on the
+		// provider's own api; a prompted model on another api would silently
+		// go native, so refuse the config instead.
+		for (const m of p.models) {
+			if (promptedModelIds(p).has(m.id) && m.api !== undefined && m.api !== p.api) {
+				throw new Error(
+					`${CONFIG_PATH}: provider ${p.name}: model ${m.id} uses tools "prompted" but its api differs from the provider's`,
+				);
+			}
+		}
 	}
 	return parsed;
+}
+
+/** Ids of the models in an entry that use the prompted tool protocol. */
+export function promptedModelIds(entry: ProviderEntry): Set<string> {
+	const ids = new Set<string>();
+	for (const m of entry.models) {
+		if ((m.tools ?? entry.tools ?? "native") === "prompted") ids.add(m.id);
+	}
+	return ids;
 }
 
 export default function (pi: ExtensionAPI) {
@@ -133,11 +169,28 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	for (const entry of config.providers) {
+		const prompted = promptedModelIds(entry);
 		pi.registerProvider(entry.name, {
 			baseUrl: entry.baseUrl,
 			api: entry.api as never,
 			...(entry.apiKey !== undefined ? { apiKey: entry.apiKey } : {}),
 			models: entry.models as never,
+			// Upstream routes every request for this provider's api through this
+			// when present (provider-composer.ts, streamWith). Auth is already
+			// applied to `options` by then, so delegating to the api's own
+			// streamer changes nothing for native models.
+			...(prompted.size > 0
+				? {
+						streamSimple: (model, context, options) => {
+							const base = getApiProvider(model.api);
+							if (!base) throw new Error(`No API provider registered for api: ${model.api}`);
+							if (!prompted.has(model.id)) return base.streamSimple(model, context, options);
+							// Same async-iteration + result() contract; the class itself is
+							// type-only through the extension alias of pi-ai's root entry.
+							return promptedStream(base, model, context, options) as unknown as AssistantMessageEventStream;
+						},
+					}
+				: {}),
 		});
 		audit({
 			kind: "provider_registered",
@@ -145,6 +198,7 @@ export default function (pi: ExtensionAPI) {
 			baseUrl: entry.baseUrl,
 			auth: entry.apiKey === undefined ? "login" : entry.apiKey.startsWith("$") ? "env" : "literal",
 			models: entry.models.map((m) => m.id),
+			...(prompted.size > 0 ? { promptedTools: [...prompted] } : {}),
 		});
 	}
 }
