@@ -50,6 +50,18 @@ inference server. It merges into an existing file, reads a literal key with the
 echo off (and `chmod 600`s the file), and prints the exact launch line for your
 shell. The deployed package builds the same file from its config instead.
 
+It offers to **probe the endpoint first** (`scripts/probe-endpoint.mjs`, also
+`make probe-endpoint URL=... KEY_ENV=VAR`): `GET /models` for the model ids and,
+where the server includes them, context and output limits (vLLM, LiteLLM,
+OpenRouter and Ollama-style keys are recognised); one tiny request each to
+`/responses` and `/chat/completions` to see which protocol answers; one with
+`stream: true`; and one carrying a trivial `ping` tool. The answers become the
+defaults of the questions that follow, and the tool probe decides the
+`"tools"` mode below: a tool call back means native; a rejection, or an
+accepted request with no call back (the definitions were stripped), means
+prompted. Nothing is written by the probe, and the key is never put on a
+command line.
+
 - Works for any endpoint speaking an API PI knows: `openai-completions`,
   `openai-responses`, `anthropic-messages`, etc. Most enterprise gateways
   and proxies are OpenAI-compatible → `openai-completions`.

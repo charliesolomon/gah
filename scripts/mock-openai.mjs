@@ -12,6 +12,8 @@
 // mid-fence across chunks, and a request whose history already holds a
 // <tool_result> gets "done". Each log line also records hasTools, the message
 // roles, and whether the system prompt carried the text protocol.
+// GET /models lists m1 (with a vLLM-style max_model_len) and /responses is
+// 404, so scripts/probe-endpoint.mjs can be tried against this mock too.
 import { appendFileSync } from "node:fs";
 import http from "node:http";
 
@@ -27,6 +29,18 @@ if (!log) {
 
 http
 	.createServer((req, res) => {
+		// The two routes probe-endpoint.mjs also touches: a model list, and no
+		// Responses API on this mock (so the probe settles on Chat Completions).
+		if (req.method === "GET" && /\/models\/?$/.test(req.url)) {
+			res.writeHead(200, { "content-type": "application/json" });
+			res.end(JSON.stringify({ object: "list", data: [{ id: "m1", object: "model", max_model_len: 32768 }] }));
+			return;
+		}
+		if (/\/responses\/?$/.test(req.url)) {
+			res.writeHead(404, { "content-type": "application/json" });
+			res.end(JSON.stringify({ error: { message: "no such route" } }));
+			return;
+		}
 		let body = "";
 		req.on("data", (c) => (body += c));
 		req.on("end", () => {
