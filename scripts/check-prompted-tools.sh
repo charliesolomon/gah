@@ -13,7 +13,9 @@
 #   - a `write` to a protected path is audited as blocked and the file is not
 #     written, i.e. the policy sees prompted calls exactly as native ones;
 #   - a gateway that ends the stream with "length" before the closing fence
-#     (MOCK_CUT=1, seen on #74) still gets its whole call executed.
+#     (MOCK_CUT=1, seen on #74) still gets its whole call executed;
+#   - with "toolsPrompt": "user" the request carries no system message at all
+#     and the person's turn holds the system prompt plus the protocol (#81).
 #     (A tool outside the allowlist is not active at all, so upstream answers
 #     "not found" before any policy hook; that path is the same for native
 #     calls and is not what this checks.)
@@ -42,9 +44,9 @@ check() {
 
 # Starts the mock for one scenario and runs gah once. $1 = tool the mock
 # calls, $2 = its arguments as a JSON object, $3 = 1 to cut the reply before
-# the closing fence.
+# the closing fence, $4 = toolsPrompt placement (system or user).
 scenario() {
-	local tool="$1" args="${2:-}" cut="${3:-0}"
+	local tool="$1" args="${2:-}" cut="${3:-0}" placement="${4:-system}"
 	[ -n "$args" ] || args='{"path":"."}'
 	[ -n "$MOCK_PID" ] && { kill "$MOCK_PID" 2>/dev/null || true; MOCK_PID=""; }
 	: > "$WORK/mock.out"; : > "$WORK/requests.log"; : > "$WORK/audit.log"
@@ -61,7 +63,7 @@ scenario() {
 
 	cat > "$WORK/providers.json" <<JSON
 { "providers": [ { "name": "mock", "baseUrl": "http://127.0.0.1:$port/v1", "api": "openai-completions",
-  "apiKey": "x", "tools": "prompted",
+  "apiKey": "x", "tools": "prompted", "toolsPrompt": "$placement",
   "models": [ { "id": "m1", "name": "m1", "reasoning": false, "input": ["text"],
     "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }, "contextWindow": 100000, "maxTokens": 4096 } ] } ] }
 JSON
@@ -96,6 +98,13 @@ echo "-- stream ends with length before the closing fence --"
 if scenario ls '{"path":"."}' 1; then
 	check "the whole call still ran (ls audited as allowed)"   "$(grep -q '"kind":"allowed".*"tool":"ls"' "$WORK/audit.log" && echo 1 || echo 0)"
 	check "the result went back and the reply reached the user" "$([ "$(requests)" -ge 2 ] && [ "$(field 2 hasResult)" = true ] && grep -q 'done' "$WORK/probe.log" && echo 1 || echo 0)"
+fi
+
+echo "-- toolsPrompt user: system prompt and protocol travel in the person's turn --"
+if scenario ls '{"path":"."}' 0 user; then
+	check "first request carried no system message"           "$([ "$(field 1 roles)" = "user" ] && echo 1 || echo 0)"
+	check "the person's turn carried the protocol"            "$([ "$(field 1 protocolInUser)" = true ] && echo 1 || echo 0)"
+	check "the call ran and the reply reached the user"        "$(grep -q '"kind":"allowed".*"tool":"ls"' "$WORK/audit.log" && grep -q 'done' "$WORK/probe.log" && echo 1 || echo 0)"
 fi
 
 echo "-- write to a protected path --"
