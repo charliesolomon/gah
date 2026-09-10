@@ -6,7 +6,7 @@
 PI_DIR := vendor/pi
 
 .DEFAULT_GOAL := help
-.PHONY: help install install-tools install-hooks build build-all build-offline smoke test-policy add-provider check-tools package-windows refresh-model-data patches bundle-policy clean-vendor sync sync-init status patch-new patch-export
+.PHONY: help install install-tools install-hooks build build-all build-offline smoke test-policy add-provider probe-endpoint check-tools check-prompted package-windows refresh-model-data patches bundle-policy clean-vendor sync sync-init status patch-new patch-export
 
 help: ## Show available targets
 	@awk 'BEGIN { FS = ":.*##"; printf "Usage: make <target> [VAR=value]\n\nTargets:\n" } \
@@ -59,6 +59,10 @@ build-offline: ## Rebuild reusing src/providers/data as-is (needs a prior build-
 add-provider: ## Interactively register a dev inference endpoint in ~/.gah/providers.json
 	node scripts/add-provider.mjs
 
+probe-endpoint: ## Report what an endpoint offers (models, protocol, streaming, tool calls). Usage: make probe-endpoint URL=https://... [KEY_ENV=VAR] [MODEL=id]
+	@test -n "$(URL)" || { echo "usage: make probe-endpoint URL=<baseUrl> [KEY_ENV=<env var holding the key>] [MODEL=<id>]"; exit 2; }
+	node scripts/probe-endpoint.mjs "$(URL)" $(if $(KEY_ENV),--key-env "$(KEY_ENV)") $(if $(MODEL),--model "$(MODEL)")
+
 test-policy: ## Unit tests for the policy pack (node:test via jiti; no build needed)
 	@node --import ./$(PI_DIR)/node_modules/jiti/lib/jiti-register.mjs --test packages/policy-pack/test/*.test.ts
 
@@ -79,6 +83,9 @@ smoke: ## Quick smoke test of the built binary
 
 check-tools: ## Assert the model is offered exactly the policy's tool allowlist (mock endpoint, no keys)
 	./scripts/check-tool-surface.sh
+
+check-prompted: ## Assert tool use works through a gateway with tool calls disabled ("tools": "prompted", #42)
+	./scripts/check-prompted-tools.sh
 
 package-windows: ## Build a Windows deployment package. Usage: make package-windows DEPLOY=path/to/gah-deploy.json
 	@test -n "$(DEPLOY)" || { echo "usage: make package-windows DEPLOY=<gah-deploy.json>"; exit 2; }

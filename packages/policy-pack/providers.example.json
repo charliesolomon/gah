@@ -29,6 +29,25 @@
 			]
 		},
 		{
+			"name": "locked-down-gateway",
+			"baseUrl": "https://ai-gateway.example.com/openai/v1",
+			"api": "openai-completions",
+			"apiKey": "$LOCKED_GATEWAY_API_KEY",
+			"tools": "prompted",
+			"$comment": "tools: \"native\" (default) sends real tool definitions; \"prompted\" is for a gateway that refuses them: tools go in the system prompt and the model's ```tool blocks are parsed back into calls. Per-model override with the same key inside a model. See docs/PROVIDERS.md.",
+			"models": [
+				{
+					"id": "gemini-flash",
+					"name": "Gemini Flash (gateway)",
+					"reasoning": false,
+					"input": ["text"],
+					"cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
+					"contextWindow": 200000,
+					"maxTokens": 8192
+				}
+			]
+		},
+		{
 			"name": "internal-claude-proxy",
 			"baseUrl": "https://claude-proxy.example.com",
 			"api": "anthropic-messages",

@@ -50,6 +50,20 @@ inference server. It merges into an existing file, reads a literal key with the
 echo off (and `chmod 600`s the file), and prints the exact launch line for your
 shell. The deployed package builds the same file from its config instead.
 
+It offers to **probe the endpoint first** (`scripts/probe-endpoint.mjs`, also
+`make probe-endpoint URL=... KEY_ENV=VAR`): `GET /models` for the model ids and,
+where the server includes them, context and output limits (vLLM, LiteLLM,
+OpenRouter and Ollama-style keys are recognised); one tiny request each to
+`/responses` and `/chat/completions` to see which protocol answers; one with
+`stream: true`; and one carrying a trivial `ping` tool. The answers become the
+defaults of the questions that follow, and the tool probe decides the
+`"tools"` mode below: a tool call back means native; a rejection, or an
+accepted request with no call back (the definitions were stripped), means
+prompted. For a prompted endpoint it then checks that a system prompt reaches
+the model and that the model follows the text protocol, from the system
+prompt or, failing that, from the user turn. Nothing is written by the probe,
+and the key is never put on a command line.
+
 - Works for any endpoint speaking an API PI knows: `openai-completions`,
   `openai-responses`, `anthropic-messages`, etc. Most enterprise gateways
   and proxies are OpenAI-compatible → `openai-completions`.
@@ -64,6 +78,79 @@ shell. The deployed package builds the same file from its config instead.
 - When a file is present it is authoritative for logins: built-in OAuth flows
   (`anthropic`, `github-copilot`, `openai-codex`) not listed in `keepOAuth`
   are removed from `/login`.
+
+### Gateways that refuse tool calls: `"tools": "prompted"`
+
+Some corporate gateways strip or reject the `tools` field as a matter of
+policy, even when the model behind them supports tools. The request then
+reaches the model with no tools at all, and instead of saying so the model
+fabricates what a directory listing or a file might have contained
+([#42](https://github.com/charliesolomon/gah/issues/42)). The gateway in #35
+that returned tool calls with empty names is the same family.
+
+Set `"tools": "prompted"` on such a provider (or on one model inside it; the
+default is `"native"`) and `providers.ts` gives it a text protocol instead,
+after the "system message tools" of continue.dev:
+
+- The tool definitions are rendered into the system prompt, and the request
+  carries no `tools` array. Earlier tool calls and results in the history are
+  rendered as text, so the wire never carries a `tool_calls` or `tool` role.
+  Each results message ends with a line telling the model to continue the
+  earlier request rather than treat the results as a new one.
+- The model is asked to end a reply that needs a tool with one fenced block:
+
+  ````
+  ```tool
+  TOOL_NAME: read
+  BEGIN_ARG: path
+  docs/GITLAB.md
+  END_ARG
+  ```
+  ````
+
+- The streamed text is scanned for such blocks and each becomes an ordinary
+  tool call. From there nothing changes: the agent loop executes it, the
+  allowlist, protected paths and secret files apply, and the audit log gets the
+  same `allowed`/`blocked` line a native call gets. A block cut off inside an
+  argument value is reported as `length` and not executed, as upstream does for
+  a truncated native call; a block missing only its closing fence is whole and
+  runs, because some gateways end the stream with `length` exactly there (a
+  Gemini gateway counting thinking tokens against the output cap did). Argument
+  values are coerced by the tool's schema, so a `number` argument arrives as a
+  number.
+
+The implementation is `packages/policy-pack/extensions/lib/prompted-tools.ts`,
+wired through the `streamSimple` hook of the provider config: the HTTP call is
+still upstream's own streamer for the provider's `api`, so auth, proxies and
+the egress allowlist below are unchanged. `make check-prompted` runs `bin/gah`
+against `scripts/mock-openai.mjs` playing such a gateway and asserts all of the
+above; `make test-policy` covers the parser and the rewriting.
+
+Two things a gateway can still break, and how to find out which:
+
+- **The system prompt does not reach the model.** Then the protocol never
+  does either, and the model answers as if it had no tools. The probe reports
+  `System prompt: IGNORED` for this and, if the model follows the protocol
+  when it is placed at the front of the user turn instead, recommends
+  `"toolsPrompt": "user"` (per provider or per model). The protocol then goes
+  on the person's latest turn, so the task and the protocol sit together and
+  a results message stays a results message. The request is rebuilt from the
+  stored context on every turn, so nothing accumulates in the session.
+- **The model does not follow the protocol.** The probe reports
+  `Prompted tool protocol: NOT FOLLOWED`. Nothing in GAH can make such a
+  model call tools; pick another model on that endpoint.
+
+For a session that still fabricates, set `GAH_PROMPTED_DEBUG=<file>`: every
+prompted request appends one JSON line with the outbound shape (system prompt
+length, whether it carried the protocol, message roles), the stop reason the
+provider reported and the one the wrapper decided, and the model's raw reply
+text with the calls parsed from it. The file is the operator's choice
+and holds conversation text, so keep it out of the repo.
+
+What it does not do: parallel tool calls (the prompt asks for one per reply),
+and it cannot stop a model that decides not to emit a block from making things
+up. The prompt is firm about that, and the `/rrr` template in a skills repo is
+the quick acceptance test: it must name real files.
 
 ## Mechanism 3 — `GAH_ALLOWED_HOSTS`: network egress allowlist
 

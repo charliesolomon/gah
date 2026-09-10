@@ -20,10 +20,27 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
+import { formatReport, probeEndpoint, promptPlacementFor, toolModeFor } from "./probe-endpoint.mjs";
 
-
-/** Build a validated provider entry from collected answers (pure, testable). */
-export function buildProvider({ name, baseUrl, api, apiKey, ids, reasoning, image, contextWindow, maxTokens }) {
+/**
+ * Build a validated provider entry from collected answers (pure, testable).
+ * `modelInfo[id]` may carry a per-model contextWindow / maxTokens (from the
+ * endpoint probe); `tools` is written only when it is "prompted".
+ */
+export function buildProvider({
+	name,
+	baseUrl,
+	api,
+	apiKey,
+	ids,
+	reasoning,
+	image,
+	contextWindow,
+	maxTokens,
+	tools,
+	toolsPrompt,
+	modelInfo = {},
+}) {
 	const models = ids.map((id) => ({
 		id,
 		name: id,
@@ -31,10 +48,18 @@ export function buildProvider({ name, baseUrl, api, apiKey, ids, reasoning, imag
 		input: image ? ["text", "image"] : ["text"],
 		// Dev: zeros. Real cost attribution is the provider's own logging, not the model table.
 		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-		contextWindow,
-		maxTokens,
+		contextWindow: modelInfo[id]?.contextWindow ?? contextWindow,
+		maxTokens: modelInfo[id]?.maxTokens ?? maxTokens,
 	}));
-	return { name, baseUrl, api, ...(apiKey !== undefined ? { apiKey } : {}), models };
+	return {
+		name,
+		baseUrl,
+		api,
+		...(apiKey !== undefined ? { apiKey } : {}),
+		...(tools === "prompted" ? { tools } : {}),
+		...(tools === "prompted" && toolsPrompt === "user" ? { toolsPrompt } : {}),
+		models,
+	};
 }
 
 /** Merge a provider into a config: replace one of the same name, else append. */
@@ -47,11 +72,59 @@ export function mergeProvider(config, provider) {
 	return { config: { ...config, providers }, existed };
 }
 
-const rl = createInterface({ input: stdin, output: stdout });
+// Lines are queued as they arrive rather than read with rl.question(): with a
+// piped stdin (a scripted run, a test) readline emits every line at once and
+// drops the ones no question is waiting for. Interactive use is unchanged.
+const pendingLines = [];
+let lineWaiter = null;
+let inputClosed = false;
+let rl = null;
+
+/**
+ * (Re)attach readline to stdin. askHidden() detaches it first: a readline in
+ * terminal mode echoes every keystroke and turns the Enter after a secret
+ * into a queued line, which then answered the next question by itself.
+ */
+function openReadline() {
+	const iface = createInterface({ input: stdin, output: stdout, terminal: !!stdin.isTTY });
+	iface.on("line", (line) => {
+		if (lineWaiter) {
+			const resolve = lineWaiter;
+			lineWaiter = null;
+			resolve(line);
+		} else {
+			pendingLines.push(line);
+		}
+	});
+	iface.on("close", () => {
+		if (rl !== iface) return; // closed on purpose by askHidden, not end of input
+		inputClosed = true;
+		if (lineWaiter) {
+			const resolve = lineWaiter;
+			lineWaiter = null;
+			resolve(null);
+		}
+	});
+	rl = iface;
+	inputClosed = false;
+}
+openReadline();
+
+async function readLine() {
+	if (pendingLines.length > 0) return pendingLines.shift();
+	if (inputClosed) return null;
+	return new Promise((resolve) => {
+		lineWaiter = resolve;
+	});
+}
 
 async function ask(question, def) {
 	const suffix = def ? ` [${def}]` : "";
-	const answer = (await rl.question(`${question}${suffix}: `)).trim();
+	stdout.write(`${question}${suffix}: `);
+	const line = await readLine();
+	if (line === null) throw new Error("input ended before the questions did");
+	if (!stdin.isTTY) stdout.write(`${line}\n`); // echo piped answers so a transcript reads like a session
+	const answer = line.trim();
 	return answer || def || "";
 }
 
@@ -73,6 +146,10 @@ const BACKSPACE = /[\u0008\u007f]/;
 
 /** Read a line with the echo off, for a secret. */
 async function askHidden(question) {
+	// Readline must not see these keystrokes: detach it for the duration.
+	const previous = rl;
+	rl = null;
+	previous.close();
 	stdout.write(`${question}: `);
 	const wasRaw = stdin.isRaw ?? false;
 	stdin.setRawMode?.(true);
@@ -86,6 +163,8 @@ async function askHidden(question) {
 					stdin.removeListener("data", onData);
 					stdin.setRawMode?.(wasRaw);
 					stdout.write("\n");
+					openReadline();
+					pendingLines.length = 0; // nothing typed during the secret counts as an answer
 					resolve();
 					return;
 				} else if (ch === CTRL_C) {
@@ -125,7 +204,6 @@ async function main() {
 	const baseUrl = await askRequired("Base URL of the endpoint");
 	const host = hostOf(baseUrl);
 	if (!host) stdout.write("  ! that doesn't parse as a URL; continuing anyway\n");
-	const api = await ask("Wire protocol (openai-responses / openai-completions / anthropic-messages)", "openai-responses");
 
 	stdout.write("\nHow does this endpoint authenticate?\n");
 	stdout.write("  1) an API key you enter now (stored in the file, chmod 600)\n");
@@ -144,17 +222,96 @@ async function main() {
 		apiKey = `$${varName.replace(/^\$/, "")}`;
 	}
 
+	// Ask the endpoint first (#75): the models it lists, which protocol answers,
+	// streaming, and whether tool calls are accepted, ignored or refused. The
+	// answers below default to what it said. A key typed as option 1 or set in
+	// the option-2 variable is used for the probe; nothing is written.
+	let report;
+	const probeKey = authChoice === "1" ? apiKey : authChoice === "2" ? process.env[apiKey.slice(1)] : undefined;
+	if (authChoice === "2" && !probeKey)
+		stdout.write(`  ($${apiKey.slice(1)} is not set in this shell, so a probe would run without a key)\n`);
+	if (await askYesNo("\nProbe the endpoint now to prefill the answers below?", true)) {
+		stdout.write("  probing…\n");
+		report = await probeEndpoint({ baseUrl, apiKey: probeKey });
+		stdout.write(`${formatReport(report).replace(/^/gm, "  ")}\n\n`);
+	}
+	const probedTools = report ? toolModeFor(report) : undefined;
+
+	const api = await ask(
+		"Wire protocol (openai-responses / openai-completions / anthropic-messages)",
+		report?.api ?? "openai-responses",
+	);
+
 	stdout.write("\nModels. Enter the model ids this endpoint serves, comma-separated.\n");
-	const ids = (await askRequired("Model id(s)", "gpt-4o"))
+	const listed = report?.models.map((m) => m.id) ?? [];
+	if (listed.length > 12)
+		stdout.write(`  (the endpoint listed ${listed.length}; the default keeps all of them, trim as you like)\n`);
+	const ids = (await askRequired("Model id(s)", listed.length > 0 ? listed.join(",") : "gpt-4o"))
 		.split(",")
 		.map((s) => s.trim())
 		.filter(Boolean);
 	const reasoning = await askYesNo("Are these reasoning models?", api === "openai-responses");
 	const image = await askYesNo("Do they accept image input?", false);
-	const contextWindow = Number(await ask("Context window (tokens)", "128000")) || 128000;
-	const maxTokens = Number(await ask("Max output tokens", "16384")) || 16384;
+	// Per-model limits from the probe win; the two answers cover the rest.
+	const modelInfo = Object.fromEntries((report?.models ?? []).filter((m) => ids.includes(m.id)).map((m) => [m.id, m]));
+	const known = Object.values(modelInfo);
+	const withoutContext = ids.filter((id) => !modelInfo[id]?.contextWindow);
+	const withoutMax = ids.filter((id) => !modelInfo[id]?.maxTokens);
+	if (known.length > 0 && withoutContext.length < ids.length)
+		stdout.write(
+			`  (context window known for ${ids.length - withoutContext.length} of ${ids.length} models from the probe)\n`,
+		);
+	const contextWindow =
+		withoutContext.length > 0
+			? Number(
+					await ask(
+						`Context window (tokens)${withoutContext.length < ids.length ? ` for ${withoutContext.join(", ")}` : ""}`,
+						"128000",
+					),
+				) || 128000
+			: 128000;
+	const maxTokens =
+		withoutMax.length > 0
+			? Number(
+					await ask(
+						`Max output tokens${withoutMax.length < ids.length ? ` for ${withoutMax.join(", ")}` : ""}`,
+						"16384",
+					),
+				) || 16384
+			: 16384;
+	let tools;
+	let toolsPrompt;
+	if (probedTools === "prompted") {
+		const why = report.tools === "refused" ? "refuses tool calls" : "ignores tool definitions";
+		tools = (await askYesNo(`The endpoint ${why}. Use the prompted tool protocol ("tools": "prompted")?`, true))
+			? "prompted"
+			: "native";
+		if (tools === "prompted") {
+			toolsPrompt = promptPlacementFor(report);
+			if (toolsPrompt === "user") {
+				stdout.write('  (protocol followed only from the user turn: writing "toolsPrompt": "user")\n');
+			}
+			if (report.protocol === "not-followed")
+				stdout.write(
+					"  ! the model did not follow the protocol in the probe; expect fabricated answers until a model that does is chosen\n",
+				);
+		}
+	}
 
-	const provider = buildProvider({ name, baseUrl, api, apiKey, ids, reasoning, image, contextWindow, maxTokens });
+	const provider = buildProvider({
+		name,
+		baseUrl,
+		api,
+		apiKey,
+		ids,
+		reasoning,
+		image,
+		contextWindow,
+		maxTokens,
+		tools,
+		toolsPrompt,
+		modelInfo,
+	});
 
 	// Merge into an existing file: replace a provider of the same name, else append.
 	let config = { providers: [] };
@@ -208,6 +365,8 @@ async function main() {
 	stdout.write(`    ${win ? `$env:GAH_ALLOWED_HOSTS="${host ?? "<endpoint-host>"}"` : `GAH_ALLOWED_HOSTS=${host ?? "<endpoint-host>"}`} (docs/PROVIDERS.md).\n`);
 	stdout.write("  - To hide the built-in Anthropic models and see only this endpoint, set\n");
 	stdout.write(`    ${win ? `$env:GAH_BUILTIN_MODELS=""` : "GAH_BUILTIN_MODELS="} (empty).\n`);
+	if (tools === "prompted")
+		stdout.write("  - Tool calls go through the prompted protocol on this provider (docs/PROVIDERS.md, #42).\n");
 	stdout.write("  - This file is in your home, not the repo. Do not commit your endpoint.\n");
 	rl.close();
 }
