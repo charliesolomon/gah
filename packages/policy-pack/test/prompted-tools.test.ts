@@ -3,6 +3,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+	CONTINUE_NOTE,
 	coerceArg,
 	type PromptedEventStream,
 	promptedStream,
@@ -135,7 +136,7 @@ test("rewriteContext moves tools into the prompt and tool traffic into text", ()
 	const results = out.messages[2] as any;
 	assert.equal(
 		results.content[0].text,
-		'<tool_result tool="ls" call="c1" status="ok">\na.md\nb.md\n</tool_result>\n\n<tool_result tool="read" call="c2" status="error">\nnope\n</tool_result>',
+		`<tool_result tool="ls" call="c1" status="ok">\na.md\nb.md\n</tool_result>\n\n<tool_result tool="read" call="c2" status="error">\nnope\n</tool_result>\n\n${CONTINUE_NOTE}`,
 	);
 	assert.equal(results.timestamp, 4);
 	assert.deepEqual(ctx.messages.length, 5, "input untouched");
@@ -159,30 +160,47 @@ test("rewriteContext without tools leaves the prompt alone but still scrubs hist
 	assert.equal(out.messages[0].role, "user");
 });
 
-test("rewriteContext placement user: protocol goes to the front of the last user turn, not the system prompt", () => {
+test("rewriteContext placement user: protocol goes on the person's last turn, results stay results", () => {
 	const ctx: any = {
 		systemPrompt: "S",
 		tools,
 		messages: [
 			{ role: "user", content: "first", timestamp: 1 },
 			{
+				role: "assistant",
+				content: [{ type: "text", text: "ok" }],
+				api: "x",
+				provider: "p",
+				model: "m",
+				usage: {},
+				stopReason: "stop",
+				timestamp: 2,
+			},
+			{ role: "user", content: "the task", timestamp: 3 },
+			{
 				role: "toolResult",
 				toolCallId: "c",
 				toolName: "ls",
 				content: [{ type: "text", text: "x" }],
 				isError: false,
-				timestamp: 2,
+				timestamp: 4,
 			},
 		],
 	};
 	const out = rewriteContext(ctx, { placement: "user" });
 	assert.equal(out.systemPrompt, "S");
-	const last = out.messages.at(-1) as any;
-	assert.equal(last.role, "user");
-	assert.match(last.content[0].text, /^# Tool calling: text protocol/);
-	assert.match(last.content[1].text, /<tool_result tool="ls"/);
+	assert.deepEqual(
+		out.messages.map((m) => m.role),
+		["user", "assistant", "user", "user"],
+	);
 	assert.equal((out.messages[0] as any).content, "first", "earlier turns untouched");
-	// A string user message is wrapped the same way.
+	const task = out.messages[2] as any;
+	assert.match(task.content[0].text, /^# Tool calling: text protocol/);
+	assert.equal(task.content[1].text, "the task");
+	const results = out.messages[3] as any;
+	assert.match(results.content[0].text, /^<tool_result tool="ls"/, "no protocol on the results message");
+	assert.ok(results.content[0].text.endsWith(CONTINUE_NOTE));
+	// A string user message is wrapped the same way; with no user turn at all the protocol leads.
 	const plain = rewriteContext(
 		{ systemPrompt: "S", tools, messages: [{ role: "user", content: "hi", timestamp: 1 }] } as any,
 		{ placement: "user" },
@@ -191,6 +209,9 @@ test("rewriteContext placement user: protocol goes to the front of the last user
 		(plain.messages[0] as any).content.map((c: any) => c.text.slice(0, 8)),
 		["# Tool c", "hi"],
 	);
+	const none = rewriteContext({ systemPrompt: "S", tools, messages: [] } as any, { placement: "user" });
+	assert.equal(none.messages[0].role, "user");
+	assert.match(none.messages[0].content as string, /^# Tool calling/);
 });
 
 // --- parser --------------------------------------------------------------------

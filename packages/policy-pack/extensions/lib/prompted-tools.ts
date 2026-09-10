@@ -133,6 +133,14 @@ export function renderToolCall(call: ToolCall): string {
 	return lines.join("\n");
 }
 
+/**
+ * Follows the results in their user message. Without it a model reads the
+ * results as a new request and asks what to do next (#74), because on the
+ * wire they arrive as a user turn, not as a tool role.
+ */
+export const CONTINUE_NOTE =
+	"Those are the results of your tool call. Continue the task from the earlier request without asking what to do next: call another tool if you need one, otherwise give the final answer.";
+
 /** A tool result as the model sees it: a tagged block in the next user message. */
 export function renderToolResult(result: ToolResultMessage): string {
 	const text = result.content
@@ -167,7 +175,7 @@ export function rewriteContext(context: Context, options: RewriteOptions = {}): 
 	const flushResults = () => {
 		if (pendingResults.length === 0) return;
 		const content: (TextContent | ImageContent)[] = [
-			{ type: "text", text: pendingResults.map(renderToolResult).join("\n\n") },
+			{ type: "text", text: `${pendingResults.map(renderToolResult).join("\n\n")}\n\n${CONTINUE_NOTE}` },
 		];
 		for (const r of pendingResults) {
 			for (const c of r.content) if (c.type === "image") content.push(c);
@@ -179,12 +187,14 @@ export function rewriteContext(context: Context, options: RewriteOptions = {}): 
 		});
 		pendingResults = [];
 	};
+	let lastUserTurn = -1; // index in `messages` of the last user message that is the person's, not results
 	for (const msg of context.messages) {
 		if (msg.role === "toolResult") {
 			pendingResults.push(msg);
 			continue;
 		}
 		flushResults();
+		if (msg.role === "user") lastUserTurn = messages.length;
 		if (msg.role === "assistant") {
 			const content: TextContent[] = [];
 			for (const c of msg.content) {
@@ -202,14 +212,18 @@ export function rewriteContext(context: Context, options: RewriteOptions = {}): 
 	if (tools.length === 0) return { systemPrompt: context.systemPrompt, messages, tools: undefined };
 	const protocol = renderToolsPrompt(tools);
 	if (options.placement === "user") {
-		const last = messages.length - 1;
-		const target = messages[last];
+		// On the person's latest turn, so the task and the protocol sit together
+		// and a results message stays a results message.
+		const target = lastUserTurn >= 0 ? messages[lastUserTurn] : undefined;
 		if (target?.role === "user") {
 			const content: (TextContent | ImageContent)[] =
 				typeof target.content === "string" ? [{ type: "text", text: target.content }] : [...target.content];
-			messages[last] = { ...target, content: [{ type: "text", text: `${protocol}\n\n---\n\n` }, ...content] };
+			messages[lastUserTurn] = {
+				...target,
+				content: [{ type: "text", text: `${protocol}\n\n---\n\n` }, ...content],
+			};
 		} else {
-			messages.push({ role: "user", content: protocol, timestamp: Date.now() });
+			messages.unshift({ role: "user", content: protocol, timestamp: Date.now() });
 		}
 		return { systemPrompt: context.systemPrompt, messages, tools: undefined };
 	}

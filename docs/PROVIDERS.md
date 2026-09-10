@@ -95,6 +95,8 @@ after the "system message tools" of continue.dev:
 - The tool definitions are rendered into the system prompt, and the request
   carries no `tools` array. Earlier tool calls and results in the history are
   rendered as text, so the wire never carries a `tool_calls` or `tool` role.
+  Each results message ends with a line telling the model to continue the
+  earlier request rather than treat the results as a new one.
 - The model is asked to end a reply that needs a tool with one fenced block:
 
   ````
@@ -130,8 +132,10 @@ Two things a gateway can still break, and how to find out which:
   does either, and the model answers as if it had no tools. The probe reports
   `System prompt: IGNORED` for this and, if the model follows the protocol
   when it is placed at the front of the user turn instead, recommends
-  `"toolsPrompt": "user"` (per provider or per model). The request is rebuilt
-  from the stored context on every turn, so nothing accumulates in the session.
+  `"toolsPrompt": "user"` (per provider or per model). The protocol then goes
+  on the person's latest turn, so the task and the protocol sit together and
+  a results message stays a results message. The request is rebuilt from the
+  stored context on every turn, so nothing accumulates in the session.
 - **The model does not follow the protocol.** The probe reports
   `Prompted tool protocol: NOT FOLLOWED`. Nothing in GAH can make such a
   model call tools; pick another model on that endpoint.
