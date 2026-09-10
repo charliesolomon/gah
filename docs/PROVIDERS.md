@@ -151,10 +151,15 @@ Two things a gateway can still break, and how to find out which:
   does either, and the model answers as if it had no tools. The probe reports
   `System prompt: IGNORED` for this and, if the model follows the protocol
   when it is placed at the front of the user turn instead, recommends
-  `"toolsPrompt": "user"` (per provider or per model). The protocol then goes
-  on the person's latest turn, so the task and the protocol sit together and
-  a results message stays a results message. The request is rebuilt from the
-  stored context on every turn, so nothing accumulates in the session.
+  `"toolsPrompt": "user"` (per provider or per model). The whole system
+  prompt then goes on the person's latest turn, the deployment's instructions
+  and the skills list included, followed by the protocol: a gateway that drops
+  the system prompt drops all of it, and a model that only ever saw the
+  protocol answered "what skills are available?" with a list of tools
+  ([#81](https://github.com/charliesolomon/gah/issues/81)). Nothing is sent
+  as a system prompt in that mode. A results message stays a results message,
+  and the request is rebuilt from the stored context on every turn, so nothing
+  accumulates in the session.
 - **The model does not follow the protocol.** The probe reports
   `Prompted tool protocol: NOT FOLLOWED`. Nothing in GAH can make such a
   model call tools; pick another model on that endpoint.

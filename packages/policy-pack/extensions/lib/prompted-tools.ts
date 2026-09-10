@@ -157,8 +157,11 @@ export interface RewriteOptions {
 	/**
 	 * "system" (default) appends the protocol to the system prompt. "user"
 	 * prepends it to the last user message instead, for a gateway that drops
-	 * system prompts; the request is rebuilt from the stored context every
-	 * turn, so nothing accumulates in the session.
+	 * system prompts. A gateway that drops the system prompt drops all of it,
+	 * not only the protocol, so "user" carries the whole system prompt there
+	 * too: the deployment's instructions and the skills list included (#81).
+	 * The request is rebuilt from the stored context every turn, so nothing
+	 * accumulates in the session.
 	 */
 	placement?: PromptPlacement;
 }
@@ -212,20 +215,24 @@ export function rewriteContext(context: Context, options: RewriteOptions = {}): 
 	if (tools.length === 0) return { systemPrompt: context.systemPrompt, messages, tools: undefined };
 	const protocol = renderToolsPrompt(tools);
 	if (options.placement === "user") {
-		// On the person's latest turn, so the task and the protocol sit together
-		// and a results message stays a results message.
+		// Everything the system prompt would have carried goes on the person's
+		// latest turn: the instructions, the skills, then the protocol, so the
+		// task and its context sit together and a results message stays a
+		// results message. The system prompt itself is not sent: the gateway
+		// this placement exists for ignores it, and some still bill it.
+		const preamble = `${context.systemPrompt ? `${context.systemPrompt.trimEnd()}\n\n` : ""}${protocol}`;
 		const target = lastUserTurn >= 0 ? messages[lastUserTurn] : undefined;
 		if (target?.role === "user") {
 			const content: (TextContent | ImageContent)[] =
 				typeof target.content === "string" ? [{ type: "text", text: target.content }] : [...target.content];
 			messages[lastUserTurn] = {
 				...target,
-				content: [{ type: "text", text: `${protocol}\n\n---\n\n` }, ...content],
+				content: [{ type: "text", text: `${preamble}\n\n---\n\n` }, ...content],
 			};
 		} else {
-			messages.unshift({ role: "user", content: protocol, timestamp: Date.now() });
+			messages.unshift({ role: "user", content: preamble, timestamp: Date.now() });
 		}
-		return { systemPrompt: context.systemPrompt, messages, tools: undefined };
+		return { systemPrompt: undefined, messages, tools: undefined };
 	}
 	const systemPrompt = `${context.systemPrompt ? `${context.systemPrompt.trimEnd()}\n\n` : ""}${protocol}`;
 	return { systemPrompt, messages, tools: undefined };

@@ -160,7 +160,7 @@ test("rewriteContext without tools leaves the prompt alone but still scrubs hist
 	assert.equal(out.messages[0].role, "user");
 });
 
-test("rewriteContext placement user: protocol goes on the person's last turn, results stay results", () => {
+test("rewriteContext placement user: system prompt and protocol go on the person's last turn, results stay results", () => {
 	const ctx: any = {
 		systemPrompt: "S",
 		tools,
@@ -188,14 +188,18 @@ test("rewriteContext placement user: protocol goes on the person's last turn, re
 		],
 	};
 	const out = rewriteContext(ctx, { placement: "user" });
-	assert.equal(out.systemPrompt, "S");
+	assert.equal(out.systemPrompt, undefined, "nothing is sent as a system prompt: the gateway drops it anyway");
 	assert.deepEqual(
 		out.messages.map((m) => m.role),
 		["user", "assistant", "user", "user"],
 	);
 	assert.equal((out.messages[0] as any).content, "first", "earlier turns untouched");
 	const task = out.messages[2] as any;
-	assert.match(task.content[0].text, /^# Tool calling: text protocol/);
+	assert.match(
+		task.content[0].text,
+		/^S\n\n# Tool calling: text protocol/,
+		"the whole system prompt travels with the protocol (#81)",
+	);
 	assert.equal(task.content[1].text, "the task");
 	const results = out.messages[3] as any;
 	assert.match(results.content[0].text, /^<tool_result tool="ls"/, "no protocol on the results message");
@@ -207,11 +211,16 @@ test("rewriteContext placement user: protocol goes on the person's last turn, re
 	);
 	assert.deepEqual(
 		(plain.messages[0] as any).content.map((c: any) => c.text.slice(0, 8)),
-		["# Tool c", "hi"],
+		["S\n\n# Too", "hi"],
 	);
 	const none = rewriteContext({ systemPrompt: "S", tools, messages: [] } as any, { placement: "user" });
 	assert.equal(none.messages[0].role, "user");
-	assert.match(none.messages[0].content as string, /^# Tool calling/);
+	assert.match(none.messages[0].content as string, /^S\n\n# Tool calling/);
+	// No system prompt at all: just the protocol.
+	const bare = rewriteContext({ tools, messages: [{ role: "user", content: "hi", timestamp: 1 }] } as any, {
+		placement: "user",
+	});
+	assert.match((bare.messages[0] as any).content[0].text, /^# Tool calling/);
 });
 
 // --- parser --------------------------------------------------------------------
@@ -413,8 +422,8 @@ test("promptedStream honours placement and reports to the debug sink", async () 
 			},
 		),
 	);
-	assert.equal(capture.context.systemPrompt, "S", "system prompt left alone");
-	assert.match(capture.context.messages[0].content[0].text, /^# Tool calling/);
+	assert.equal(capture.context.systemPrompt, undefined, "system prompt moved into the user turn");
+	assert.match(capture.context.messages[0].content[0].text, /^S\n\n# Tool calling/);
 	assert.equal(entries.length, 1);
 	const e = entries[0];
 	assert.equal(e.placement, "user");

@@ -61,14 +61,22 @@ http
 			const hasTools = "tools" in json;
 			const hasToolRoles = messages.some((m) => m.role === "tool" || m.tool_calls);
 			const protocolInPrompt = messages.some((m) => (m.role === "system" || m.role === "developer") && text(m).includes("TOOL_NAME:"));
-			const hasResult = messages.some((m) => m.role === "user" && text(m).includes("<tool_result"));
+			const protocolInUser = messages.some((m) => m.role === "user" && text(m).includes("TOOL_NAME: <tool name>"));
+			// The rendered tag carries attributes; the protocol text only mentions "<tool_result>".
+			const hasResult = messages.some((m) => m.role === "user" && text(m).includes('<tool_result tool="'));
 			// For probe-endpoint.mjs: this mock honours a system prompt and follows
 			// the text protocol, so a probe against it shows the full happy path.
 			const systemText = messages.filter((m) => m.role === "system" || m.role === "developer").map(text).join("\n");
 			const userText = messages.filter((m) => m.role === "user").map(text).join("\n");
 			const marker = systemText.match(/reply with the single word (\w+)/i)?.[1];
-			const protocolPing = /TOOL_NAME: <tool name>/.test(`${systemText}\n${userText}`) && /ping/.test(userText);
-			appendFileSync(log, `${JSON.stringify({ path: req.url, tools, hasTools, hasToolRoles, roles, protocolInPrompt, hasResult })}\n`);
+			// Exactly the probe's phrasing: a real session's prompt can contain the
+			// protocol and the word "ping" inside other words, and must get the
+			// tool-block reply below instead.
+			const protocolPing = /## ping\n/.test(`${systemText}\n${userText}`) && /Use the ping tool now/.test(userText);
+			appendFileSync(
+				log,
+				`${JSON.stringify({ path: req.url, tools, hasTools, hasToolRoles, roles, protocolInPrompt, protocolInUser, hasResult })}\n`,
+			);
 			const askedCap = json.max_tokens ?? json.max_completion_tokens;
 			if (typeof askedCap === "number" && askedCap > 32768) {
 				res.writeHead(400, { "content-type": "application/json" });
