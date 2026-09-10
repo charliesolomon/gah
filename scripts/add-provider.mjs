@@ -230,7 +230,9 @@ async function main() {
 	const probeKey = authChoice === "1" ? apiKey : authChoice === "2" ? process.env[apiKey.slice(1)] : undefined;
 	if (authChoice === "2" && !probeKey)
 		stdout.write(`  ($${apiKey.slice(1)} is not set in this shell, so a probe would run without a key)\n`);
-	if (await askYesNo("\nProbe the endpoint now to prefill the answers below?", true)) {
+	stdout.write("\nThe endpoint can be asked what it offers: its models and their limits, which protocol answers,\n");
+	stdout.write("streaming, and whether tool calls work. The findings become the defaults of the remaining questions.\n");
+	if (await askYesNo("Probe the endpoint now?", true)) {
 		stdout.write("  probing…\n");
 		report = await probeEndpoint({ baseUrl, apiKey: probeKey });
 		stdout.write(`${formatReport(report).replace(/^/gm, "  ")}\n\n`);
@@ -366,7 +368,7 @@ async function main() {
 	stdout.write(`  - ${gah} allows all hosts in dev (GAH_ALLOWED_HOSTS=*). To restrict egress, set\n`);
 	stdout.write(`    ${win ? `$env:GAH_ALLOWED_HOSTS="${host ?? "<endpoint-host>"}"` : `GAH_ALLOWED_HOSTS=${host ?? "<endpoint-host>"}`} (docs/PROVIDERS.md).\n`);
 	stdout.write("  - To hide the built-in Anthropic models and see only this endpoint, set\n");
-	stdout.write(`    ${win ? `$env:GAH_BUILTIN_MODELS=""` : "GAH_BUILTIN_MODELS="} (empty).\n`);
+	stdout.write(`    ${win ? `$env:GAH_BUILTIN_MODELS="none"` : "GAH_BUILTIN_MODELS="} ${win ? "(PowerShell drops a variable set to an empty string, so the launcher takes 'none')" : "(empty)"}.\n`);
 	if (tools === "prompted")
 		stdout.write("  - Tool calls go through the prompted protocol on this provider (docs/PROVIDERS.md, #42).\n");
 	stdout.write("  - This file is in your home, not the repo. Do not commit your endpoint.\n");

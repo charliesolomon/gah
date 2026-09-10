@@ -116,6 +116,9 @@ fi
 # otherwise). Deployments override or unset this; published artifacts have no
 # wrapper and default to deny-all.
 export GAH_BUILTIN_MODELS="${GAH_BUILTIN_MODELS-anthropic/*}"
+# "none" means none, same word as bin\gah.ps1 (where an empty string cannot be
+# set); patch 0010 treats empty as none.
+[ "$GAH_BUILTIN_MODELS" = "none" ] && export GAH_BUILTIN_MODELS=""
 
 # Workstation default: read ~/.gah/agent/models.json. A workstation exists to
 # point at whatever endpoint its user has, so requiring an opt-out variable only

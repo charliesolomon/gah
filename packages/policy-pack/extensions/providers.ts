@@ -35,11 +35,12 @@ import { dirname, join } from "node:path";
 import { type AssistantMessageEventStream, getApiProvider } from "@earendil-works/pi-ai";
 import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { rememberModel, settingsPath } from "./lib/last-model.ts";
 import {
 	PROMPT_PLACEMENTS,
 	type PromptedDebugEntry,
-	promptedStream,
 	type PromptPlacement,
+	promptedStream,
 	TOOL_MODES,
 	type ToolMode,
 } from "./lib/prompted-tools.ts";
@@ -179,6 +180,28 @@ function promptedDebug(entry: PromptedDebugEntry): void {
 }
 
 export default function (pi: ExtensionAPI) {
+	// The last model the person picked becomes the next session's default
+	// (#77). GAH_REMEMBER_MODEL=0 turns it off; Ctrl+S in /model still works.
+	if (process.env.GAH_REMEMBER_MODEL !== "0") {
+		pi.on("model_select", async (event) => {
+			if (event.source === "restore") return; // a resumed session replays its own pick
+			const path = settingsPath();
+			let ok = false;
+			try {
+				ok = rememberModel(event.model.provider, event.model.id, path);
+			} catch (error) {
+				process.stderr.write(`[gah-providers] could not remember model: ${(error as Error).message}\n`);
+			}
+			audit({
+				kind: "default_model",
+				provider: event.model.provider,
+				model: event.model.id,
+				source: event.source,
+				saved: ok,
+			});
+		});
+	}
+
 	let config: ProvidersConfig | undefined;
 	try {
 		config = loadConfig();

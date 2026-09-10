@@ -34,7 +34,12 @@ internally, which `registerProvider` cannot re-create.
 
 The repo's `bin/gah` / `bin\gah.ps1` default this to `anthropic/*` so
 development keeps working; **published artifacts have no wrapper and are
-deny-all until the deployment sets it.**
+deny-all until the deployment sets it.** To turn the dev default off, set the
+variable to `none`. In PowerShell that is the only way: assigning an empty
+string removes the variable, so `$env:GAH_BUILTIN_MODELS = ''` leaves it
+unset and the default applies ([#76](https://github.com/charliesolomon/gah/issues/76)).
+`bin\gah.ps1` also undoes every default it set once the session ends, so
+`gci env:` afterwards shows only what you set yourself.
 
 ## Mechanism 2 — `providers.json`: register approved endpoints
 
@@ -81,6 +86,17 @@ and the key is never put on a command line.
 - When a file is present it is authoritative for logins: built-in OAuth flows
   (`anthropic`, `github-copilot`, `openai-codex`) not listed in `keepOAuth`
   are removed from `/login`.
+
+### The last model picked is the next session's default
+
+Upstream keeps a `/model` pick for the session and saves it as the startup
+default only on Ctrl+S in the picker. In GAH the pick itself is remembered:
+`providers.ts` writes `defaultProvider` and `defaultModel` into the agent
+directory's `settings.json` on every selection the person makes (not on a
+session restore), which is exactly where upstream reads its default from, and
+every other key in that file is preserved. `GAH_REMEMBER_MODEL=0` turns this
+off; Ctrl+S still works either way. Each save is an audit line
+(`default_model`) ([#77](https://github.com/charliesolomon/gah/issues/77)).
 
 ### Gateways that refuse tool calls: `"tools": "prompted"`
 
