@@ -68,8 +68,10 @@ The `package-deploy` skill in `skills/` walks through all of it; run this
 repository's own `bin/gah` with `GAH_SKILLS_DIR=$PWD/skills` and
 `GAH_ALLOW_TOOLS=bash` to use it. Then bump `version` in the config and commit.
 
-Phase 1 builds on the admin's machine. A GitLab CI job that runs the same two
-scripts from the mirrored checkout is the intended next step (issue #41).
+Phase 1 builds on the admin's machine. A GitLab CI job in the deployment
+project that runs the same two scripts with a checkout of this repository as a
+build input is [#84](https://github.com/charliesolomon/gah/issues/84); there is
+no mirror ([GITLAB.md](GITLAB.md)).
 
 ### Certificates and proxies
 
@@ -119,8 +121,9 @@ inference host. `--help` and `--version` skip steps 1, 2 and 4.
 - The **shared Linux host** (`deploy/host/`) uses the same policy pack and the
   same environment variables, with git and a deploy key instead of the archive
   API and a root-owned manifest instead of `deploy.json`.
-- A **RHEL9 per-machine package** is planned as phase 2 of #41 and reuses this
-  config schema; nothing in it is Windows-specific except `windowsArch`.
+- A **RHEL9 per-machine package** is
+  [#85](https://github.com/charliesolomon/gah/issues/85) and reuses this config
+  schema; nothing in it is Windows-specific except `windowsArch`.
 - [GITLAB.md](GITLAB.md) describes what the organisation's GitLab holds for
   this package (deployment project, skills project) and why no mirror,
   npm registry or GitLab pipeline is involved.
