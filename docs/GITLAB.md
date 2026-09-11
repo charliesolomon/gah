@@ -73,6 +73,7 @@ gah build without bumping the package version means nobody updates.
 - Git for Windows on consumer machines: Node is the only prerequisite. Git
   Bash matters only when a deployment grants the `bash` tool.
 
-If a future deployment wants GitLab to run the package build, that is a
-pipeline in the **deployment project**, running the two steps above with a
-checkout of this repository as a build input; it still needs no mirror.
+If a deployment wants GitLab to run the package build, that is a pipeline in
+the **deployment project**, running the two steps above with a checkout of
+this repository as a build input; it still needs no mirror. A template for
+that pipeline is [#84](https://github.com/charliesolomon/gah/issues/84).
