@@ -108,6 +108,16 @@ Then per component:
 
 When gah exits, tmux and the SSH connection close.
 
+### Copy and paste through tmux
+
+Mouse mode is on, so a drag in **regular** TUI mode is a tmux copy-mode
+selection that tmux forwards to the client's clipboard on release. In
+**fullscreen** mode the TUI owns the selection and copies it with an OSC 52
+escape; tmux only forwards that when `set-clipboard` is `on` (the default
+`external` silently drops it — #88). `tmux.conf` sets it. The TUI's
+"Fullscreen copy on select" setting (`/settings`, next to "TUI mode") must
+also be on; it is the per-user switch that produces the "Copied!" flash.
+
 ## Operations
 
 | Task | Command |
