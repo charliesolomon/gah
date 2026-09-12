@@ -164,6 +164,7 @@ try {
         --extension (Join-Path $PolicyDir "policy.ts") `
         --extension (Join-Path $PolicyDir "branding.ts") `
         --extension (Join-Path $PolicyDir "providers.ts") `
+        --extension (Join-Path $PolicyDir "skills-freshness.ts") `
         @args
     $ExitCode = $LASTEXITCODE
 } finally {
