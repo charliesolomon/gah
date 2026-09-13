@@ -172,4 +172,5 @@ exec node "$PI_CLI" \
   --extension "$POLICY_DIR/policy.ts" \
   --extension "$POLICY_DIR/branding.ts" \
   --extension "$POLICY_DIR/providers.ts" \
+  --extension "$POLICY_DIR/skills-freshness.ts" \
   "$@"

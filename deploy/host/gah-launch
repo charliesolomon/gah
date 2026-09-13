@@ -7,7 +7,21 @@
 # Users never invoke this with arguments; it is started by gah-session
 # (their login shell) inside tmux.
 #
+# One flag exists for administrators testing under someone else's account:
+#   --no-mark-seen   this session never advances the person's "skills seen"
+#                    marker, so the skills-update summary (#91) still shows
+#                    on their own next launch. Run it as the user directly,
+#                    bypassing the login shell (which drops arguments):
+#                      sudo -u <user> -H /usr/local/bin/gah-launch --no-mark-seen
+#
 set -euo pipefail
+
+for arg in "$@"; do
+	case "$arg" in
+		--no-mark-seen) export GAH_SKILLS_NO_MARK_SEEN=1 ;;
+		*) echo "gah-launch: unknown argument '$arg' (only --no-mark-seen is accepted)" >&2; exit 2 ;;
+	esac
+done
 
 GAH_HOME="/opt/gah"
 CONF_DIR="/etc/gah"

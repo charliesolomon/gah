@@ -123,7 +123,8 @@ also be on; it is the per-user switch that produces the "Copied!" flash.
 | Task | Command |
 |---|---|
 | Update gah build | `sudo gah-update` (sessions pick it up on next launch) |
-| Update skills | merge a PR in the skills repo — every launch pulls |
+| Update skills | merge a PR in the skills repo — every launch pulls. Open sessions are told within 10 min that updates are waiting (`/quit` and relaunch); the next launch summarises what changed (#91) |
+| Test a skill under a user's account | `sudo -u <user> -H /usr/local/bin/gah-launch --no-mark-seen` — bypasses the login shell (which drops arguments) and leaves the user's skills-update notice unconsumed. Inside the TUI, `/skills-seen reset` undoes a launch that did consume it |
 | Update a host-side checkout the launcher does not sync (an ops repo, a cron tool) | `ssh -A <admin>@<host> "git -C ~/<repo> pull --ff-only"` — the forwarded agent supplies the GitHub credential; `sudo -u <user> git pull` drops it and fails |
 | Change a user's models/tools | edit `/etc/gah/users.d/<user>.conf` |
 | Audit a user's tool calls | `~<user>/.gah/audit.log` (JSONL; rolled daily to `audit-<date>.log`, kept 30 days — `GAH_AUDIT_RETENTION_DAYS` in the manifest to change, `0` = forever) |
@@ -138,3 +139,8 @@ The manifest's `SKILLS_REPO` must contain `SKILLS_SUBDIR` (default
 skills, so existing skill dirs port over unchanged. Supporting scripts can
 live in the repo (e.g. `bin/`); skills reference them relative to their
 own location.
+
+Optional: a `CHANGELOG.md` at the repo root, sections headed `## <version or
+date>`. When present, the "what changed in your skills" notice on a user's next
+launch shows its new sections instead of raw commit subjects, so write the
+entries for the people who use the skills.
