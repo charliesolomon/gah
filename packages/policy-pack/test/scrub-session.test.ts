@@ -65,9 +65,11 @@ test("learning: env, resolv.conf, providers and deploy configs", () => {
 
 test("learning: models.json keyed providers, secret env files, words", () => {
 	const i = emptyIdentifiers();
-	learnFromConfig(i, { providers: { corp: { baseUrl: "https://inference.corp.example/openai/v1", api: "openai-completions", models: [{ id: "gpt-5" }] } } });
+	learnFromConfig(i, { providers: { corp: { baseUrl: "https://inference.corp.example/openai/v1", api: "openai-completions", models: [{ id: "gpt-5" }, { id: "gemini-3.7-flash", name: "Gemini 3.7" }] } } });
 	assert.ok(i.provider.has("corp"));
 	assert.ok(i.host.has("inference.corp.example"));
+	assert.ok(i.model.has("gemini-3.7-flash") && !i.host.has("gemini-3.7-flash"), "a dotted model id is a model, not a host (#96)");
+	assert.equal(createScrubber(i).scrubText("switched to gemini-3.7-flash"), "switched to <model-1>");
 	learnSecretsFromEnvFile(i, 'OSTICKET_USER=charlie\nOSTICKET_PASSWORD="s3cr3t-value"\nexport API_TOKEN=tok_1234567890 # comment\nSHORT_TOKEN=abc\n');
 	assert.ok(i.secret.has("s3cr3t-value") && i.secret.has("tok_1234567890"));
 	assert.ok(!i.secret.has("charlie") && !i.secret.has("abc"));
