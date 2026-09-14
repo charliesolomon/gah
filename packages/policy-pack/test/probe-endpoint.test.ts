@@ -13,6 +13,7 @@ import {
 	probeBody,
 	probeEndpoint,
 	promptPlacementFor,
+	replyWasCut,
 	sawHistoryWord,
 	sawToolBlock,
 	sawToolCall,
@@ -129,8 +130,28 @@ test("historyBody puts the answer in the first turn for both wire shapes; sawHis
 	assert.ok(c.messages[0].content.includes(HISTORY_WORD));
 	const r = historyBody("openai-responses", "m");
 	assert.equal(r.input.length, 3);
+	assert.ok(!("max_tokens" in c) && !("max_output_tokens" in r), "no output cap: a verbose model must be allowed to reach the word");
 	assert.ok(sawHistoryWord(`Sure: ${HISTORY_WORD}`));
+	assert.ok(sawHistoryWord("### 🔑 Codeword\n\n| Item | Value |\n|---|---|\n| Codeword | `Pelican‑4471` |"), "markdown, capitals and a unicode hyphen still count");
 	assert.ok(!sawHistoryWord("I don't know"));
+	assert.ok(replyWasCut('{"choices":[{"message":{"content":"### Codeword\\n\\n| Item"},"finish_reason":"length"}]}'));
+	assert.ok(!replyWasCut('{"choices":[{"message":{"content":"x"},"finish_reason":"stop"}]}'));
+});
+
+test("a reply cut by the output limit is inconclusive, not dropped", async () => {
+	const fetchFn = fakeFetch((path, body) => {
+		if (path === "/models") return { status: 200, json: { data: [{ id: "m" }] } };
+		if (path === "/chat/completions") {
+			if (body.messages.length === 3 && body.messages[0].content.includes(HISTORY_WORD))
+				return { status: 200, json: { choices: [{ message: { role: "assistant", content: "### 🔑 Codeword Verification\n\n| Item |" }, finish_reason: "length" }] } };
+			return body.stream ? sse : answer(body);
+		}
+		return undefined;
+	});
+	const report = await probeEndpoint({ baseUrl: BASE, apiKey: "k", fetchFn });
+	assert.equal(report.history, "inconclusive");
+	assert.match(formatReport(report), /Conversation history: inconclusive/);
+	assert.ok(report.notes.some((n: string) => /output limit/.test(n)));
 });
 
 test("a single-turn gateway that forwards only the last message is reported as dropping history (#96)", async () => {

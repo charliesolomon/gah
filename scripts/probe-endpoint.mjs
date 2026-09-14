@@ -170,28 +170,37 @@ const HISTORY_TURNS = [
 
 /**
  * A three-turn conversation whose answer lives in the first turn. A gateway
- * that forwards only the latest message — some single-turn chat wrappers do,
- * and one did (#96) — cannot answer it, and an agent behind such an endpoint
- * loses its own tool results and the person's earlier instructions every turn.
+ * that forwards only the latest message cannot answer it, and an agent behind
+ * such an endpoint loses its own tool results and the person's earlier
+ * instructions every turn (#96). No output cap, like the other probes: a
+ * first version capped the reply at 32 tokens, and a model that opens every
+ * answer with a heading and a table never reached the code word — a false
+ * "dropped" on an endpoint that keeps history perfectly well.
  */
 export function historyBody(api, model) {
 	if (api === "openai-responses") {
 		return {
 			model,
 			input: HISTORY_TURNS.map((m) => ({ role: m.role, content: m.text })),
-			max_output_tokens: 32,
+			stream: false,
 		};
 	}
 	return {
 		model,
 		messages: HISTORY_TURNS.map((m) => ({ role: m.role, content: m.text })),
-		max_tokens: 32,
+		stream: false,
 	};
 }
 
-/** Did the reply carry the code word? */
+/** Did the reply carry the code word? Case-insensitive; any hyphen-like dash between the parts. */
 export function sawHistoryWord(text) {
-	return text.includes(HISTORY_WORD);
+	const [word, digits] = HISTORY_WORD.split("-");
+	return new RegExp(`${word}[\\s\\-\\u2010-\\u2015_]*${digits}`, "i").test(text);
+}
+
+/** Was the reply cut off by an output limit before it could say anything useful? */
+export function replyWasCut(text) {
+	return /"finish_reason"\s*:\s*"length"|"reason"\s*:\s*"max_output_tokens"|"status"\s*:\s*"incomplete"/.test(text);
 }
 
 export function probeBody(api, model, { stream = false, tools = false } = {}) {
@@ -388,8 +397,13 @@ export async function probeEndpoint({
 	if (!hist.ok) {
 		report.history = "failed";
 		report.notes.push(`history probe failed (${hist.error ?? errorSummary(hist.status, hist.text)})`);
+	} else if (sawHistoryWord(hist.text)) {
+		report.history = "kept";
+	} else if (replyWasCut(hist.text)) {
+		report.history = "inconclusive";
+		report.notes.push("history probe: the reply was cut by an output limit before it could answer; raise the endpoint's default output cap or retry");
 	} else {
-		report.history = sawHistoryWord(hist.text) ? "kept" : "dropped";
+		report.history = "dropped";
 	}
 
 	// 6. Tools. Three outcomes matter for providers.json:
@@ -483,6 +497,7 @@ export function formatReport(report) {
 		const meaning = {
 			kept: "kept (the model could answer from an earlier turn)",
 			dropped: "DROPPED — the endpoint forwarded only the last message; unusable for an agent (every turn starts blank, tool results never return)",
+			inconclusive: "inconclusive (the reply was cut by an output limit before it answered; see notes)",
 			failed: "probe failed (see notes)",
 		}[report.history];
 		lines.push(`Conversation history: ${meaning}`);
