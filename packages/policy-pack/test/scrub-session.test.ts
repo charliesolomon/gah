@@ -7,6 +7,7 @@ import {
 	leakCheck,
 	learnFromConfig,
 	learnFromEnv,
+	learnFromText,
 	learnSecretsFromEnvFile,
 	learnWords,
 	parseArgs,
@@ -103,7 +104,7 @@ test("scrubText: learned identifiers become stable, numbered placeholders", () =
 test("scrubText: generic patterns need no config", () => {
 	const s = createScrubber(emptyIdentifiers());
 	const t = s.scrubText(
-		"see https://wiki.example.org/page?x=1 and http://localhost:3000/ok and http://127.0.0.1:8080/ok; " +
+		"see https://wiki.acme-corp.com/page?x=1 and http://localhost:3000/ok and http://127.0.0.1:8080/ok; " +
 		"mail bob.smith@example.com; hosts 10.20.30.40:443 and 192.168.1.5 and 127.0.0.1 and fe80::1ff:fe23:4567:890a; " +
 		"paths C:\\Users\\bob\\proj\\x.txt and \\\\fileserver\\share\\doc.docx and /srv/data/reports/q3.csv and /usr/bin/node and /etc/hosts; " +
 		"box01.corp and printer.grace.internal; key AKIAIOSFODNN7EXAMPLE token glpat-zzzzzzzzzzzzzzzzzzzzzz Bearer abcdefghijklmnopqrstuvwxyz012345 password=hunter22",
@@ -115,7 +116,7 @@ test("scrubText: generic patterns need no config", () => {
 	const m = s.mapping();
 	const originals = new Set(Object.values(m));
 	for (const o of [
-		"https://wiki.example.org/page?x=1",
+		"https://wiki.acme-corp.com/page?x=1",
 		"bob.smith@example.com",
 		"10.20.30.40",
 		"192.168.1.5",
@@ -244,8 +245,96 @@ test("leakCheck finds what a scrub missed", () => {
 	assert.equal(secret.sample, "glp…", "secret samples are never printed whole");
 });
 
+test("scrubText: bare hostnames go unless public; --keep-hosts and --all-hosts", () => {
+	const text =
+		"host=gitlab.acme-corp.com then git config credential.gitlab.acme-corp.com.provider gitlab; docs at https://docs.gitlab.com/ee/ and github.com and learn.microsoft.com; " +
+		"files package.json README.md e.g. mr.iid credential.helper; CI_SERVER_HOST=ci.acme-corp.net";
+	const i = learnFromText(emptyIdentifiers(), text);
+	assert.deepEqual([...i.host], ["gitlab.acme-corp.com", "ci.acme-corp.net"], "hosts learned from the text, public ones skipped");
+	const s = createScrubber(i);
+	const t = s.scrubText(text);
+	assert.equal(
+		t,
+		"host=<host-1> then git config credential.<host-1>.provider gitlab; docs at https://docs.gitlab.com/ee/ and github.com and learn.microsoft.com; " +
+			"files package.json README.md e.g. mr.iid credential.helper; CI_SERVER_HOST=<host-2>",
+	);
+	assert.equal(s.mapping()["<host-1>"], "gitlab.acme-corp.com");
+	assert.deepEqual(leakCheck(t, i), []);
+
+	const keep = createScrubber(emptyIdentifiers(), { keepHosts: ["acme-corp.com"] });
+	assert.equal(keep.scrubText("gitlab.acme-corp.com and ci.acme-corp.net"), "gitlab.acme-corp.com and <host-1>");
+	const all = createScrubber(emptyIdentifiers(), { allHosts: true });
+	assert.equal(all.scrubText("see https://docs.gitlab.com/ee/ on github.com"), "see <url-1> on <host-1>");
+	assert.equal(leakCheck("gitlab.acme-corp.com", emptyIdentifiers(), { keepHosts: ["acme-corp.com"] }).length, 0);
+	assert.equal(leakCheck("github.com", emptyIdentifiers(), { allHosts: true }).length, 1);
+});
+
+test("SSH remotes and repository paths learned from remotes", () => {
+	const i = emptyIdentifiers();
+	const text =
+		"origin\tgit@gitlab.acme-corp.com:it/it-skills.git (fetch)\norigin\thttps://gitlab.acme-corp.com/it/it-skills.git (push)\n" +
+		"upstream\tgit@github.com:earendil-works/pi.git (fetch)\nthe repo it/it-skills has a bug; not it/it-skillsx";
+	learnFromText(i, text);
+	assert.deepEqual([...i.project], ["it/it-skills"]);
+	assert.deepEqual([...i.host], ["gitlab.acme-corp.com"]);
+	const s = createScrubber(i);
+	const t = s.scrubText(text);
+	assert.equal(
+		t,
+		"origin\t<url-1> (fetch)\norigin\t<url-2> (push)\nupstream\tgit@github.com:earendil-works/pi.git (fetch)\nthe repo <project-1> has a bug; not it/it-skillsx",
+	);
+	assert.equal(s.mapping()["<url-1>"], "git@gitlab.acme-corp.com:it/it-skills.git");
+	assert.equal(s.mapping()["<project-1>"], "it/it-skills");
+	assert.deepEqual(leakCheck(t, i), []);
+});
+
+test("certificates: PEM blocks, thumbprints, X.509 names, serials", () => {
+	const s = createScrubber(emptyIdentifiers());
+	const pem = "-----BEGIN CERTIFICATE-----\nMIIC+zCCAeOgAwIBAgIJ\nabc\n-----END CERTIFICATE-----";
+	const t = s.scrubText(
+		`cert:\n${pem}\n$thumb = 'c2087b169e487c814de24a9cc83711f6fa529686'\nsha256: AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89:AB:CD:EF:01\n` +
+			"Subject: CN=charlie.solomon, OU=IT, O=Acme Corp, L=Simi Valley, ST=CA, C=US\nIssuer: CN=Acme Root CA, DC=acme, DC=corp\nSerial Number: 00a1b2c3d4e5f6\n" +
+			"git_sslcert: CurrentUser\\MY\\c2087b169e487c814de24a9cc83711f6fa529686",
+	);
+	assert.equal(
+		t,
+		"cert:\n<certificate-1>\n$thumb = '<hex-1>'\nsha256: <hex-2>\n" +
+			"Subject: CN=<dn-1>, OU=<dn-2>, O=<dn-3>, L=<dn-4>, ST=<dn-5>, C=US\nIssuer: CN=<dn-6>, DC=<dn-7>, DC=<dn-8>\nSerial Number: <hex-3>\n" +
+			"git_sslcert: CurrentUser\\MY\\<hex-1>",
+	);
+	assert.equal(s.mapping()["<dn-3>"], "Acme Corp");
+	assert.equal(s.mapping()["<certificate-1>"], pem);
+	assert.deepEqual(leakCheck(t, emptyIdentifiers()), []);
+	assert.equal(s.scrubText("O=Object notation, no CN here"), "O=Object notation, no CN here", "DN values only where a CN= exists");
+});
+
+test("account names after identity keys", () => {
+	const s = createScrubber(emptyIdentifiers());
+	assert.equal(
+		s.scrubText("user=cs1234 username: charlie.solomon login='csolomon' account: acme\\cs1234 user: the person; user=<user>"),
+		"user=<account-1> username: <account-2> login='<account-3>' account: <account-4>\\cs1234 user: the person; user=<user>",
+	);
+});
+
+test("dotted config keys are not hostnames", () => {
+	const s = createScrubber(emptyIdentifiers());
+	const text = "git config user.email; matches.host and matches.thumbprint; core.autocrlf; config.site.name; a.zone; but intranet.acme-corp.co";
+	assert.equal(s.scrubText(text), "git config user.email; matches.host and matches.thumbprint; core.autocrlf; config.site.name; a.zone; but <host-1>");
+});
+
+test("leakCheck inspects the strings a reader sees, not the JSON escaping", () => {
+	const i = emptyIdentifiers();
+	const clean = JSON.stringify({ message: { content: "present: <path-4>\\Users\\<user>\\AppData\\glab.exe`\nnext" } }) + "\n";
+	assert.deepEqual(leakCheck(clean, i), [], "escaped backslashes and \\n are not a UNC path");
+	const dirty = JSON.stringify({ message: { content: "cert: -----BEGIN CERTIFICATE-----\nMIIC\n-----END CERTIFICATE-----" } }) + "\n";
+	assert.equal(leakCheck(dirty, i).map((f) => f.category).join(","), "certificate", "a PEM block split over escaped newlines is still found");
+	assert.equal(leakCheck("plain text with 10.0.0.9", i)[0].category, "ip", "plain text still works");
+});
+
 test("parseArgs", () => {
-	const o = parseArgs(["s.jsonl", "--drop-tool-results", "--domains", "a.corp, b.lan", "--secrets", "x.env", "--secrets", "y.env", "--no-map"]);
+	const o = parseArgs(["s.jsonl", "--drop-tool-results", "--domains", "a.corp, b.lan", "--secrets", "x.env", "--secrets", "y.env", "--no-map", "--keep-hosts", "a.com,b.io", "--all-hosts"]);
+	assert.deepEqual(o.keepHosts, ["a.com", "b.io"]);
+	assert.equal(o.allHosts, true);
 	assert.equal(o.input, "s.jsonl");
 	assert.equal(o.dropToolResults, true);
 	assert.deepEqual(o.domains, ["a.corp", "b.lan"]);

@@ -26,6 +26,9 @@
  *     --secrets <file>        KEY=value file whose secret-looking values are redacted
  *                             (repeatable; default: every GAH_SECRET_FILES match)
  *     --no-env                do not learn from this machine's environment
+ *     --keep-hosts a.com,b.io hostnames to leave readable, besides the built-in
+ *                             public list (github.com, docs.gitlab.com, …)
+ *     --all-hosts             replace every hostname and URL, public ones too
  *     --check <file>          leak-check an already scrubbed file and exit
  *
  * Two layers. LEARNED identifiers come from this machine and its config: home
@@ -35,9 +38,12 @@
  * <provider-1>) so a story about "host-2" stays coherent, and the map file
  * lets the owner answer "what is host-2" without the reader ever seeing it.
  * GENERIC patterns catch what config did not teach: absolute paths (POSIX,
- * Windows, UNC), URLs, e-mail addresses, IP addresses, hostnames under
- * internal-looking domains, and secret-shaped strings (cloud keys, forge
- * tokens, bearer headers, private-key blocks).
+ * Windows, UNC), URLs and SSH remotes, every hostname that is not a well-known
+ * public site, repository paths learned from remotes (group/project), e-mail
+ * and IP addresses, certificate material (PEM blocks, thumbprints, X.509
+ * subject/issuer values, serials), account names after user=/login:, and
+ * secret-shaped strings (cloud keys, forge tokens, bearer headers,
+ * private-key blocks).
  *
  * The result is leak-checked: every learned value and generic pattern is
  * searched for again in the output, and the script exits 1 if anything
@@ -58,6 +64,40 @@ import { fileURLToPath } from "node:url";
 /** Domains whose hostnames are identifiers wherever they appear. */
 export const INTERNAL_TLDS = ["local", "internal", "corp", "lan", "intranet", "home", "localdomain", "priv", "private"];
 
+/**
+ * Hostnames that identify nobody and keep a transcript readable: documentation
+ * and package sites, the big forges' public instances, reserved example
+ * domains. Matched by exact host or any subdomain. Extend with --keep-hosts;
+ * --all-hosts ignores the list. Everything else with a plausible TLD is an
+ * identifier — a corporate GitLab on a public .com is the case that matters.
+ */
+export const PUBLIC_HOSTS = [
+	"localhost",
+	"example.com", "example.org", "example.net", "example",
+	"github.com", "githubusercontent.com", "github.io",
+	"gitlab.com", "gitlab.io",
+	"npmjs.com", "npmjs.org", "nodejs.org", "yarnpkg.com",
+	"python.org", "pypi.org",
+	"microsoft.com", "aka.ms", "visualstudio.com", "windows.net", "nuget.org", "powershellgallery.com",
+	"google.com", "googleapis.com", "golang.org", "go.dev",
+	"anthropic.com", "claude.com", "claude.ai", "openai.com",
+	"apple.com", "mozilla.org", "debian.org", "ubuntu.com", "redhat.com", "docker.com", "docker.io",
+	"git-scm.com", "stackoverflow.com", "wikipedia.org", "w3.org", "ietf.org", "rfc-editor.org",
+	"json.org", "schema.org", "shields.io", "keepachangelog.com", "semver.org", "spdx.org",
+];
+
+/** Last labels that make a dotted token a hostname rather than a file name or a property path. */
+const HOST_TLDS = new Set([
+	"com", "net", "org", "io", "dev", "cloud", "ai", "app", "tech", "xyz", "co", "me", "tv", "cc", "info", "biz",
+	"edu", "gov", "mil", "int", "us", "uk", "de", "fr", "ca", "au", "nz", "ie", "ch", "at", "be", "nl", "se", "no",
+	"fi", "dk", "es", "pt", "it", "cz", "jp", "kr", "cn", "in", "br", "mx", "ru", "za", "sg", "hk", "tw", "eu",
+	// Deliberately absent: TLDs that are also ordinary words in dotted config keys and
+	// property paths (email, host, name, site, zone, live, online, network, systems, …):
+	// `user.email` and `matches.host` are not hosts, and a real one under those TLDs is
+	// still caught when it appears in a URL or is passed with --domains.
+	...INTERNAL_TLDS,
+]);
+
 const KEY_SECRET = /(PASS|PASSWD|PASSWORD|SECRET|TOKEN|API[_-]?KEY|ACCESS[_-]?KEY|PRIVATE|CREDENTIAL|AUTH)/i;
 const KEY_IDENTIFYING = /^(url|baseUrl|base_url|host|hostname|proxy|endpoint|server|domain|org|organisation|organization|gitlab|registry|realm|tenant)$/i;
 
@@ -74,7 +114,50 @@ export function emptyIdentifiers() {
 		domain: new Set(),
 		secret: new Set(),
 		word: new Set(),
+		project: new Set(),
 	};
+}
+
+/** Exact match or subdomain of a kept host. */
+export function isPublicHost(host, keep = PUBLIC_HOSTS) {
+	const h = host.toLowerCase();
+	return keep.some((k) => h === k || h.endsWith(`.${k}`));
+}
+
+/**
+ * Learn from the session itself. Hosts: every non-public hostname that appears
+ * standalone, in a URL, or in an SSH remote — once learned, the host pass also
+ * catches it embedded in dotted keys (`credential.<host>.provider`) where the
+ * generic hostname pattern cannot see a token boundary. Projects: the
+ * `group/subgroup/project` of a remote on a non-public host, so bare
+ * `group/project` mentions in prose map to the same placeholder as the remote.
+ */
+export function learnFromText(ids, text, keep = PUBLIC_HOSTS) {
+	const seen = [];
+	for (const m of text.matchAll(RE_BARE_HOST)) {
+		if (looksHost(m[0]) && !isPublicHost(m[0], keep)) ids.host.add(m[0].toLowerCase());
+	}
+	for (const m of text.matchAll(RE_URL)) {
+		const h = hostOf(m[0]);
+		if (!h || isPublicHost(h, keep) || KEEP_IPS.has(h) || /^[\d.]+$/.test(h)) continue;
+		ids.host.add(h);
+		let path;
+		try {
+			path = new URL(m[0]).pathname;
+		} catch {
+			continue;
+		}
+		const segs = path.replace(/\.git$/, "").split("/").filter(Boolean);
+		if (segs.length >= 2 && /\.git$/.test(path)) seen.push(segs.join("/"));
+	}
+	for (const m of text.matchAll(RE_SSH_REMOTE)) {
+		if (isPublicHost(m[2], keep)) continue;
+		ids.host.add(m[2].toLowerCase());
+		const segs = m[3].replace(/\.git$/, "").split("/").filter(Boolean);
+		if (segs.length >= 2) seen.push(segs.join("/"));
+	}
+	for (const s of seen) ids.project.add(s);
+	return ids;
 }
 
 function hostOf(url) {
@@ -212,8 +295,31 @@ export const SECRET_SHAPES = [
 	/(?<=\b(?:password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key)\s*[=:]\s*["']?)[^\s"',;]{6,}/gi, // key=value in text
 ];
 
+/** Certificate material: public, but it names the organisation and its CA. */
+const RE_PEM_CERT = /-----BEGIN (CERTIFICATE|CERTIFICATE REQUEST|NEW CERTIFICATE REQUEST|PUBLIC KEY|PKCS7|X509 CRL|TRUSTED CERTIFICATE)-----[\s\S]*?-----END \1-----/g;
+const RE_HEX_FINGERPRINT = /\b(?:[0-9a-f]{40}|[0-9a-f]{64}|[0-9a-f]{128})\b/gi; // SHA-1/256/512 thumbprints (and, harmlessly, git shas)
+const RE_HEX_BYTES = /\b(?:[0-9a-f]{2}[: ]){15,}[0-9a-f]{2}\b/gi; // AA:BB:… fingerprints
+const RE_SERIAL = /(?<=\bserial(?:[ _-]?number)?\s*[=:]\s*["']?)[0-9a-f]{8,}(?::[0-9a-f]{2})*\b/gi;
+// X.509 distinguished-name values; applied only to text that has a CN= somewhere.
+const RE_DN_VALUE = /\b(CN|OU|O|L|ST|DC|E|EMAILADDRESS|SERIALNUMBER|UID|STREET)=([^,/\n"';]+?)(?=\s*(?:[,/;"']|$))/gm;
+/** Account names after an identity key: user=cs123, username: cs123, login=…, account=… */
+const RE_ACCOUNT = /(?<=\b(?:username|login|account|user)\s*[=:]\s*["']?)(?![<\[])[A-Za-z0-9][A-Za-z0-9._@-]{2,}\b/gi;
+
 /** Generic, order-sensitive patterns that need no config. */
 const RE_URL = /\b[a-z][a-z0-9+.-]*:\/\/[^\s"'<>)\]]+/gi;
+/** git@host:group/project(.git) — the SSH remote form, which is not a URL. */
+const RE_SSH_REMOTE = /\b([A-Za-z0-9._-]+)@((?:[a-z0-9-]+\.)+[a-z]{2,}):([\w.~/-]+)/gi;
+/** A dotted token whose last label is a plausible TLD; validated by looksHost(). */
+const RE_BARE_HOST = /(?<![\w<@/.:-])(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}(?![\w.-])/gi;
+function looksHost(token) {
+	const labels = token.toLowerCase().split(".");
+	if (labels.length < 2) return false;
+	const tld = labels[labels.length - 1];
+	if (!HOST_TLDS.has(tld)) return false;
+	// "README.md"-style file names have a capitalised or extension-like first label; hosts are lower-case words.
+	if (/^[A-Z]/.test(token) && labels.length === 2) return false;
+	return true;
+}
 const RE_EMAIL = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g;
 const RE_IPV4 = /\b(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)\b(?::\d{1,5})?/g;
 // Candidate first, validated by looksIpv6(): `::` compression or all 8 groups, so 12:30:45 is not an address.
@@ -253,6 +359,9 @@ export function createScrubber(ids, options = {}) {
 	const counters = new Map();
 	const counts = {}; // category → replacements
 	const extraDomains = domainOrder(ids, options);
+	const keepHosts = options.allHosts ? [] : [...PUBLIC_HOSTS, ...(options.keepHosts ?? [])];
+	const publicHost = (h) => !options.allHosts && isPublicHost(h, keepHosts);
+	const projectsLongestFirst = () => [...ids.project].sort((a, b) => b.length - a.length);
 
 	function placeholder(category, original, fixed) {
 		if (map.has(original)) return map.get(original);
@@ -303,10 +412,54 @@ export function createScrubber(ids, options = {}) {
 				return placeholder("secret", m);
 			});
 		}
-		// 2. Learned URLs and hosts (case-insensitive: hostnames are).
+		// 2. Certificate material, before hex and hostnames inside it get picked apart.
+		t = t.replace(RE_PEM_CERT, (m) => {
+			bump("certificate");
+			return placeholder("certificate", m);
+		});
+		t = t.replace(RE_HEX_FINGERPRINT, (m) => {
+			bump("hex");
+			return placeholder("hex", m.toLowerCase());
+		});
+		t = t.replace(RE_HEX_BYTES, (m) => {
+			bump("hex");
+			return placeholder("hex", m.toLowerCase());
+		});
+		t = t.replace(RE_SERIAL, (m) => {
+			bump("hex");
+			return placeholder("hex", m.toLowerCase());
+		});
+		if (/\bCN=/.test(t)) {
+			t = t.replace(RE_DN_VALUE, (m, key, value) => {
+				if (/^<[a-z]+(?:-\d+)?>$/.test(value)) return m;
+				bump("dn");
+				return `${key}=${placeholder("dn", value.trim())}`;
+			});
+		}
+		// 3. URLs whole (a path can identify too): learned prefixes, SSH remotes, then any URL on a
+		//    non-public host. Only then learned hosts (which also catches them embedded in dotted
+		//    keys such as credential.<host>.provider), then repository paths.
 		for (const u of urlsLongestFirst) t = replaceAll(t, u, "url", undefined, "gi");
+		t = t.replace(RE_SSH_REMOTE, (m, user, host, path) => {
+			if (publicHost(host)) return m;
+			bump("url");
+			return placeholder("url", m);
+		});
+		t = t.replace(RE_URL, (m) => {
+			const h = hostOf(m);
+			if (!h || KEEP_IPS.has(h) || publicHost(h)) return m;
+			bump("url");
+			return placeholder("url", m);
+		});
 		for (const h of hostsLongestFirst) t = replaceWord(t, h, "host", undefined, true);
-		// 3. Working directory and home, before generic paths eat them.
+		for (const p of projectsLongestFirst()) {
+			const re = new RegExp(`(?<![\\w/.-])${RE_ESC(p)}(?:\\.git)?(?![\\w/-])`, "g");
+			t = t.replace(re, () => {
+				bump("project");
+				return placeholder("project", p);
+			});
+		}
+		// 4. Working directory and home, before generic paths eat them.
 		if (cwd) {
 			t = replaceAll(t, cwd, "cwd", "cwd");
 			if (cwd.includes("\\")) t = replaceAll(t, cwd.replaceAll("\\", "/"), "cwd", "cwd");
@@ -315,13 +468,7 @@ export function createScrubber(ids, options = {}) {
 			t = replaceAll(t, h, "home", "home");
 			if (h.includes("\\")) t = replaceAll(t, h.replaceAll("\\", "/"), "home", "home");
 		}
-		// 4. Generic URLs, then paths.
-		t = t.replace(RE_URL, (m) => {
-			const h = hostOf(m);
-			if (!h || h === "localhost" || KEEP_IPS.has(h)) return m;
-			bump("url");
-			return placeholder("url", m);
-		});
+		// 5. Paths.
 		t = t.replace(RE_WIN_PATH, (m) => {
 			bump("path");
 			return placeholder("path", m);
@@ -335,8 +482,9 @@ export function createScrubber(ids, options = {}) {
 			bump("path");
 			return placeholder("path", m);
 		});
-		// 5. Addresses.
-		t = t.replace(RE_EMAIL, (m) => {
+		// 6. Addresses.
+		t = t.replace(RE_EMAIL, (m, offset, whole) => {
+			if (whole[offset + m.length] === ":") return m; // git@github.com:org/repo — a remote, not a person
 			bump("email");
 			return placeholder("email", m.toLowerCase());
 		});
@@ -351,14 +499,25 @@ export function createScrubber(ids, options = {}) {
 			bump("ip");
 			return placeholder("ip", m.toLowerCase());
 		});
-		// 6. Hostnames under internal-looking or learned domains.
+		// 7. Hostnames: under internal-looking or learned domains, then any other non-public FQDN.
 		for (const d of extraDomains) {
 			t = t.replace(domainRegex(d), (m) => {
 				bump("host");
 				return placeholder("host", m.toLowerCase());
 			});
 		}
-		// 7. Names: providers, models, org strings, user, extra words.
+		t = t.replace(RE_BARE_HOST, (m) => {
+			if (!looksHost(m) || publicHost(m)) return m;
+			bump("host");
+			return placeholder("host", m.toLowerCase());
+		});
+		// 8. Account names after an identity key.
+		t = t.replace(RE_ACCOUNT, (m) => {
+			if (/^(true|false|null|none|the|your|you|name|id)$/i.test(m)) return m;
+			bump("account");
+			return placeholder("account", m);
+		});
+		// 9. Names: providers, models, org strings, user, extra words.
 		for (const p of ids.provider) t = replaceWord(t, p, "provider");
 		for (const m of ids.model) t = replaceWord(t, m, "model");
 		for (const o of ids.org) t = replaceAll(t, o, "org");
@@ -499,8 +658,33 @@ export function sessionCwd(text) {
 
 // --- Leak check ---------------------------------------------------------------------
 
-/** Search scrubbed text for anything that should have gone. Returns findings (empty = clean). */
-export function leakCheck(text, ids, options = {}) {
+/**
+ * The strings a session's readers see: every JSON string value, one per line,
+ * for lines that parse; the raw line otherwise. Patterns must run on this, not
+ * on the raw JSONL, where backslashes and newlines are escaped and a Windows
+ * path or a PEM block looks nothing like what the scrubber matched.
+ */
+export function visibleText(jsonl) {
+	const out = [];
+	const walk = (v) => {
+		if (typeof v === "string") out.push(v);
+		else if (Array.isArray(v)) v.forEach(walk);
+		else if (v && typeof v === "object") Object.values(v).forEach(walk);
+	};
+	for (const line of jsonl.split(/\r?\n/)) {
+		if (line.trim() === "") continue;
+		try {
+			walk(JSON.parse(line));
+		} catch {
+			out.push(line);
+		}
+	}
+	return out.join("\n");
+}
+
+/** Search scrubbed JSONL (or plain text) for anything that should have gone. Returns findings (empty = clean). */
+export function leakCheck(jsonl, ids, options = {}) {
+	const text = visibleText(jsonl);
 	const findings = [];
 	const add = (category, sample, count) => findings.push({ category, sample, count });
 	const countOf = (re) => (text.match(re) ?? []).length;
@@ -534,14 +718,32 @@ export function leakCheck(text, ids, options = {}) {
 		const n = countOf(new RegExp(re.source, re.flags.includes("g") ? re.flags : `${re.flags}g`));
 		if (n > 0) add("secret-shape", re.source.slice(0, 30), n);
 	}
+	const keepHosts = options.allHosts ? [] : [...PUBLIC_HOSTS, ...(options.keepHosts ?? [])];
+	const publicHost = (h) => !options.allHosts && isPublicHost(h, keepHosts);
 	const urls = text.match(RE_URL) ?? [];
 	const badUrls = urls.filter((u) => {
 		const h = hostOf(u);
-		return h && h !== "localhost" && !KEEP_IPS.has(h);
+		return h && !KEEP_IPS.has(h) && !publicHost(h);
 	});
 	if (badUrls.length) add("url", badUrls[0], badUrls.length);
-	const emails = countOf(RE_EMAIL);
-	if (emails) add("email", (text.match(RE_EMAIL) ?? [])[0], emails);
+	const remotes = [...text.matchAll(RE_SSH_REMOTE)].filter((m) => !publicHost(m[2]));
+	if (remotes.length) add("url", remotes[0][0], remotes.length);
+	const bareHosts = (text.match(RE_BARE_HOST) ?? []).filter((h) => looksHost(h) && !publicHost(h));
+	if (bareHosts.length) add("host", bareHosts[0], bareHosts.length);
+	for (const p of ids.project) {
+		const n = countOf(new RegExp(`(?<![\\w/.-])${RE_ESC(p)}(?![\\w/-])`, "g"));
+		if (n) add("project", p, n);
+	}
+	const certs = countOf(RE_PEM_CERT);
+	if (certs) add("certificate", "-----BEGIN …", certs);
+	const hex = countOf(RE_HEX_FINGERPRINT) + countOf(RE_HEX_BYTES);
+	if (hex) add("hex", (text.match(RE_HEX_FINGERPRINT) ?? text.match(RE_HEX_BYTES) ?? [])[0], hex);
+	if (/\bCN=/.test(text)) {
+		const dn = [...text.matchAll(RE_DN_VALUE)].filter((m) => !/^<[a-z]+(?:-\d+)?>$/.test(m[2]));
+		if (dn.length) add("dn", `${dn[0][1]}=${dn[0][2]}`, dn.length);
+	}
+	const emails = [...text.matchAll(RE_EMAIL)].filter((m) => text[m.index + m[0].length] !== ":");
+	if (emails.length) add("email", emails[0][0], emails.length);
 	const ips = (text.match(RE_IPV4) ?? []).filter((m) => !KEEP_IPS.has(m.split(":")[0]));
 	if (ips.length) add("ip", ips[0], ips.length);
 	const ip6 = (text.match(RE_IPV6) ?? []).filter((m) => looksIpv6(m) && !KEEP_IPS.has(m));
@@ -611,7 +813,7 @@ function secretFilesFromEnv(env = process.env) {
 }
 
 export function parseArgs(argv) {
-	const o = { secrets: [], domains: [], map: undefined, noMap: false, noEnv: false };
+	const o = { secrets: [], domains: [], keepHosts: [], map: undefined, noMap: false, noEnv: false };
 	const positional = [];
 	for (let i = 0; i < argv.length; i++) {
 		const a = argv[i];
@@ -633,6 +835,8 @@ export function parseArgs(argv) {
 			case "--deploy": o.deploy = next(); break;
 			case "--secrets": o.secrets.push(next()); break;
 			case "--no-env": o.noEnv = true; break;
+			case "--keep-hosts": o.keepHosts.push(...next().split(",").map((s) => s.trim()).filter(Boolean)); break;
+			case "--all-hosts": o.allHosts = true; break;
 			case "--check": o.check = next(); break;
 			case "-h": case "--help": o.help = true; break;
 			default:
@@ -697,7 +901,7 @@ async function main() {
 			console.error(`scrub-session: cannot read ${o.check}`);
 			process.exit(2);
 		}
-		const findings = leakCheck(text, ids, { domains: o.domains });
+		const findings = leakCheck(text, ids, { domains: o.domains, keepHosts: o.keepHosts, allHosts: o.allHosts });
 		report(findings, learnedSummary);
 		process.exit(findings.length ? 1 : 0);
 	}
@@ -708,7 +912,10 @@ async function main() {
 		process.exit(2);
 	}
 	const cwd = sessionCwd(text);
-	const scrub = createScrubber(ids, { cwd, domains: o.domains });
+	const hostOpts = { keepHosts: o.keepHosts, allHosts: o.allHosts };
+	// Hosts and repository paths come from the session itself: its remotes name them.
+	learnFromText(ids, text, o.allHosts ? [] : [...PUBLIC_HOSTS, ...o.keepHosts]);
+	const scrub = createScrubber(ids, { cwd, domains: o.domains, ...hostOpts });
 	const result = scrubSession(text, scrub, { dropToolResults: o.dropToolResults, dropThinking: o.dropThinking, keepImages: o.keepImages });
 
 	const outPath = o.out ?? o.input.replace(/\.jsonl$/, "") + ".scrubbed.jsonl";
@@ -730,7 +937,7 @@ async function main() {
 	if (result.unparseable) console.error(`dropped:  ${result.unparseable} unparseable line(s)`);
 	if (o.dropToolResults) console.error("tool results: replaced by length + hash");
 
-	const findings = leakCheck(result.text, ids, { domains: o.domains });
+	const findings = leakCheck(result.text, ids, { domains: o.domains, ...hostOpts });
 	report(findings);
 	if (findings.length) {
 		console.error("scrub-session: identifiers survived the scrub (see above); output NOT safe to share");

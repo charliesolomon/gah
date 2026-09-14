@@ -1,0 +1,15 @@
+# Gitleaks allowlist (ci/scans/README.md). Every entry is a documented false
+# positive; real credentials never belong in this repository.
+title = "gah"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Fake secrets that exist to be recognised"
+paths = [
+  # scrub-session's tests feed the scrubber deliberately secret-shaped strings
+  # (a GitLab PAT prefix, an AWS key id, a private-key block, a JWT) and assert
+  # they come out as <secret-N>. None is a live value; the shapes are the point.
+  '''packages/policy-pack/test/scrub-session\.test\.ts''',
+]

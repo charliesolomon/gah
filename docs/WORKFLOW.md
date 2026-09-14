@@ -155,11 +155,18 @@ and model ids from `providers.json` and `models.json`, and a `--deploy
 gah-deploy.json` if given. Each distinct value becomes a stable placeholder
 (`<host-2>`, `<provider-1>`), so a story about host-2 stays coherent and the
 map file lets you answer "what is host-2" without the reader seeing it.
-*Generic* patterns catch the rest: absolute paths (POSIX, Windows, UNC), URLs,
-e-mail and IP addresses, hostnames under internal-looking domains, and
-secret-shaped strings (cloud keys, forge tokens, bearer headers, key blocks).
-Credential values from `GAH_SECRET_FILES` (or `--secrets file`) are redacted
-by value.
+*Generic* patterns catch the rest: absolute paths (POSIX, Windows, UNC), URLs
+and SSH remotes, every hostname that is not a well-known public site (a
+corporate GitLab on a public `.com` is the case that matters; `--keep-hosts`
+adds to the public list, `--all-hosts` ignores it), repository paths learned
+from the session's own remotes (`group/project`), e-mail and IP addresses,
+certificate material (PEM blocks, thumbprints, X.509 subject and issuer
+values, serials), account names after `user=` / `login:`, and secret-shaped
+strings (cloud keys, forge tokens, bearer headers, key blocks). Credential
+values from `GAH_SECRET_FILES` (or `--secrets file`) are redacted by value.
+Documentation links to github.com, docs.gitlab.com, learn.microsoft.com and
+the like stay readable; loopback addresses and system paths (`/usr`, `/etc`)
+too, so tracebacks still make sense.
 
 The output is leak-checked — every learned value and generic pattern is
 searched for again, and the script exits 1 if anything survived. What no
