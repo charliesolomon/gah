@@ -315,7 +315,19 @@ const RE_SERIAL = /(?<=\bserial(?:[ _-]?number)?\s*[=:]\s*["']?)[0-9a-f]{8,}(?::
 // X.509 distinguished-name values; applied only to text that has a CN= somewhere.
 const RE_DN_VALUE = /\b(CN|OU|O|L|ST|DC|E|EMAILADDRESS|SERIALNUMBER|UID|STREET)=([^,/\n"';]+?)(?=\s*(?:[,/;"']|$))/gm;
 /** Account names after an identity key: user=cs123, username: cs123, login=…, account=… */
-const RE_ACCOUNT = /(?<=\b(?:username|login|account|user)["']?\s*[=:]\s*["']?)(?![<\[])[A-Za-z0-9][A-Za-z0-9._@-]{2,}\b/gi;
+const RE_ACCOUNT = /(?<=\b(?:username|login|account|user)["']?\s*[=:]\s*["']?)(?![<\[])[A-Za-z0-9][A-Za-z0-9._@-]{2,}(?![A-Za-z0-9])/gi;
+/**
+ * API objects describing a person: any flat JSON object with a "username" key
+ * (GitLab/GitHub author, assignee, owner). The display name, e-mails and
+ * numeric id in it identify the account as surely as the username does.
+ */
+// Quotes may be escaped (\") when the API reply is JSON nested inside a JSON string — the
+// usual shape of a PowerShell ConvertTo-Json result inside a tool result. Both forms match.
+const RE_USER_OBJECT = /\{[^{}]*\\?"username\\?"\s*:\s*\\?"[^"\\]*\\?"[^{}]*\}/g;
+const RE_OBJECT_KV = /(\\?")([a-z_]+)\\?"\s*:\s*\\?"([^"\\]*)\\?"/g;
+const USER_OBJECT_STRING_KEYS = ["name", "username", "email", "public_email", "commit_email", "bio", "location", "job_title", "organization", "pronouns", "skype", "linkedin", "twitter", "discord"];
+/** Numeric object ids in API JSON: `"project_id": 17925`, `"id": 110272`. iid (the per-project number) stays: it is what a person quotes. */
+const RE_JSON_ID = /\\?"(id|project_id|author_id|assignee_id|namespace_id|group_id|owner_id|user_id|note_id|creator_id|merge_request_id|issue_id|epic_id)\\?"\s*:\s*(\d{2,})\b/g;
 
 /** Generic, order-sensitive patterns that need no config. */
 const RE_URL = /\b[a-z][a-z0-9+.-]*:\/\/[a-z0-9[][^\s"'<>)\]`]*/gi;
@@ -523,11 +535,24 @@ export function createScrubber(ids, options = {}) {
 			bump("host");
 			return placeholder("host", m.toLowerCase());
 		});
-		// 8. Account names after an identity key.
+		// 8. People: API user objects first (name, e-mails, id go with the username), then
+		//    account names after an identity key, then numeric ids in API JSON.
+		t = t.replace(RE_USER_OBJECT, (obj) =>
+			obj.replace(RE_OBJECT_KV, (kv, q, key, value) => {
+				if (!USER_OBJECT_STRING_KEYS.includes(key) || value === "" || /^<[a-z]+(?:-\d+)?>/.test(value)) return kv;
+				const category = /email/.test(key) ? "email" : "account";
+				bump(category);
+				return `${q}${key}${q}:${q}${placeholder(category, category === "email" ? value.toLowerCase() : value)}${q}`;
+			}),
+		);
 		t = t.replace(RE_ACCOUNT, (m) => {
 			if (/^(true|false|null|none|the|your|you|name|id)$/i.test(m)) return m;
 			bump("account");
 			return placeholder("account", m);
+		});
+		t = t.replace(RE_JSON_ID, (m, _key, n) => {
+			bump("id");
+			return m.slice(0, m.length - n.length) + placeholder("id", n);
 		});
 		// 9. Names: providers, models, org strings, user, extra words.
 		for (const p of ids.provider) t = replaceWord(t, p, "provider");

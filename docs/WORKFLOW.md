@@ -161,7 +161,9 @@ corporate GitLab on a public `.com` is the case that matters; `--keep-hosts`
 adds to the public list, `--all-hosts` ignores it), repository paths learned
 from the session's own remotes (`group/project`), e-mail and IP addresses,
 certificate material (PEM blocks, thumbprints, X.509 subject and issuer
-values, serials), account names after `user=` / `login:`, and secret-shaped
+values, serials), people in API replies (any JSON object with a `username`:
+its name, e-mails and id, escaped-quote nested JSON included) and numeric
+object ids (`"project_id": 17925`), account names after `user=` / `login:`, and secret-shaped
 strings (cloud keys, forge tokens, bearer headers, key blocks). Credential
 values from `GAH_SECRET_FILES` (or `--secrets file`) are redacted by value.
 Documentation links to github.com, docs.gitlab.com, learn.microsoft.com and

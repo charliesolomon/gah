@@ -362,6 +362,30 @@ test("a machine name of punctuation or two characters is never learned", () => {
 	assert.deepEqual([...i.host], []);
 });
 
+test("API user objects and numeric ids", () => {
+	const s = createScrubber(emptyIdentifiers());
+	const api =
+		'{"id":165727,"iid":1,"project_id":17925,"title":"Add issue interaction","author":{"id":110272,"username":"charlie_solomon","public_email":"c.solomon@acme-corp.com","name":"Charlie Solomon (Chuck)","state":"active","avatar_url":"<url-19>"},"note_id": 1763330}';
+	const t = s.scrubText(api);
+	assert.equal(
+		t,
+		'{"id":<id-1>,"iid":1,"project_id":<id-2>,"title":"Add issue interaction","author":{"id":<id-3>,"username":"<account-1>","public_email":"<email-1>","name":"<account-2>","state":"active","avatar_url":"<url-19>"},"note_id": <id-4>}',
+	);
+	assert.equal(s.mapping()["<account-2>"], "Charlie Solomon (Chuck)");
+	assert.equal(s.mapping()["<id-3>"], "110272");
+	assert.equal(s.scrubText("username: first_last and user=a_b_c"), "username: <account-3> and user=<account-4>", "underscores are part of an account name");
+	assert.equal(s.scrubText('{"name":"Acme Widget","id":42}'), '{"name":"Acme Widget","id":<id-5>}', "a name without a username in the object is not a person");
+	assert.deepEqual(leakCheck(t, emptyIdentifiers()), []);
+
+	// The same reply nested inside a JSON string (PowerShell ConvertTo-Json): quotes are escaped.
+	const nested = '{"response_json": "{\\"id\\":165727,\\"project_id\\":17925,\\"author\\":{\\"id\\":110272,\\"username\\":\\"charlie_solomon\\",\\"name\\":\\"Charlie Solomon\\"}}"}';
+	const s2 = createScrubber(emptyIdentifiers());
+	assert.equal(
+		s2.scrubText(nested),
+		'{"response_json": "{\\"id\\":<id-1>,\\"project_id\\":<id-2>,\\"author\\":{\\"id\\":<id-3>,\\"username\\":\\"<account-1>\\",\\"name\\":\\"<account-2>\\"}}"}',
+	);
+});
+
 test("parseArgs", () => {
 	const o = parseArgs(["s.jsonl", "--drop-tool-results", "--domains", "a.corp, b.lan", "--secrets", "x.env", "--secrets", "y.env", "--no-map", "--keep-hosts", "a.com,b.io", "--all-hosts"]);
 	assert.deepEqual(o.keepHosts, ["a.com", "b.io"]);
