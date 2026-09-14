@@ -139,7 +139,7 @@ export function learnFromText(ids, text, keep = PUBLIC_HOSTS) {
 	}
 	for (const m of text.matchAll(RE_URL)) {
 		const h = hostOf(m[0]);
-		if (!h || isPublicHost(h, keep) || KEEP_IPS.has(h) || /^[\d.]+$/.test(h)) continue;
+		if (!h || !validHost(h) || isPublicHost(h, keep) || KEEP_IPS.has(h) || /^[\d.]+$/.test(h)) continue;
 		ids.host.add(h);
 		let path;
 		try {
@@ -172,6 +172,13 @@ function isUrl(s) {
 	return /^[a-z][a-z0-9+.-]*:\/\/\S+$/i.test(s);
 }
 
+/** What a learned host may look like: dotted labels, or one machine-name label of 3+ chars with a letter. */
+export function validHost(h) {
+	if (typeof h !== "string") return false;
+	if (isHostLike(h)) return true;
+	return /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/i.test(h) && h.length >= 3 && /[a-z]/i.test(h);
+}
+
 function isHostLike(s) {
 	return /^(?=.{1,253}$)[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i.test(s) && !/^\d+\.\d+\.\d+\.\d+$/.test(s);
 }
@@ -181,7 +188,7 @@ function addUrlOrHost(ids, value) {
 	if (isUrl(value)) {
 		ids.url.add(value.replace(/\/+$/, ""));
 		const h = hostOf(value);
-		if (h && h !== "localhost" && h !== "127.0.0.1") ids.host.add(h);
+		if (h && validHost(h) && h !== "localhost" && h !== "127.0.0.1") ids.host.add(h);
 	} else if (isHostLike(value)) {
 		ids.host.add(value.toLowerCase());
 	}
@@ -200,7 +207,7 @@ export function learnFromEnv(ids, env = process.env, opts = {}) {
 			hn = "";
 		}
 	}
-	for (const h of [hn, env.HOSTNAME, env.COMPUTERNAME]) if (h && h.length >= 3) ids.host.add(h.toLowerCase());
+	for (const h of [hn, env.HOSTNAME, env.COMPUTERNAME]) if (h && validHost(h)) ids.host.add(h.toLowerCase());
 	for (const k of ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"]) {
 		if (env[k]) addUrlOrHost(ids, env[k].replace(/^([a-z]+:\/\/)[^@/]+@/i, "$1"));
 	}
@@ -279,6 +286,11 @@ export function learnWords(ids, text) {
 
 const RE_ESC = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
+/** A learned name as a whole word: letters/digits on either side break the match, `-` and `_` do not. */
+export function nameRegex(needle, flags = "gi") {
+	return new RegExp(`(?<![A-Za-z0-9])${RE_ESC(needle)}(?![A-Za-z0-9])`, flags);
+}
+
 /** Secret-shaped strings that need no config to recognise. */
 export const SECRET_SHAPES = [
 	/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g,
@@ -303,10 +315,10 @@ const RE_SERIAL = /(?<=\bserial(?:[ _-]?number)?\s*[=:]\s*["']?)[0-9a-f]{8,}(?::
 // X.509 distinguished-name values; applied only to text that has a CN= somewhere.
 const RE_DN_VALUE = /\b(CN|OU|O|L|ST|DC|E|EMAILADDRESS|SERIALNUMBER|UID|STREET)=([^,/\n"';]+?)(?=\s*(?:[,/;"']|$))/gm;
 /** Account names after an identity key: user=cs123, username: cs123, login=…, account=… */
-const RE_ACCOUNT = /(?<=\b(?:username|login|account|user)\s*[=:]\s*["']?)(?![<\[])[A-Za-z0-9][A-Za-z0-9._@-]{2,}\b/gi;
+const RE_ACCOUNT = /(?<=\b(?:username|login|account|user)["']?\s*[=:]\s*["']?)(?![<\[])[A-Za-z0-9][A-Za-z0-9._@-]{2,}\b/gi;
 
 /** Generic, order-sensitive patterns that need no config. */
-const RE_URL = /\b[a-z][a-z0-9+.-]*:\/\/[^\s"'<>)\]]+/gi;
+const RE_URL = /\b[a-z][a-z0-9+.-]*:\/\/[a-z0-9[][^\s"'<>)\]`]*/gi;
 /** git@host:group/project(.git) — the SSH remote form, which is not a URL. */
 const RE_SSH_REMOTE = /\b([A-Za-z0-9._-]+)@((?:[a-z0-9-]+\.)+[a-z]{2,}):([\w.~/-]+)/gi;
 /** A dotted token whose last label is a plausible TLD; validated by looksHost(). */
@@ -388,7 +400,7 @@ export function createScrubber(ids, options = {}) {
 	}
 	function replaceWord(text, needle, category, fixed, ci = false) {
 		if (!needle) return text;
-		const re = new RegExp(`(?<![\\w-])${RE_ESC(needle)}(?![\\w-])`, ci ? "gi" : "g");
+		const re = nameRegex(needle, ci ? "gi" : "g");
 		return text.replace(re, (m) => {
 			bump(category);
 			return placeholder(category, fixed ? needle : m.toLowerCase(), fixed);
@@ -447,7 +459,7 @@ export function createScrubber(ids, options = {}) {
 		});
 		t = t.replace(RE_URL, (m) => {
 			const h = hostOf(m);
-			if (!h || KEEP_IPS.has(h) || publicHost(h)) return m;
+			if (!h || !validHost(h) || KEEP_IPS.has(h) || publicHost(h)) return m;
 			bump("url");
 			return placeholder("url", m);
 		});
@@ -706,10 +718,8 @@ export function leakCheck(jsonl, ids, options = {}) {
 			const ci = category !== "secret";
 			const hay = ci ? lower : text;
 			const needle = ci ? v.toLowerCase() : v;
-			// Names are checked as words; the rest as substrings.
-			const re = ["user", "provider", "model"].includes(category)
-				? new RegExp(`(?<![\\w-])${RE_ESC(needle)}(?![\\w-])`, "g")
-				: new RegExp(RE_ESC(needle), "g");
+			// Names are checked exactly as the scrubber replaces them (nameRegex); the rest as substrings.
+			const re = ["user", "host", "provider", "model"].includes(category) ? nameRegex(needle, "g") : new RegExp(RE_ESC(needle), "g");
 			const n = (hay.match(re) ?? []).length;
 			if (n > 0) add(category, category === "secret" ? `${v.slice(0, 3)}…` : v, n);
 		}
@@ -723,7 +733,7 @@ export function leakCheck(jsonl, ids, options = {}) {
 	const urls = text.match(RE_URL) ?? [];
 	const badUrls = urls.filter((u) => {
 		const h = hostOf(u);
-		return h && !KEEP_IPS.has(h) && !publicHost(h);
+		return h && validHost(h) && !KEEP_IPS.has(h) && !publicHost(h);
 	});
 	if (badUrls.length) add("url", badUrls[0], badUrls.length);
 	const remotes = [...text.matchAll(RE_SSH_REMOTE)].filter((m) => !publicHost(m[2]));
@@ -890,10 +900,10 @@ async function main() {
 		}
 		learnWords(ids, t);
 	}
-	// The map file itself and the outputs must never be scrubbed as identifiers.
-	const learnedSummary = Object.entries(ids)
-		.map(([k, s]) => `${k}=${s.size}`)
-		.join(" ");
+	const summarise = () =>
+		Object.entries(ids)
+			.map(([k, s]) => `${k}=${s.size}`)
+			.join(" ");
 
 	if (o.check) {
 		const text = readIfExists(o.check);
@@ -902,7 +912,7 @@ async function main() {
 			process.exit(2);
 		}
 		const findings = leakCheck(text, ids, { domains: o.domains, keepHosts: o.keepHosts, allHosts: o.allHosts });
-		report(findings, learnedSummary);
+		report(findings, summarise());
 		process.exit(findings.length ? 1 : 0);
 	}
 
@@ -931,7 +941,7 @@ async function main() {
 		console.error(`map:      ${mapPath}  (placeholder → original; keep private)`);
 	}
 	console.error(`scrubbed: ${outPath}`);
-	console.error(`learned:  ${learnedSummary}`);
+	console.error(`learned:  ${summarise()}`);
 	const counts = scrub.counts();
 	console.error(`replaced: ${Object.keys(counts).length ? Object.entries(counts).map(([k, n]) => `${k}=${n}`).join(" ") : "nothing"}`);
 	if (result.unparseable) console.error(`dropped:  ${result.unparseable} unparseable line(s)`);

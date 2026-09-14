@@ -314,6 +314,7 @@ test("account names after identity keys", () => {
 		s.scrubText("user=cs1234 username: charlie.solomon login='csolomon' account: acme\\cs1234 user: the person; user=<user>"),
 		"user=<account-1> username: <account-2> login='<account-3>' account: <account-4>\\cs1234 user: the person; user=<user>",
 	);
+	assert.equal(s.scrubText('{ "user": "cs1234", "login": "c.solomon" }'), '{ "user": "<account-1>", "login": "<account-5>" }', "JSON-quoted keys too");
 });
 
 test("dotted config keys are not hostnames", () => {
@@ -329,6 +330,36 @@ test("leakCheck inspects the strings a reader sees, not the JSON escaping", () =
 	const dirty = JSON.stringify({ message: { content: "cert: -----BEGIN CERTIFICATE-----\nMIIC\n-----END CERTIFICATE-----" } }) + "\n";
 	assert.equal(leakCheck(dirty, i).map((f) => f.category).join(","), "certificate", "a PEM block split over escaped newlines is still found");
 	assert.equal(leakCheck("plain text with 10.0.0.9", i)[0].category, "ip", "plain text still works");
+});
+
+test("markdown fragments are not URLs and never teach a host (the backtick incident)", () => {
+	const text = "see `https://` and (https://( and `http://gitlab.acme-corp.com/x` and `https://$host/api` and https://[::1]/ok";
+	const i = learnFromText(emptyIdentifiers(), text);
+	assert.deepEqual([...i.host], ["gitlab.acme-corp.com"], "only the real host is learned");
+	const s = createScrubber(i);
+	const t = s.scrubText(text);
+	assert.equal(t, "see `https://` and (https://( and `<url-1>` and `https://$host/api` and https://[::1]/ok");
+	assert.equal((t.match(/`/g) ?? []).length, 6, "backticks survive");
+	assert.deepEqual(leakCheck(t, i), []);
+});
+
+test("learned names: - and _ are boundaries, and the checker agrees with the scrubber", () => {
+	const i = emptyIdentifiers();
+	learnFromEnv(i, { HOME: "/home/csolomon", USER: "csolomon" }, { hostname: "spork", resolvConf: "" });
+	const s = createScrubber(i);
+	const text = "the spork-git-setup skill on SPORK wrote SPORK_GITLAB_WORK_ITEMS.md for csolomon_corp; sporkish and forkspork stay";
+	const t = s.scrubText(text);
+	assert.equal(t, "the <host-1>-git-setup skill on <host-1> wrote <host-1>_GITLAB_WORK_ITEMS.md for <user>_corp; sporkish and forkspork stay");
+	assert.deepEqual(leakCheck(t, i), []);
+	assert.equal(leakCheck(text, i).filter((f) => f.category === "host")[0].count, 3);
+});
+
+test("a machine name of punctuation or two characters is never learned", () => {
+	const i = emptyIdentifiers();
+	learnFromEnv(i, { HOSTNAME: "`", COMPUTERNAME: "pc" }, { hostname: "(", resolvConf: "" });
+	assert.deepEqual([...i.host], []);
+	learnFromConfig(i, { proxy: "http://(/", gitlab: { url: "https://`" } });
+	assert.deepEqual([...i.host], []);
 });
 
 test("parseArgs", () => {
