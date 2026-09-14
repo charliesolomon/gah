@@ -180,4 +180,4 @@ jobs:
           sudo install /tmp/gitleaks /usr/local/bin/
 
       - name: Scan repo for secrets
-        run: gitleaks detect --source . --no-banner --redact --verbose
+        run: gitleaks detect --source . --config .gitleaks.toml --no-banner --redact --verbose

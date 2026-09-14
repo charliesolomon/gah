@@ -87,6 +87,10 @@ check-tools: ## Assert the model is offered exactly the policy's tool allowlist 
 check-prompted: ## Assert tool use works through a gateway with tool calls disabled ("tools": "prompted", #42)
 	./scripts/check-prompted-tools.sh
 
+scrub-session: ## Copy a session with environment identifiers replaced, for sharing. Usage: make scrub-session FILE=~/.gah/agent/sessions/<cwd>/<id>.jsonl [ARGS="--drop-tool-results"]
+	@test -n "$(FILE)" || { echo "usage: make scrub-session FILE=<session.jsonl> [ARGS=...]"; exit 2; }
+	node scripts/scrub-session.mjs "$(FILE)" $(ARGS)
+
 package-windows: ## Build a Windows deployment package. Usage: make package-windows DEPLOY=path/to/gah-deploy.json
 	@test -n "$(DEPLOY)" || { echo "usage: make package-windows DEPLOY=<gah-deploy.json>"; exit 2; }
 	node scripts/package-windows.mjs --config "$(DEPLOY)"
