@@ -135,6 +135,41 @@ the next tagged release. Run it by hand against any ref with
 
 `ci/scans/` configures SBOM, dep CVE, and source-level scanners. Failure policy is in `ci/scans/README.md`. The expectation is that vulnerability assessment is a passive property of CI, not a manual project.
 
+## Sharing a session for troubleshooting
+
+A session file under `~/.gah/agent/sessions/<cwd>/` is the best evidence for a
+"the agent did something odd" report, and also a map of the machine it ran
+on: the working directory, every path a tool touched, file contents in tool
+results, provider and model names, proxy errors. `scripts/scrub-session.mjs`
+writes a copy with the identifiers replaced and the structure intact:
+
+```bash
+make scrub-session FILE=~/.gah/agent/sessions/<cwd>/<id>.jsonl ARGS="--drop-tool-results"
+# → <id>.scrubbed.jsonl   share this
+# → <id>.scrub-map.json   placeholder → original, mode 0600; never share
+```
+
+Two layers. *Learned* identifiers come from this machine: home directory, user
+and host names, proxy variables, DNS search domains, the providers' names, URLs
+and model ids from `providers.json` and `models.json`, and a `--deploy
+gah-deploy.json` if given. Each distinct value becomes a stable placeholder
+(`<host-2>`, `<provider-1>`), so a story about host-2 stays coherent and the
+map file lets you answer "what is host-2" without the reader seeing it.
+*Generic* patterns catch the rest: absolute paths (POSIX, Windows, UNC), URLs,
+e-mail and IP addresses, hostnames under internal-looking domains, and
+secret-shaped strings (cloud keys, forge tokens, bearer headers, key blocks).
+Credential values from `GAH_SECRET_FILES` (or `--secrets file`) are redacted
+by value.
+
+The output is leak-checked — every learned value and generic pattern is
+searched for again, and the script exits 1 if anything survived. What no
+pattern can know is meaning: a campus, a person, a product named in prose.
+Put those in a file, one per line, and pass `--words file`; then read the
+output once before sending it. `--drop-tool-results` replaces tool result
+bodies with their length and a hash, which is usually the right trade for a
+bug report: the call sequence, timing and error text survive, the file
+contents do not. Images are stubbed unless `--keep-images`.
+
 ## Branding
 
 Anything user-visible that lives **outside** the binary (system prompt, banners shown by the extension layer, footer/header content) goes in `packages/policy-pack/`. Anything **inside** the binary (the `pi` executable name, embedded URLs, package-level branding) needs a patch — by convention `patches/0001-branding.patch`.

@@ -1,0 +1,257 @@
+// Unit tests for scripts/scrub-session.mjs against a synthetic session. Run: make test-policy
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import {
+	createScrubber,
+	emptyIdentifiers,
+	leakCheck,
+	learnFromConfig,
+	learnFromEnv,
+	learnSecretsFromEnvFile,
+	learnWords,
+	parseArgs,
+	scrubEntry,
+	scrubSession,
+	sessionCwd,
+} from "../../../scripts/scrub-session.mjs";
+
+const ENV = {
+	HOME: "/home/csolomon",
+	USER: "csolomon",
+	HTTPS_PROXY: "http://proxyuser:pw@proxy.corp.example:3128",
+	NO_PROXY: "localhost,.grace.internal,10.0.0.0/8",
+	AWS_PROFILE: "grace-bedrock",
+};
+const RESOLV = "nameserver 10.1.1.1\nsearch ad.gracesimi.com gracesimi.com\n";
+const PROVIDERS = {
+	providers: [
+		{
+			name: "acme-gateway",
+			baseUrl: "https://llm-gateway.acme-corp.com/v1",
+			api: "openai-completions",
+			apiKey: "$ACME_KEY",
+			models: [{ id: "acme-large", name: "Acme Large" }],
+		},
+	],
+};
+const DEPLOY = { org: "Grace Schools", gitlab: { url: "https://gitlab.gracesimi.com", proxy: null, token: "glpat-abcdefghijklmnopqrstuv" } };
+
+function ids() {
+	const i = emptyIdentifiers();
+	learnFromEnv(i, ENV, { hostname: "charlie-laptop", resolvConf: RESOLV });
+	learnFromConfig(i, PROVIDERS);
+	learnFromConfig(i, DEPLOY);
+	return i;
+}
+
+test("learning: env, resolv.conf, providers and deploy configs", () => {
+	const i = ids();
+	assert.ok(i.home.has("/home/csolomon"));
+	assert.ok(i.user.has("csolomon"));
+	assert.ok(i.host.has("charlie-laptop"));
+	assert.ok(i.host.has("proxy.corp.example"), "proxy host learned without its credentials");
+	assert.ok(!i.url.has(ENV.HTTPS_PROXY), "proxy credentials are not stored as a url");
+	assert.ok(i.domain.has("grace.internal") && i.domain.has("ad.gracesimi.com") && i.domain.has("gracesimi.com"));
+	assert.ok(i.word.has("grace-bedrock"));
+	assert.ok(i.provider.has("acme-gateway"));
+	assert.ok(i.url.has("https://llm-gateway.acme-corp.com/v1") && i.host.has("llm-gateway.acme-corp.com"));
+	assert.ok(i.model.has("acme-large") && i.model.has("Acme Large"));
+	assert.ok(i.org.has("Grace Schools"));
+	assert.ok(i.host.has("gitlab.gracesimi.com"));
+	assert.ok(i.secret.has("glpat-abcdefghijklmnopqrstuv"));
+	assert.ok(!i.secret.has("$ACME_KEY"), "an env-var reference is not a secret value");
+});
+
+test("learning: models.json keyed providers, secret env files, words", () => {
+	const i = emptyIdentifiers();
+	learnFromConfig(i, { providers: { corp: { baseUrl: "https://inference.corp.example/openai/v1", api: "openai-completions", models: [{ id: "gpt-5" }] } } });
+	assert.ok(i.provider.has("corp"));
+	assert.ok(i.host.has("inference.corp.example"));
+	learnSecretsFromEnvFile(i, 'OSTICKET_USER=charlie\nOSTICKET_PASSWORD="s3cr3t-value"\nexport API_TOKEN=tok_1234567890 # comment\nSHORT_TOKEN=abc\n');
+	assert.ok(i.secret.has("s3cr3t-value") && i.secret.has("tok_1234567890"));
+	assert.ok(!i.secret.has("charlie") && !i.secret.has("abc"));
+	learnWords(i, "# names\nSimi Valley\nZach   # a person\n\n");
+	assert.deepEqual([...i.word], ["Simi Valley", "Zach"]);
+});
+
+test("scrubText: learned identifiers become stable, numbered placeholders", () => {
+	const s = createScrubber(ids(), { cwd: "/home/csolomon/gah" });
+	const t = s.scrubText(
+		"cd /home/csolomon/gah && curl https://llm-gateway.acme-corp.com/v1/models via acme-gateway (acme-large) on charlie-laptop; " +
+		"again: /home/csolomon/gah/vendor and LLM-Gateway.ACME-corp.com and CSOLOMON@charlie-laptop; org Grace Schools; profile grace-bedrock",
+	);
+	assert.equal(t.includes("csolomon"), false);
+	assert.equal(t.includes("acme"), false);
+	assert.equal(t.includes("laptop"), false);
+	// Learned hosts are numbered longest-first (so a host containing another is replaced whole).
+	assert.equal(
+		t,
+		"cd <cwd> && curl <url-1>/models via <provider-1> (<model-1>) on <host-2>; " +
+			"again: <cwd>/vendor and <host-1> and <user>@<host-2>; org <org-1>; profile <word-1>",
+	);
+	const m = s.mapping();
+	assert.equal(m["<url-1>"], "https://llm-gateway.acme-corp.com/v1");
+	assert.equal(m["<host-1>"], "llm-gateway.acme-corp.com");
+	assert.equal(m["<host-2>"], "charlie-laptop");
+	assert.equal(m["<cwd>"], "/home/csolomon/gah");
+	assert.equal(m["<user>"], "csolomon");
+	assert.ok(s.counts().host >= 3);
+	// Stable: the same input maps to the same placeholders on a second call.
+	assert.equal(s.scrubText("on charlie-laptop via acme-gateway"), "on <host-2> via <provider-1>");
+});
+
+test("scrubText: generic patterns need no config", () => {
+	const s = createScrubber(emptyIdentifiers());
+	const t = s.scrubText(
+		"see https://wiki.example.org/page?x=1 and http://localhost:3000/ok and http://127.0.0.1:8080/ok; " +
+		"mail bob.smith@example.com; hosts 10.20.30.40:443 and 192.168.1.5 and 127.0.0.1 and fe80::1ff:fe23:4567:890a; " +
+		"paths C:\\Users\\bob\\proj\\x.txt and \\\\fileserver\\share\\doc.docx and /srv/data/reports/q3.csv and /usr/bin/node and /etc/hosts; " +
+		"box01.corp and printer.grace.internal; key AKIAIOSFODNN7EXAMPLE token glpat-zzzzzzzzzzzzzzzzzzzzzz Bearer abcdefghijklmnopqrstuvwxyz012345 password=hunter22",
+	);
+	assert.match(t, /see <url-1> and http:\/\/localhost:3000\/ok and http:\/\/127\.0\.0\.1:8080\/ok; /);
+	assert.match(t, /mail <email-1>; hosts <ip-1>:443 and <ip-2> and 127\.0\.0\.1 and <ip-3>; /);
+	assert.match(t, /paths <path-1> and <path-2> and <path-3> and \/usr\/bin\/node and \/etc\/hosts; /);
+	assert.match(t, /<host-\d> and <host-\d>; key <secret-1> token <secret-2> Bearer <secret-3> password=<secret-4>$/);
+	const m = s.mapping();
+	const originals = new Set(Object.values(m));
+	for (const o of [
+		"https://wiki.example.org/page?x=1",
+		"bob.smith@example.com",
+		"10.20.30.40",
+		"192.168.1.5",
+		"fe80::1ff:fe23:4567:890a",
+		"C:\\Users\\bob\\proj\\x.txt",
+		"\\\\fileserver\\share\\doc.docx",
+		"/srv/data/reports/q3.csv",
+		"box01.corp",
+		"printer.grace.internal",
+		"AKIAIOSFODNN7EXAMPLE",
+		"hunter22",
+	]) assert.ok(originals.has(o), `mapping should hold ${o}`);
+	assert.equal(m["<path-1>"], "C:\\Users\\bob\\proj\\x.txt", "text order for the path family");
+	assert.equal(s.scrubText("at 12:30:45 and 2026-09-14T10:00:00"), "at 12:30:45 and 2026-09-14T10:00:00", "clock times are not IPv6");
+});
+
+test("scrubText: a domain suffix must end the hostname; learned domains win over generic ones", () => {
+	const i = emptyIdentifiers();
+	i.domain.add("corp.example");
+	const s = createScrubber(i);
+	const t = s.scrubText("box42.ad.corp.example and files.corp and corp.example itself and a.corp.example.org");
+	assert.equal(t, "<host-1> and <host-2> and corp.example itself and a.corp.example.org");
+	assert.equal(s.mapping()["<host-1>"], "box42.ad.corp.example");
+	assert.equal(s.mapping()["<host-2>"], "files.corp");
+	assert.deepEqual(leakCheck(t, i), []);
+});
+
+test("scrubText: a private key block and a JWT are one placeholder each", () => {
+	const s = createScrubber(emptyIdentifiers());
+	const key = "-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA\nabc\n-----END RSA PRIVATE KEY-----";
+	const jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c";
+	const t = s.scrubText(`k:\n${key}\nj: ${jwt}\n`);
+	assert.equal(t, "k:\n<secret-1>\nj: <secret-2>\n");
+});
+
+test("scrubText leaves non-identifying text, numbers, and placeholders alone", () => {
+	const s = createScrubber(ids());
+	const text = "Turn 3 used 1774 input tokens; version 0.85.1; see package.json and e.g. README.md; ~/.gah/skills-repo is synced.";
+	assert.equal(s.scrubText(text), text);
+	assert.equal(s.scrubText("<host-1> stays"), "<host-1> stays");
+});
+
+const SESSION = [
+	{ type: "session", version: 3, id: "s1", timestamp: "2026-09-14T10:00:00.000Z", cwd: "/home/csolomon/gah", parentSession: "/home/csolomon/.gah/agent/sessions/x/y.jsonl" },
+	{ type: "model_change", id: "e1", parentId: null, timestamp: "2026-09-14T10:00:00.100Z", provider: "acme-gateway", modelId: "acme-large" },
+	{ type: "thinking_level_change", id: "e2", parentId: "e1", timestamp: "2026-09-14T10:00:00.200Z", thinkingLevel: "medium" },
+	{ type: "message", id: "e3", parentId: "e2", timestamp: "2026-09-14T10:00:01.000Z", message: { role: "user", content: [{ type: "text", text: "read /home/csolomon/gah/README.md from charlie-laptop" }, { type: "image", mimeType: "image/png", data: "iVBORw0KGgo=" }] } },
+	{
+		type: "message", id: "e4", parentId: "e3", timestamp: "2026-09-14T10:00:02.000Z",
+		message: {
+			role: "assistant",
+			content: [
+				{ type: "thinking", thinking: "the user csolomon wants /home/csolomon/gah/README.md", thinkingSignature: "sig" },
+				{ type: "text", text: "Reading it." },
+				{ type: "toolCall", id: "c1", name: "read", arguments: { path: "/home/csolomon/gah/README.md" } },
+			],
+			api: "openai-completions", provider: "acme-gateway", model: "acme-large",
+			usage: { input: 1774, output: 89, cost: { total: 0.001 } }, stopReason: "toolUse",
+		},
+	},
+	{ type: "message", id: "e5", parentId: "e4", timestamp: "2026-09-14T10:00:03.000Z", message: { role: "toolResult", toolCallId: "c1", toolName: "read", content: [{ type: "text", text: "# gah\nsee https://gitlab.gracesimi.com/it/it-skills and proxy.corp.example\n" }], isError: false } },
+	{ type: "message", id: "e6", parentId: "e5", timestamp: "2026-09-14T10:00:04.000Z", message: { role: "assistant", content: [{ type: "text", text: "Error: ECONNREFUSED 10.1.1.1:443 (proxy.corp.example)" }], errorMessage: "proxy.corp.example refused", provider: "acme-gateway", model: "acme-large", usage: {}, stopReason: "error" } },
+	{ type: "compaction", id: "e7", parentId: "e6", timestamp: "2026-09-14T10:00:05.000Z", summary: "csolomon read /home/csolomon/gah/README.md", firstKeptEntryId: "e5", tokensBefore: 50000 },
+	{ type: "custom", id: "e8", parentId: "e7", timestamp: "2026-09-14T10:00:06.000Z", customType: "gah-policy", data: { note: "skills at /home/csolomon/.gah/skills-repo on charlie-laptop" } },
+	{ type: "session_info", id: "e9", parentId: "e8", timestamp: "2026-09-14T10:00:07.000Z", name: "work on gitlab.gracesimi.com" },
+];
+const SESSION_TEXT = SESSION.map((e) => JSON.stringify(e)).join("\n") + "\nnot json at all\n";
+
+test("scrubSession: every entry type, structure preserved, identifiers gone, leak-check clean", () => {
+	const i = ids();
+	const cwd = sessionCwd(SESSION_TEXT);
+	assert.equal(cwd, "/home/csolomon/gah");
+	const s = createScrubber(i, { cwd });
+	const { text, unparseable } = scrubSession(SESSION_TEXT, s);
+	assert.equal(unparseable, 1);
+	const out = text.trim().split("\n").map((l) => JSON.parse(l));
+	assert.equal(out.length, SESSION.length + 1);
+	assert.deepEqual(out.at(-1), { type: "unparseable_line_dropped", length: "not json at all".length });
+
+	const [hdr, mc, tl, user, asst, tool, err, comp, custom, info] = out;
+	assert.equal(hdr.cwd, "<cwd>");
+	assert.match(hdr.parentSession, /^<home>\/\.gah\/agent\/sessions\/x\/y\.jsonl$/);
+	assert.deepEqual([mc.provider, mc.modelId], ["<provider-1>", "<model-1>"]);
+	assert.deepEqual(tl, SESSION[2], "non-textual entries are untouched");
+	assert.equal(user.message.content[0].text, "read <cwd>/README.md from <host-1>");
+	assert.match(user.message.content[1].data, /^\[image dropped: 12 chars\]$/);
+	assert.equal(user.message.content[1].mimeType, "image/png");
+	assert.equal(asst.message.content[0].thinking, "the user <user> wants <cwd>/README.md");
+	assert.equal(asst.message.content[0].thinkingSignature, "[dropped]");
+	assert.deepEqual(asst.message.content[2].arguments, { path: "<cwd>/README.md" });
+	assert.deepEqual(asst.message.usage, SESSION[4].message.usage, "usage numbers untouched");
+	assert.equal(asst.message.provider, "<provider-1>");
+	assert.equal(tool.message.content[0].text, "# gah\nsee <url-1>/it/it-skills and <host-2>\n");
+	assert.equal(err.message.content[0].text, "Error: ECONNREFUSED <ip-1>:443 (<host-2>)");
+	assert.equal(err.message.errorMessage, "<host-2> refused");
+	assert.equal(comp.summary, "<user> read <cwd>/README.md");
+	assert.equal(comp.tokensBefore, 50000);
+	assert.equal(custom.data.note, "skills at <home>/.gah/skills-repo on <host-1>");
+	assert.equal(info.name, "work on <host-3>");
+	for (const e of out) assert.equal(e.id, SESSION.find((x) => x.id === e.id)?.id ?? e.id, "ids preserved");
+
+	assert.deepEqual(leakCheck(text, i), []);
+	const m = s.mapping();
+	assert.equal(m["<url-1>"], "https://gitlab.gracesimi.com");
+	assert.equal(m["<host-3>"], "gitlab.gracesimi.com");
+});
+
+test("scrubSession options: drop tool results, drop thinking, keep images", () => {
+	const s = createScrubber(ids(), { cwd: "/home/csolomon/gah" });
+	const { text } = scrubSession(SESSION_TEXT, s, { dropToolResults: true, dropThinking: true, keepImages: true });
+	const out = text.trim().split("\n").map((l) => JSON.parse(l));
+	const tool = out[5];
+	const originalLength = (SESSION[5] as any).message.content[0].text.length;
+	assert.match(tool.message.content[0].text, new RegExp(`^\\[tool result dropped: ${originalLength} chars, sha256:[0-9a-f]{12}\\]$`));
+	assert.equal(tool.message.toolName, "read");
+	assert.equal(out[4].message.content.some((p: any) => p.type === "thinking"), false);
+	assert.equal(out[3].message.content[1].data, "iVBORw0KGgo=");
+});
+
+test("leakCheck finds what a scrub missed", () => {
+	const i = ids();
+	const findings = leakCheck('{"text":"ssh csolomon@charlie-laptop then https://llm-gateway.acme-corp.com/v1 and 10.0.0.7 and glpat-abcdefghijklmnopqrstuv and C:\\\\Users\\\\x"}', i);
+	const cats = findings.map((f) => f.category);
+	for (const c of ["user", "host", "url", "ip", "secret", "path"]) assert.ok(cats.includes(c), `expected a ${c} finding in ${cats}`);
+	const secret = findings.find((f) => f.category === "secret")!;
+	assert.equal(secret.sample, "glp…", "secret samples are never printed whole");
+});
+
+test("parseArgs", () => {
+	const o = parseArgs(["s.jsonl", "--drop-tool-results", "--domains", "a.corp, b.lan", "--secrets", "x.env", "--secrets", "y.env", "--no-map"]);
+	assert.equal(o.input, "s.jsonl");
+	assert.equal(o.dropToolResults, true);
+	assert.deepEqual(o.domains, ["a.corp", "b.lan"]);
+	assert.deepEqual(o.secrets, ["x.env", "y.env"]);
+	assert.equal(o.noMap, true);
+	assert.throws(() => parseArgs(["--bogus"]), /unknown option/);
+	assert.throws(() => parseArgs(["a.jsonl", "b.jsonl"]), /one session file/);
+	assert.throws(() => parseArgs(["--out"]), /needs a value/);
+});
