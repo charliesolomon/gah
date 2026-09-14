@@ -6,11 +6,14 @@ import { buildProvider } from "../../../scripts/add-provider.mjs";
 import {
 	ABSURD_MAX_TOKENS,
 	formatReport,
+	HISTORY_WORD,
+	historyBody,
 	limitsFromError,
 	parseModelList,
 	probeBody,
 	probeEndpoint,
 	promptPlacementFor,
+	sawHistoryWord,
 	sawToolBlock,
 	sawToolCall,
 	systemBody,
@@ -68,10 +71,15 @@ const capError = {
 };
 function answer(
 	body: any,
-	opts: { honourSystem?: boolean; followFrom?: "system" | "user" | "never"; clamp?: boolean } = {},
+	opts: { honourSystem?: boolean; followFrom?: "system" | "user" | "never"; clamp?: boolean; keepHistory?: boolean } = {},
 ) {
-	const { honourSystem = true, followFrom = "system", clamp = false } = opts;
+	const { honourSystem = true, followFrom = "system", clamp = false, keepHistory = true } = opts;
 	if (body.max_tokens === ABSURD_MAX_TOKENS && !clamp) return capError;
+	// The history probe: three turns, the answer in the first. A single-turn
+	// gateway (keepHistory: false) sees only the last message and cannot answer.
+	if (body.messages.length === 3 && body.messages[0].content.includes(HISTORY_WORD)) {
+		return reply(keepHistory ? `The code word is ${HISTORY_WORD}.` : "I don't have a code word from you.");
+	}
 	const system = body.messages.find((m: any) => m.role === "system")?.content ?? "";
 	const user = body.messages.find((m: any) => m.role === "user")?.content ?? "";
 	if (honourSystem && /PINEAPPLE/.test(system)) return reply("PINEAPPLE");
@@ -114,6 +122,28 @@ test("probeBody shapes a Chat Completions and a Responses request, with and with
 	assert.ok(!("tools" in r));
 });
 
+test("historyBody puts the answer in the first turn for both wire shapes; sawHistoryWord reads a reply", () => {
+	const c = historyBody("openai-completions", "m");
+	assert.equal(c.messages.length, 3);
+	assert.deepEqual(c.messages.map((m: any) => m.role), ["user", "assistant", "user"]);
+	assert.ok(c.messages[0].content.includes(HISTORY_WORD));
+	const r = historyBody("openai-responses", "m");
+	assert.equal(r.input.length, 3);
+	assert.ok(sawHistoryWord(`Sure: ${HISTORY_WORD}`));
+	assert.ok(!sawHistoryWord("I don't know"));
+});
+
+test("a single-turn gateway that forwards only the last message is reported as dropping history (#96)", async () => {
+	const fetchFn = fakeFetch((path, body) => {
+		if (path === "/models") return { status: 200, json: { data: [{ id: "m" }] } };
+		if (path === "/chat/completions") return body.stream ? sse : answer(body, { keepHistory: false });
+		return undefined;
+	});
+	const report = await probeEndpoint({ baseUrl: BASE, apiKey: "k", fetchFn });
+	assert.equal(report.history, "dropped");
+	assert.match(formatReport(report), /Conversation history: DROPPED/);
+});
+
 test("sawToolCall recognises both wire shapes", () => {
 	assert.ok(sawToolCall(JSON.stringify(chatToolCall.json)));
 	assert.ok(sawToolCall('{"output":[{"type":"function_call","name":"ping"}]}'));
@@ -140,6 +170,8 @@ test("a gateway that refuses tools: completions only, streaming, tools refused -
 	assert.equal(report.api, "openai-completions");
 	assert.match(report.apis["openai-responses"], /^404/);
 	assert.equal(report.streaming, true);
+	assert.equal(report.history, "kept");
+	assert.match(formatReport(report), /Conversation history: kept/);
 	assert.equal(report.tools, "refused");
 	assert.equal(toolModeFor(report), "prompted");
 	assert.ok(

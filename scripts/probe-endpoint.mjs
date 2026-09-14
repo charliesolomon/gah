@@ -161,6 +161,39 @@ export function systemBody(api, model, system, user, placement = "system") {
 }
 
 /** The request body for one probe. */
+export const HISTORY_WORD = "pelican-4471";
+const HISTORY_TURNS = [
+	{ role: "user", text: `The code word is ${HISTORY_WORD}. Reply with the single word OK.` },
+	{ role: "assistant", text: "OK" },
+	{ role: "user", text: "What is the code word? Reply with only the code word." },
+];
+
+/**
+ * A three-turn conversation whose answer lives in the first turn. A gateway
+ * that forwards only the latest message — some single-turn chat wrappers do,
+ * and one did (#96) — cannot answer it, and an agent behind such an endpoint
+ * loses its own tool results and the person's earlier instructions every turn.
+ */
+export function historyBody(api, model) {
+	if (api === "openai-responses") {
+		return {
+			model,
+			input: HISTORY_TURNS.map((m) => ({ role: m.role, content: m.text })),
+			max_output_tokens: 32,
+		};
+	}
+	return {
+		model,
+		messages: HISTORY_TURNS.map((m) => ({ role: m.role, content: m.text })),
+		max_tokens: 32,
+	};
+}
+
+/** Did the reply carry the code word? */
+export function sawHistoryWord(text) {
+	return text.includes(HISTORY_WORD);
+}
+
 export function probeBody(api, model, { stream = false, tools = false } = {}) {
 	if (api === "openai-responses") {
 		return {
@@ -348,7 +381,18 @@ export async function probeEndpoint({
 	if (s.ok && !report.streaming) report.notes.push("stream: true was accepted but the reply was not an event stream");
 	if (!s.ok) report.notes.push(`streaming request failed (${s.error ?? errorSummary(s.status, s.text)})`);
 
-	// 5. Tools. Three outcomes matter for providers.json:
+	// 5. Conversation history. Every agent turn resends the whole conversation;
+	//    an endpoint that keeps only the last message answers each turn from a
+	//    blank slate (#96: "the writeup was not attached", no tool calls).
+	const hist = await call("POST", probePath(report.api), historyBody(report.api, report.model));
+	if (!hist.ok) {
+		report.history = "failed";
+		report.notes.push(`history probe failed (${hist.error ?? errorSummary(hist.status, hist.text)})`);
+	} else {
+		report.history = sawHistoryWord(hist.text) ? "kept" : "dropped";
+	}
+
+	// 6. Tools. Three outcomes matter for providers.json:
 	//    native   - the model answered the ping with a tool call
 	//    refused  - the request with tools was rejected while the same request
 	//               without tools succeeded (a gateway policy, #42)
@@ -365,7 +409,7 @@ export async function probeEndpoint({
 	}
 	if (report.tools === "native") return report;
 
-	// 6. The prompted protocol needs two things a gateway can break: the system
+	// 7. The prompted protocol needs two things a gateway can break: the system
 	//    prompt must reach the model, and the model must follow the block
 	//    format. Check both, and fall back to the user turn for the protocol.
 	const sys = await call(
@@ -435,6 +479,14 @@ export function formatReport(report) {
 		else lines.push(`Max output tokens: enforced, but the limit was not stated (${c.note})`);
 	}
 	if (report.streaming !== undefined) lines.push(`Streaming: ${report.streaming ? "yes" : "no"}`);
+	if (report.history) {
+		const meaning = {
+			kept: "kept (the model could answer from an earlier turn)",
+			dropped: "DROPPED — the endpoint forwarded only the last message; unusable for an agent (every turn starts blank, tool results never return)",
+			failed: "probe failed (see notes)",
+		}[report.history];
+		lines.push(`Conversation history: ${meaning}`);
+	}
 	if (report.tools) {
 		const meaning = {
 			native: "yes (model returned a tool call)",

@@ -62,8 +62,11 @@ OpenRouter and Ollama-style keys are recognised); one tiny request each to
 `/responses` and `/chat/completions` to see which protocol answers; one with
 `stream: true`; one asking for an absurd output cap, whose rejection usually
 states the real limit (and a 200 means the endpoint clamps silently, so the
-`maxTokens` you write is documentation there); and one carrying a trivial
-`ping` tool. The answers become the
+`maxTokens` you write is documentation there); one three-turn conversation
+whose answer sits in the first turn, which a gateway that forwards only the
+latest message cannot answer (such an endpoint is unusable for an agent: every
+turn starts blank and tool results never come back, #96); and one carrying a
+trivial `ping` tool. The answers become the
 defaults of the questions that follow, and the tool probe decides the
 `"tools"` mode below: a tool call back means native; a rejection, or an
 accepted request with no call back (the definitions were stripped), means
