@@ -6,11 +6,18 @@ import { buildProvider } from "../../../scripts/add-provider.mjs";
 import {
 	ABSURD_MAX_TOKENS,
 	formatReport,
+	HISTORY_WORD,
+	historyBody,
+	historyBodyWith,
+	historyOpeningBody,
 	limitsFromError,
 	parseModelList,
 	probeBody,
 	probeEndpoint,
 	promptPlacementFor,
+	replyExcerpt,
+	replyWasCut,
+	sawHistoryWord,
 	sawToolBlock,
 	sawToolCall,
 	systemBody,
@@ -44,7 +51,7 @@ const chatToolCall = {
 			{
 				message: {
 					role: "assistant",
-					tool_calls: [{ id: "c1", type: "function", function: { name: "ping", arguments: "{}" } }],
+					tool_calls: [{ id: "c1", type: "function", function: { name: "ls", arguments: "{\"path\":\".\"}" } }],
 				},
 			},
 		],
@@ -55,7 +62,10 @@ const sse = {
 	contentType: "text/event-stream",
 	text: 'data: {"choices":[{"delta":{"content":"OK"}}]}\n\ndata: [DONE]\n\n',
 };
-const PING_BLOCK = "Sure.\n```tool\nTOOL_NAME: ping\n```";
+/** A streamed ping/ok reply — unless the request carries the tool protocol, which the protocol probe streams. */
+const streamOrAnswer = (body: any, opts: any = {}) =>
+	body.stream && !JSON.stringify(body.messages ?? body.input ?? "").includes("TOOL_NAME") ? sse : answer(body, opts);
+const PING_BLOCK = "Sure.\n```tool\nTOOL_NAME: ls\nBEGIN_ARG: path\n.\nEND_ARG\n```";
 const reply = (content: string) => ({ status: 200, json: { choices: [{ message: { role: "assistant", content } }] } });
 /** A model behind a Chat Completions endpoint: honours the system prompt (or not), follows the protocol (from where). */
 const capError = {
@@ -68,10 +78,21 @@ const capError = {
 };
 function answer(
 	body: any,
-	opts: { honourSystem?: boolean; followFrom?: "system" | "user" | "never"; clamp?: boolean } = {},
+	opts: { honourSystem?: boolean; followFrom?: "system" | "user" | "never"; clamp?: boolean; keepHistory?: boolean; ownTurnsOnly?: boolean } = {},
 ) {
-	const { honourSystem = true, followFrom = "system", clamp = false } = opts;
+	const { honourSystem = true, followFrom = "system", clamp = false, keepHistory = true, ownTurnsOnly = false } = opts;
 	if (body.max_tokens === ABSURD_MAX_TOKENS && !clamp) return capError;
+	// The history probe, two steps: the opening turn alone gets this gateway's own
+	// reply; the three-turn body answers from turn 1 unless the gateway is single-turn
+	// (keepHistory: false) or validates the assistant slot against what it said
+	// itself (ownTurnsOnly: true).
+	const opening = `Understood — ${HISTORY_WORD} noted. OK`;
+	if (body.messages.length === 1 && body.messages[0].content.includes(HISTORY_WORD)) return reply(opening);
+	if (body.messages.length === 3 && body.messages[0].content.includes(HISTORY_WORD)) {
+		if (!keepHistory) return reply("I don't have a code word from you.");
+		if (ownTurnsOnly && body.messages[1].content !== opening) return reply("None");
+		return reply(`The code word is ${HISTORY_WORD}.`);
+	}
 	const system = body.messages.find((m: any) => m.role === "system")?.content ?? "";
 	const user = body.messages.find((m: any) => m.role === "user")?.content ?? "";
 	if (honourSystem && /PINEAPPLE/.test(system)) return reply("PINEAPPLE");
@@ -103,10 +124,10 @@ test("parseModelList reads OpenAI, vLLM, LiteLLM, OpenRouter and Ollama shapes",
 	assert.deepEqual(parseModelList({ nonsense: true }), []);
 });
 
-test("probeBody shapes a Chat Completions and a Responses request, with and without the ping tool", () => {
+test("probeBody shapes a Chat Completions and a Responses request, with and without the ls tool", () => {
 	const c = probeBody("openai-completions", "m", { tools: true });
 	assert.equal(c.messages[0].role, "user");
-	assert.equal(c.tools[0].function.name, "ping");
+	assert.equal(c.tools[0].function.name, "ls");
 	assert.equal(c.stream, false);
 	const r = probeBody("openai-responses", "m", { stream: true });
 	assert.equal(typeof r.input, "string");
@@ -114,9 +135,127 @@ test("probeBody shapes a Chat Completions and a Responses request, with and with
 	assert.ok(!("tools" in r));
 });
 
+test("historyBody puts the answer in the first turn for both wire shapes; sawHistoryWord reads a reply", () => {
+	const c = historyBody("openai-completions", "m");
+	assert.equal(c.messages.length, 3);
+	assert.deepEqual(c.messages.map((m: any) => m.role), ["user", "assistant", "user"]);
+	assert.ok(c.messages[0].content.includes(HISTORY_WORD));
+	const r = historyBody("openai-responses", "m");
+	assert.equal(r.input.length, 3);
+	assert.equal(historyOpeningBody("openai-completions", "m").messages.length, 1);
+	assert.equal(historyBodyWith("openai-completions", "m", "Sure thing").messages[1].content, "Sure thing");
+	assert.equal(historyBodyWith("openai-completions", "m", "").messages[1].content, "OK", "an empty own reply falls back to OK");
+	assert.ok(!("max_tokens" in c) && !("max_output_tokens" in r), "no output cap: a verbose model must be allowed to reach the word");
+	assert.ok(sawHistoryWord(`Sure: ${HISTORY_WORD}`));
+	assert.ok(sawHistoryWord("### 🔑 Codeword\n\n| Item | Value |\n|---|---|\n| Codeword | `Pelican‑4471` |"), "markdown, capitals and a unicode hyphen still count");
+	assert.ok(!sawHistoryWord("I don't know"));
+	assert.ok(replyWasCut('{"choices":[{"message":{"content":"### Codeword\\n\\n| Item"},"finish_reason":"length"}]}'));
+	assert.ok(!replyWasCut('{"choices":[{"message":{"content":"x"},"finish_reason":"stop"}]}'));
+});
+
+test("a gateway that only honours its own assistant turns: history kept, with a note", async () => {
+	const fetchFn = fakeFetch((path, body) => {
+		if (path === "/models") return { status: 200, json: { data: [{ id: "m" }] } };
+		if (path === "/chat/completions") return streamOrAnswer(body, { ownTurnsOnly: true });
+		return undefined;
+	});
+	const report = await probeEndpoint({ baseUrl: BASE, apiKey: "k", fetchFn, pauseMs: 0 });
+	assert.equal(report.history, "kept", "the two-step probe uses the gateway's own reply");
+	assert.equal(report.historyOwnTurnsOnly, true);
+	assert.ok(report.notes.some((n: string) => /fabricated "OK".*None/.test(n)), `notes: ${report.notes}`);
+});
+
+test("a quota rejection of the absurd cap states no limit", async () => {
+	const fetchFn = fakeFetch((path, body) => {
+		if (path === "/models") return { status: 200, json: { data: [{ id: "m" }] } };
+		if (path === "/chat/completions") {
+			if (body.max_tokens === ABSURD_MAX_TOKENS)
+				return { status: 429, json: { error: { message: "You've used 16319 of your 50000000 token allowance for this 24-hour window. Your limit resets in 23h 50m." } } };
+			return streamOrAnswer(body, { clamp: true });
+		}
+		return undefined;
+	});
+	const report = await probeEndpoint({ baseUrl: BASE, apiKey: "k", fetchFn, pauseMs: 0 });
+	assert.equal(report.outputCap.rateLimited, true);
+	assert.equal(report.outputCap.maxTokens, undefined, "16319 is usage, not a limit");
+	assert.equal(report.models[0].maxTokens, undefined);
+	assert.match(formatReport(report), /Max output tokens: not determined/);
+});
+
+test("transient failures: one retry, timeouts are failures not refusals, no fabricated turn", async () => {
+	let modelsCalls = 0;
+	const fetchFn = fakeFetch((path, body) => {
+		if (path === "/models") return ++modelsCalls === 1 ? { status: 503, text: "no healthy upstream" } : { status: 200, json: { data: [{ id: "m" }] } };
+		if (path === "/chat/completions") {
+			if (body.tools) throw Object.assign(new Error("aborted"), { name: "AbortError" }); // the tools request times out, twice
+			if (body.messages.length === 1 && body.messages[0].content.includes(HISTORY_WORD)) return { status: 502, text: "bad gateway" }; // the opening turn fails, twice
+			return streamOrAnswer(body);
+		}
+		return undefined;
+	});
+	const report = await probeEndpoint({ baseUrl: BASE, apiKey: "k", fetchFn, pauseMs: 0 });
+	assert.equal(report.models.length, 1, "GET /models succeeded on the retry");
+	assert.ok(report.retried >= 1);
+	assert.equal(report.tools, "failed");
+	assert.equal(toolModeFor(report), undefined, "a failed tool probe recommends nothing");
+	assert.match(formatReport(report), /Tool calls: could not be tested/);
+	assert.equal(report.history, "inconclusive");
+	assert.ok(report.notes.some((n: string) => /opening turn failed .*fabricated/.test(n)), `notes: ${report.notes}`);
+});
+
+test("the output cap is probed last, so its quota side effect cannot poison the other probes", async () => {
+	const order: string[] = [];
+	const fetchFn = fakeFetch((path, body) => {
+		if (path === "/models") return { status: 200, json: { data: [{ id: "m" }] } };
+		if (path === "/chat/completions") {
+			order.push(body.max_tokens === ABSURD_MAX_TOKENS ? "cap" : "other");
+			return streamOrAnswer(body);
+		}
+		return undefined;
+	});
+	await probeEndpoint({ baseUrl: BASE, apiKey: "k", fetchFn, pauseMs: 0 });
+	assert.equal(order.at(-1), "cap");
+	assert.equal(order.filter((o) => o === "cap").length, 1);
+});
+
+test("a reply cut by the output limit is inconclusive, not dropped", async () => {
+	const fetchFn = fakeFetch((path, body) => {
+		if (path === "/models") return { status: 200, json: { data: [{ id: "m" }] } };
+		if (path === "/chat/completions") {
+			if (body.messages.length === 3 && body.messages[0].content.includes(HISTORY_WORD))
+				return { status: 200, json: { choices: [{ message: { role: "assistant", content: "### 🔑 Codeword Verification\n\n| Item |" }, finish_reason: "length" }] } };
+			return streamOrAnswer(body);
+		}
+		return undefined;
+	});
+	const report = await probeEndpoint({ baseUrl: BASE, apiKey: "k", fetchFn, pauseMs: 0 });
+	assert.equal(report.history, "inconclusive");
+	assert.match(formatReport(report), /Conversation history: inconclusive/);
+	assert.ok(report.notes.some((n: string) => /output limit/.test(n)));
+});
+
+test("a single-turn gateway that forwards only the last message is reported as dropping history (#96)", async () => {
+	const fetchFn = fakeFetch((path, body) => {
+		if (path === "/models") return { status: 200, json: { data: [{ id: "m" }] } };
+		if (path === "/chat/completions") return streamOrAnswer(body, { keepHistory: false });
+		return undefined;
+	});
+	const report = await probeEndpoint({ baseUrl: BASE, apiKey: "k", fetchFn, pauseMs: 0 });
+	assert.equal(report.history, "dropped");
+	assert.match(formatReport(report), /Conversation history: DROPPED/);
+	assert.ok(report.notes.some((n: string) => /history probe reply .*I don't have a code word/.test(n)), "the model's actual reply is in the notes");
+});
+
+test("replyExcerpt reads Chat Completions, Responses and streamed bodies", () => {
+	assert.equal(replyExcerpt('{"choices":[{"message":{"content":"### Hi\\n\\n| a |  b |"}}]}'), "### Hi | a | b |");
+	assert.equal(replyExcerpt('{"output":[{"type":"message","content":[{"type":"output_text","text":"yes"}]}]}'), "yes");
+	assert.equal(replyExcerpt('data: {"choices":[{"delta":{"content":"pel"}}]}\n\ndata: {"choices":[{"delta":{"content":"ican"}}]}\n\ndata: [DONE]\n'), "pelican");
+	assert.equal(replyExcerpt("x".repeat(300), 10), `${"x".repeat(10)}…`);
+});
+
 test("sawToolCall recognises both wire shapes", () => {
 	assert.ok(sawToolCall(JSON.stringify(chatToolCall.json)));
-	assert.ok(sawToolCall('{"output":[{"type":"function_call","name":"ping"}]}'));
+	assert.ok(sawToolCall('{"output":[{"type":"function_call","name":"ls"}]}'));
 	assert.ok(!sawToolCall(JSON.stringify(chatOk.json)));
 });
 
@@ -127,11 +266,11 @@ test("a gateway that refuses tools: completions only, streaming, tools refused -
 			return { status: 200, json: { data: [{ id: "gemini-flash", max_model_len: 1000000 }, { id: "gpt-4.1" }] } };
 		if (path === "/chat/completions") {
 			if (body.tools) return { status: 400, json: { error: { message: "tools are disabled on this endpoint" } } };
-			return body.stream ? sse : answer(body);
+			return streamOrAnswer(body);
 		}
 		return undefined;
 	}, seen);
-	const report = await probeEndpoint({ baseUrl: BASE, apiKey: "k", fetchFn });
+	const report = await probeEndpoint({ baseUrl: BASE, apiKey: "k", fetchFn, pauseMs: 0 });
 	assert.deepEqual(report.models, [
 		{ id: "gemini-flash", contextWindow: 1000000, maxTokens: 8192 },
 		{ id: "gpt-4.1" },
@@ -140,8 +279,15 @@ test("a gateway that refuses tools: completions only, streaming, tools refused -
 	assert.equal(report.api, "openai-completions");
 	assert.match(report.apis["openai-responses"], /^404/);
 	assert.equal(report.streaming, true);
+	assert.equal(report.history, "kept");
+	assert.match(formatReport(report), /Conversation history: kept/);
 	assert.equal(report.tools, "refused");
 	assert.equal(toolModeFor(report), "prompted");
+	assert.equal(report.protocolSource, "gah", "inside the checkout the real preamble is used");
+	assert.ok(
+		seen.some((r) => r.body && JSON.stringify(r.body).includes("Good Agent Harness") && JSON.stringify(r.body).includes("## ls")),
+		"the protocol probe carried SYSTEM.md and the real protocol",
+	);
 	assert.ok(
 		seen.every((r) => r.headers.authorization === "Bearer k"),
 		"key sent as bearer",
@@ -200,18 +346,19 @@ test("limitsFromError reads the common error shapes", () => {
 test("an endpoint that clamps the output cap silently is reported as not enforced", async () => {
 	const fetchFn = fakeFetch((path, body) => {
 		if (path === "/models") return { status: 200, json: { data: [{ id: "m" }] } };
-		if (path === "/chat/completions") return body.stream ? sse : answer(body, { clamp: true });
+		if (path === "/chat/completions") return streamOrAnswer(body, { clamp: true });
 		return undefined;
 	});
-	const report = await probeEndpoint({ baseUrl: BASE, fetchFn });
+	const report = await probeEndpoint({ baseUrl: BASE, fetchFn, pauseMs: 0 });
 	assert.deepEqual(report.outputCap, { enforced: false, note: `accepted max_tokens: ${ABSURD_MAX_TOKENS}` });
 	assert.match(formatReport(report), /Max output tokens: not enforced/);
 });
 
 test("sawToolBlock and systemBody", () => {
 	assert.ok(sawToolBlock(PING_BLOCK));
-	assert.ok(sawToolBlock("```tool\r\nTOOL_NAME:   ping\r\n```"));
-	assert.ok(!sawToolBlock("I would call ping but cannot."));
+	assert.ok(sawToolBlock("```tool\r\nTOOL_NAME:   ls\r\n```"));
+	assert.ok(!sawToolBlock("I would call ls but cannot."));
+	assert.ok(!sawToolBlock("```tool\nTOOL_NAME: lsof\n```"), "ls is a whole word");
 	const sys = systemBody("openai-completions", "m", "SYS", "USER");
 	assert.deepEqual(
 		sys.messages.map((m: any) => m.role),
@@ -232,10 +379,10 @@ test("a gateway that drops system prompts: protocol followed only from the user 
 	const fetchFn = fakeFetch((path, body) => {
 		if (path === "/models") return { status: 200, json: { data: [{ id: "m" }] } };
 		if (path === "/chat/completions")
-			return body.stream ? sse : answer(body, { honourSystem: false, followFrom: "user" });
+			return streamOrAnswer(body, { honourSystem: false, followFrom: "user" });
 		return undefined;
 	});
-	const report = await probeEndpoint({ baseUrl: BASE, fetchFn });
+	const report = await probeEndpoint({ baseUrl: BASE, fetchFn, pauseMs: 0 });
 	assert.equal(report.tools, "ignored");
 	assert.equal(report.systemPrompt, "ignored");
 	assert.equal(report.protocol, "user");
@@ -248,10 +395,10 @@ test("a gateway that drops system prompts: protocol followed only from the user 
 test("a model that never follows the protocol is reported as not-followed", async () => {
 	const fetchFn = fakeFetch((path, body) => {
 		if (path === "/models") return { status: 200, json: { data: [{ id: "m" }] } };
-		if (path === "/chat/completions") return body.stream ? sse : answer(body, { followFrom: "never" });
+		if (path === "/chat/completions") return streamOrAnswer(body, { followFrom: "never" });
 		return undefined;
 	});
-	const report = await probeEndpoint({ baseUrl: BASE, fetchFn });
+	const report = await probeEndpoint({ baseUrl: BASE, fetchFn, pauseMs: 0 });
 	assert.equal(report.systemPrompt, "honoured");
 	assert.equal(report.protocol, "not-followed");
 	assert.equal(promptPlacementFor(report), undefined);
@@ -265,7 +412,7 @@ test("a gateway that silently strips tools -> ignored -> prompted", async () => 
 		if (path === "/chat/completions") return body.stream ? sse : chatOk; // tools accepted, never called
 		return undefined;
 	});
-	const report = await probeEndpoint({ baseUrl: BASE, fetchFn });
+	const report = await probeEndpoint({ baseUrl: BASE, fetchFn, pauseMs: 0 });
 	assert.equal(report.tools, "ignored");
 	assert.equal(toolModeFor(report), "prompted");
 	assert.match(formatReport(report), /Tool calls: ignored/);
@@ -278,7 +425,7 @@ test("a full-featured endpoint: Responses preferred, tools native", async () => 
 		if (path === "/models") return { status: 200, json: { data: [{ id: "gpt-5" }] } };
 		if (path === "/responses") {
 			if (body.tools)
-				return { status: 200, json: { output: [{ type: "function_call", name: "ping", arguments: "{}" }] } };
+				return { status: 200, json: { output: [{ type: "function_call", name: "ls", arguments: "{\"path\":\".\"}" }] } };
 			return body.stream
 				? { status: 200, contentType: "text/event-stream", text: "data: {}\n\n" }
 				: { status: 200, json: { output: [] } };
@@ -286,7 +433,7 @@ test("a full-featured endpoint: Responses preferred, tools native", async () => 
 		if (path === "/chat/completions") return body.tools ? chatToolCall : chatOk;
 		return undefined;
 	});
-	const report = await probeEndpoint({ baseUrl: BASE, apiKey: "k", fetchFn });
+	const report = await probeEndpoint({ baseUrl: BASE, apiKey: "k", fetchFn, pauseMs: 0 });
 	assert.equal(report.api, "openai-responses");
 	assert.equal(report.apis["openai-completions"], "ok");
 	assert.equal(report.streaming, true);
@@ -298,13 +445,13 @@ test("a full-featured endpoint: Responses preferred, tools native", async () => 
 
 test("nothing answers: report says so and never throws", async () => {
 	const fetchFn = fakeFetch(() => ({ status: 401, json: { error: { message: "bad key" } } }));
-	const report = await probeEndpoint({ baseUrl: BASE, apiKey: "k", fetchFn });
+	const report = await probeEndpoint({ baseUrl: BASE, apiKey: "k", fetchFn, pauseMs: 0 });
 	assert.equal(report.api, undefined);
 	assert.equal(report.model, undefined);
 	assert.ok(report.notes.some((n) => /GET \/models failed \(401: bad key\)/.test(n)));
 	assert.ok(report.notes.some((n) => /pass --model/.test(n)));
 	// With a model given, the protocol probes still run and fail cleanly.
-	const r2 = await probeEndpoint({ baseUrl: BASE, model: "m", fetchFn });
+	const r2 = await probeEndpoint({ baseUrl: BASE, model: "m", fetchFn, pauseMs: 0 });
 	assert.equal(r2.api, undefined);
 	assert.match(r2.apis["openai-completions"], /^401/);
 	assert.ok(r2.notes.some((n) => /neither/.test(n)));
@@ -314,7 +461,7 @@ test("a fetch that throws (DNS, proxy, timeout) is reported, not thrown", async 
 	const fetchFn = async () => {
 		throw new Error("getaddrinfo ENOTFOUND gw.example.com");
 	};
-	const report = await probeEndpoint({ baseUrl: BASE, model: "m", fetchFn });
+	const report = await probeEndpoint({ baseUrl: BASE, model: "m", fetchFn, pauseMs: 0 });
 	assert.ok(report.notes.some((n) => /ENOTFOUND/.test(n)));
 	assert.equal(report.api, undefined);
 });

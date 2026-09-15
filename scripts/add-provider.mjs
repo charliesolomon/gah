@@ -236,6 +236,18 @@ async function main() {
 		stdout.write("  probing…\n");
 		report = await probeEndpoint({ baseUrl, apiKey: probeKey });
 		stdout.write(`${formatReport(report).replace(/^/gm, "  ")}\n\n`);
+		if (report.history === "dropped") {
+			// Not a tuning question: an agent resends the whole conversation every
+			// turn, so an endpoint that keeps only the last message answers each
+			// turn from a blank slate and never sees its own tool results (#96).
+			stdout.write("  WARNING: this endpoint drops conversation history. GAH cannot work through it:\n");
+			stdout.write("  every turn would start blank and tool results would never come back.\n");
+			stdout.write("  Register it only to document the finding, or fix the gateway first.\n\n");
+			if (!(await askYesNo("Register it anyway?", false))) {
+				stdout.write("Nothing written.\n");
+				process.exit(1);
+			}
+		}
 	}
 	const probedTools = report ? toolModeFor(report) : undefined;
 

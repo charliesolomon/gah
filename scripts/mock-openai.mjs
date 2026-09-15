@@ -15,7 +15,9 @@
 // drops the closing fence and ends that reply with finish_reason "length".
 // GET /models lists m1 (with a vLLM-style max_model_len), /responses is 404,
 // and a max_tokens above 32768 is rejected with OpenAI's wording, so
-// scripts/probe-endpoint.mjs can be tried against this mock too.
+// scripts/probe-endpoint.mjs can be tried against this mock too. Its history
+// probe (three turns, the answer in the first) is answered from the first
+// turn; MOCK_HISTORY=drop plays a single-turn gateway that never saw it (#96).
 import { appendFileSync } from "node:fs";
 import http from "node:http";
 
@@ -72,7 +74,10 @@ http
 			// Exactly the probe's phrasing: a real session's prompt can contain the
 			// protocol and the word "ping" inside other words, and must get the
 			// tool-block reply below instead.
-			const protocolPing = /## ping\n/.test(`${systemText}\n${userText}`) && /Use the ping tool now/.test(userText);
+			const protocolPing = /## ls\n/.test(`${systemText}\n${userText}`) && /(call the ls tool with path "\." now, then stop|Then name two real things that are actually there)/.test(userText);
+			// probe-endpoint's history probe: the code word sits in the first of three turns.
+			const codeWord = messages.length === 3 ? text(messages[0]).match(/code word is ([\w-]+)/)?.[1] : undefined;
+			const historyAnswer = codeWord && process.env.MOCK_HISTORY !== "drop" ? `The code word is ${codeWord}.` : codeWord ? "You have not given me a code word." : undefined;
 			appendFileSync(
 				log,
 				`${JSON.stringify({ path: req.url, tools, hasTools, hasToolRoles, roles, protocolInPrompt, protocolInUser, hasResult })}\n`,
@@ -91,8 +96,9 @@ http
 			res.writeHead(200, { "content-type": "text/event-stream" });
 			const chunk = (d) => res.write(`data: ${JSON.stringify(d)}\n\n`);
 			const say = (content) => chunk({ id: "mock", object: "chat.completion.chunk", choices: [{ index: 0, delta: { role: "assistant", content }, finish_reason: null }] });
-			if (marker) say(marker);
-			else if (protocolPing) say("```tool\nTOOL_NAME: ping\n```\n");
+			if (historyAnswer) say(historyAnswer);
+			else if (marker) say(marker);
+			else if (protocolPing) say("```tool\nTOOL_NAME: ls\nBEGIN_ARG: path\n.\nEND_ARG\n```\n");
 			else if (!prompted) say("ok");
 			else if (hasResult) say("done");
 			else {

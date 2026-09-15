@@ -62,15 +62,29 @@ OpenRouter and Ollama-style keys are recognised); one tiny request each to
 `/responses` and `/chat/completions` to see which protocol answers; one with
 `stream: true`; one asking for an absurd output cap, whose rejection usually
 states the real limit (and a 200 means the endpoint clamps silently, so the
-`maxTokens` you write is documentation there); and one carrying a trivial
-`ping` tool. The answers become the
+`maxTokens` you write is documentation there, and a quota message states no
+limit at all); a conversation-history check in two requests, as an agent would
+make them — the opening turn alone, then three turns with the assistant slot
+holding what the endpoint itself replied — which a gateway that forwards only
+the latest message cannot answer (such an endpoint is unusable for an agent:
+every turn starts blank and tool results never come back, #96); and one
+carrying a real `ls` tool. The answers become the
 defaults of the questions that follow, and the tool probe decides the
 `"tools"` mode below: a tool call back means native; a rejection, or an
 accepted request with no call back (the definitions were stripped), means
 prompted. For a prompted endpoint it then checks that a system prompt reaches
 the model and that the model follows the text protocol, from the system
-prompt or, failing that, from the user turn. Nothing is written by the probe,
-and the key is never put on a command line.
+prompt or, failing that, from the user turn — sending the same preamble a
+session sends (the policy pack's SYSTEM.md plus the protocol as
+`lib/prompted-tools.ts` renders it, loaded from the checkout; a bare protocol
+without the persona got "I do not have access to tools like ls" from a model
+that calls `ls` in every session). Every negative verdict carries an excerpt
+of what the model actually replied, so a surprising result can be read rather
+than guessed at. Requests go one at a time with a short pause, a timeout of
+60 s (`TIMEOUT=seconds`), and one retry after a timeout, a 429 or a 5xx; the
+output-cap request runs last, because an absurd cap can trip a quota check
+whose after-effects would turn the following probes into noise. Nothing is
+written by the probe, and the key is never put on a command line.
 
 - Works for any endpoint speaking an API PI knows: `openai-completions`,
   `openai-responses`, `anthropic-messages`, etc. Most enterprise gateways
