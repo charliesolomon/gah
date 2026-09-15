@@ -183,6 +183,45 @@ export function replyExcerpt(text, limit = 240) {
  * what the session shows it. Null outside a checkout; the compact copy is
  * used then, and the report says so.
  */
+/** A natural task that needs ls, in the shape of the /rrr acceptance prompt. A bare
+ * "call the ls tool now" invites "I do not have tools"; a task does not. */
+export const PROTOCOL_TASK =
+	"Look at what is in the current working directory (list it; do not read file contents). Then name two real things that are actually there.";
+
+/**
+ * The request a prompted session makes for one user turn, built by the same
+ * rewriteContext a session uses (loaded through jiti from this checkout):
+ * SYSTEM.md as the system prompt, one ls tool, the protocol placed where
+ * `placement` says. Returns an OpenAI-shaped body, or null outside a checkout.
+ */
+export async function loadGahProtocolBody(repoRoot = REPO_ROOT) {
+	try {
+		const systemPath = join(repoRoot, "packages", "policy-pack", "SYSTEM.md");
+		const libPath = join(repoRoot, "packages", "policy-pack", "extensions", "lib", "prompted-tools.ts");
+		const jitiPath = join(repoRoot, "vendor", "pi", "node_modules", "jiti", "lib", "jiti.mjs");
+		if (!existsSync(systemPath) || !existsSync(libPath) || !existsSync(jitiPath)) return null;
+		const { createJiti } = await import(pathToFileURL(jitiPath).href);
+		const lib = await createJiti(import.meta.url).import(libPath);
+		const systemMd = readFileSync(systemPath, "utf8").replaceAll("{{ALLOWED_TOOLS}}", "`ls`").trimEnd();
+		const tool = { name: "ls", description: LS_TOOL_COMPLETIONS.function.description, parameters: LS_PARAMETERS };
+		return (api, model, placement, userText = PROTOCOL_TASK) => {
+			const ctx = lib.rewriteContext(
+				{ systemPrompt: systemMd, messages: [{ role: "user", content: userText, timestamp: Date.now() }], tools: [tool] },
+				{ placement },
+			);
+			const text = (c) => (typeof c === "string" ? c : c.map((x) => x.text ?? "").join(""));
+			const turns = ctx.messages.map((m) => ({ role: m.role, content: text(m.content) }));
+			if (api === "openai-responses") {
+				return { model, ...(ctx.systemPrompt ? { instructions: ctx.systemPrompt } : {}), input: turns, stream: true };
+			}
+			return { model, messages: [...(ctx.systemPrompt ? [{ role: "system", content: ctx.systemPrompt }] : []), ...turns], stream: true };
+		};
+	} catch (err) {
+		if (process.env.GAH_PROBE_DEBUG) console.error(`probe: real request builder unavailable: ${err?.message ?? err}`);
+		return null;
+	}
+}
+
 export async function loadGahPreamble(repoRoot = REPO_ROOT) {
 	try {
 		const systemPath = join(repoRoot, "packages", "policy-pack", "SYSTEM.md");
@@ -326,7 +365,10 @@ export async function probeEndpoint({
 	model,
 	headers = {},
 	fetchFn = globalThis.fetch,
-	timeoutMs = 20_000,
+	timeoutMs = 60_000,
+	retries = 1,
+	pauseMs = 400,
+	sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
 }) {
 	const h = {
 		"content-type": "application/json",
@@ -347,7 +389,23 @@ export async function probeEndpoint({
 		notes: [],
 	};
 
+	// One request at a time, a short pause between them, and one retry after a
+	// timeout, a 429 or a 5xx: a gateway that is slow or briefly unhealthy
+	// (502 on one route, "no healthy upstream" on another, #96) otherwise turns
+	// every later probe into a "failed" and the report into noise.
+	let calls = 0;
 	const call = async (method, path, body) => {
+		let last;
+		for (let attempt = 0; attempt <= retries; attempt++) {
+			if (calls++ > 0) await sleep(attempt === 0 ? pauseMs : pauseMs * 5);
+			last = await callOnce(method, path, body);
+			const transient = last.status === 0 || last.status === 429 || last.status >= 500;
+			if (!transient) return last;
+			if (attempt < retries) report.retried = (report.retried ?? 0) + 1;
+		}
+		return last;
+	};
+	const callOnce = async (method, path, body) => {
 		const controller = new AbortController();
 		const timer = setTimeout(() => controller.abort(), timeoutMs);
 		try {
@@ -365,7 +423,7 @@ export async function probeEndpoint({
 				status: 0,
 				text: "",
 				contentType: "",
-				error: error?.name === "AbortError" ? "timeout" : (error?.message ?? String(error)),
+				error: error?.name === "AbortError" ? `timeout after ${Math.round(timeoutMs / 1000)}s` : (error?.message ?? String(error)),
 			};
 		} finally {
 			clearTimeout(timer);
@@ -410,46 +468,51 @@ export async function probeEndpoint({
 		return report;
 	}
 
-	// 3. Output cap. Ask for far more than any model can produce: a rejection
-	//    usually names the real limit (and sometimes the context window), a 200
-	//    means the endpoint clamps silently and the cap in providers.json is
-	//    documentation, not a control.
-	const capField = report.api === "openai-responses" ? "max_output_tokens" : "max_tokens";
-	let cap = await call("POST", probePath(report.api), {
-		...probeBody(report.api, report.model),
-		[capField]: ABSURD_MAX_TOKENS,
-	});
-	if (
-		!cap.ok &&
-		capField === "max_tokens" &&
-		/max_completion_tokens/.test(cap.text) &&
-		!/at most|maximum/i.test(cap.text)
-	) {
-		cap = await call("POST", probePath(report.api), {
+	const probeCap = async () => {
+		// Output cap, run LAST: asking for an absurd cap can trip a quota check
+		//    ("used N of your allowance", 429), and a gateway that has just said 429
+		//    tends to answer the next requests with timeouts (#96).
+		//    Ask for far more than any model can produce: a rejection
+		//    usually names the real limit (and sometimes the context window), a 200
+		//    means the endpoint clamps silently and the cap in providers.json is
+		//    documentation, not a control.
+		const capField = report.api === "openai-responses" ? "max_output_tokens" : "max_tokens";
+		let cap = await call("POST", probePath(report.api), {
 			...probeBody(report.api, report.model),
-			max_completion_tokens: ABSURD_MAX_TOKENS,
+			[capField]: ABSURD_MAX_TOKENS,
 		});
-	}
-	if (cap.ok) {
-		report.outputCap = { enforced: false, note: `accepted ${capField}: ${ABSURD_MAX_TOKENS}` };
-	} else if (cap.status === 0) {
-		report.notes.push(`output cap probe failed (${cap.error})`);
-	} else if (cap.status === 429 || /allowance|quota|rate.?limit/i.test(cap.text)) {
-		// A quota message restates the account's usage, not the model's limit;
-		// parsing a number out of it gave a "max output" that grew with every run.
-		report.outputCap = { enforced: undefined, rateLimited: true, note: errorSummary(cap.status, cap.text) };
-		report.notes.push(`output cap probe was rate-limited, so the limit is unknown: ${errorSummary(cap.status, cap.text)}`);
-	} else {
-		const limits = limitsFromError(cap.text);
-		report.outputCap = { enforced: true, ...limits, note: errorSummary(cap.status, cap.text) };
-		// The number above is parsed from this message; when it looks wrong, this is the evidence.
-		report.notes.push(`output cap rejection: ${errorSummary(cap.status, cap.text)}`);
-		const m = report.models.find((x) => x.id === report.model);
-		if (m) {
-			if (limits.maxTokens && !m.maxTokens) m.maxTokens = limits.maxTokens;
-			if (limits.contextWindow && !m.contextWindow) m.contextWindow = limits.contextWindow;
+		if (
+			!cap.ok &&
+			capField === "max_tokens" &&
+			/max_completion_tokens/.test(cap.text) &&
+			!/at most|maximum/i.test(cap.text)
+		) {
+			cap = await call("POST", probePath(report.api), {
+				...probeBody(report.api, report.model),
+				max_completion_tokens: ABSURD_MAX_TOKENS,
+			});
 		}
-	}
+		if (cap.ok) {
+			report.outputCap = { enforced: false, note: `accepted ${capField}: ${ABSURD_MAX_TOKENS}` };
+		} else if (cap.status === 0) {
+			report.notes.push(`output cap probe failed (${cap.error})`);
+		} else if (cap.status === 429 || /allowance|quota|rate.?limit/i.test(cap.text)) {
+			// A quota message restates the account's usage, not the model's limit;
+			// parsing a number out of it gave a "max output" that grew with every run.
+			report.outputCap = { enforced: undefined, rateLimited: true, note: errorSummary(cap.status, cap.text) };
+			report.notes.push(`output cap probe was rate-limited, so the limit is unknown: ${errorSummary(cap.status, cap.text)}`);
+		} else {
+			const limits = limitsFromError(cap.text);
+			report.outputCap = { enforced: true, ...limits, note: errorSummary(cap.status, cap.text) };
+			// The number above is parsed from this message; when it looks wrong, this is the evidence.
+			report.notes.push(`output cap rejection: ${errorSummary(cap.status, cap.text)}`);
+			const m = report.models.find((x) => x.id === report.model);
+			if (m) {
+				if (limits.maxTokens && !m.maxTokens) m.maxTokens = limits.maxTokens;
+				if (limits.contextWindow && !m.contextWindow) m.contextWindow = limits.contextWindow;
+			}
+		}
+	};
 
 	// 4. Streaming.
 	const s = await call("POST", probePath(report.api), probeBody(report.api, report.model, { stream: true }));
@@ -467,8 +530,13 @@ export async function probeEndpoint({
 	//    "OK" in the middle (#96) — it appears to discard turns it did not produce.
 	const opening = await call("POST", probePath(report.api), historyOpeningBody(report.api, report.model));
 	const ownReply = opening.ok ? replyText(opening.text).trim() : "";
-	const hist = await call("POST", probePath(report.api), historyBodyWith(report.api, report.model, ownReply));
-	if (!hist.ok) {
+	const hist = opening.ok ? await call("POST", probePath(report.api), historyBodyWith(report.api, report.model, ownReply)) : opening;
+	if (!opening.ok) {
+		report.history = "inconclusive";
+		report.notes.push(
+			`history probe: the opening turn failed (${opening.error ?? errorSummary(opening.status, opening.text)}), so the three-turn request was not sent — a fabricated assistant turn would test the wrong thing`,
+		);
+	} else if (!hist.ok) {
 		report.history = "failed";
 		report.notes.push(`history probe failed (${hist.error ?? errorSummary(hist.status, hist.text)})`);
 	} else if (sawHistoryWord(hist.text)) {
@@ -499,16 +567,22 @@ export async function probeEndpoint({
 	//    ignored  - accepted, but no tool call came back: the definitions were
 	//               most likely stripped before the model saw them (#42)
 	const t = await call("POST", probePath(report.api), probeBody(report.api, report.model, { tools: true }));
-	if (!t.ok) {
+	if (!t.ok && t.status === 0) {
+		report.tools = "failed";
+		report.notes.push(`tools request failed (${t.error}); nothing can be said about tool support`);
+	} else if (!t.ok) {
 		report.tools = "refused";
-		report.notes.push(`tools request rejected (${t.error ?? errorSummary(t.status, t.text)})`);
+		report.notes.push(`tools request rejected (${errorSummary(t.status, t.text)})`);
 	} else if (sawToolCall(t.text)) {
 		report.tools = "native";
 	} else {
 		report.tools = "ignored";
 		report.notes.push(`tool probe reply (asked to call ls natively): ${replyExcerpt(t.text)}`);
 	}
-	if (report.tools === "native") return report;
+	if (report.tools === "native") {
+		await probeCap();
+		return report;
+	}
 
 	// 7. The prompted protocol needs two things a gateway can break: the system
 	//    prompt must reach the model, and the model must follow the block
@@ -521,17 +595,15 @@ export async function probeEndpoint({
 	report.systemPrompt = sys.ok ? (sys.text.includes(SYSTEM_MARKER) ? "honoured" : "ignored") : "failed";
 	if (report.systemPrompt === "ignored") report.notes.push(`system prompt probe reply (should have been ${SYSTEM_MARKER}): ${replyExcerpt(sys.text)}`);
 	if (!sys.ok) report.notes.push(`system prompt probe failed (${sys.error ?? errorSummary(sys.status, sys.text)})`);
-	const gahPreamble = await loadGahPreamble();
-	report.protocolSource = gahPreamble ? "gah" : "compact";
-	const protocolText = gahPreamble ?? PROTOCOL_TEST;
+	const buildGah = await loadGahProtocolBody();
+	report.protocolSource = buildGah ? "gah" : "compact";
 	for (const placement of ["system", "user"]) {
 		if (placement === "system" && report.systemPrompt === "ignored") continue;
-		const r = await call(
-			"POST",
-			probePath(report.api),
-			systemBody(report.api, report.model, protocolText, PROTOCOL_TEST_USER, placement),
-		);
-		if (r.ok && sawToolBlock(r.text)) {
+		const body = buildGah
+			? buildGah(report.api, report.model, placement)
+			: systemBody(report.api, report.model, PROTOCOL_TEST, PROTOCOL_TEST_USER, placement);
+		const r = await call("POST", probePath(report.api), body);
+		if (r.ok && sawToolBlock(replyText(r.text))) {
 			report.protocol = placement;
 			break;
 		}
@@ -540,6 +612,7 @@ export async function probeEndpoint({
 			report.notes.push(`protocol probe (${placement}) failed (${r.error ?? errorSummary(r.status, r.text)})`);
 	}
 	if (!report.protocol) report.protocol = "not-followed";
+	await probeCap();
 	return report;
 }
 
@@ -550,7 +623,7 @@ export function promptPlacementFor(report) {
 
 /** The providers.json `tools` mode a probe result calls for. */
 export function toolModeFor(report) {
-	return report.tools === "native" ? "native" : report.tools ? "prompted" : undefined;
+	return report.tools === "native" ? "native" : report.tools && report.tools !== "failed" ? "prompted" : undefined;
 }
 
 /** Human-readable report. */
@@ -600,6 +673,7 @@ export function formatReport(report) {
 			native: "yes (model returned a tool call)",
 			refused: "refused by the endpoint",
 			ignored: "ignored (accepted, but no tool call came back)",
+			failed: "could not be tested (the request failed; see notes)",
 		}[report.tools];
 		lines.push(`Tool calls: ${meaning}`);
 		const mode = toolModeFor(report);
@@ -619,7 +693,7 @@ export function formatReport(report) {
 			user: "followed only when placed in the user turn",
 			"not-followed": "NOT FOLLOWED: the model answered without a tool block",
 		}[report.protocol];
-		lines.push(`Prompted tool protocol: ${meaning}`);
+		lines.push(`Prompted tool protocol: ${meaning}${report.protocolSource === "gah" ? " (probed with a session's own preamble)" : ""}`);
 		if (report.protocol === "user") lines.push(`  -> also set "toolsPrompt": "user" on this provider`);
 		if (report.protocol === "not-followed")
 			lines.push(
@@ -647,7 +721,7 @@ function flag(name) {
 async function main() {
 	const baseUrl = argv
 		.slice(2)
-		.find((a) => !a.startsWith("--") && !["--key-env", "--model"].includes(argv[argv.indexOf(a) - 1]));
+		.find((a) => !a.startsWith("--") && !["--key-env", "--model", "--timeout"].includes(argv[argv.indexOf(a) - 1]));
 	if (!baseUrl || argv.includes("--help")) {
 		stderr.write("usage: node scripts/probe-endpoint.mjs <baseUrl> [--key-env VAR] [--model ID]\n");
 		exit(2);
@@ -658,7 +732,8 @@ async function main() {
 		stderr.write(`probe-endpoint: $${keyEnv} is not set\n`);
 		exit(2);
 	}
-	const report = await probeEndpoint({ baseUrl, apiKey, model: flag("--model") });
+	const timeoutS = Number(flag("--timeout") ?? 60);
+	const report = await probeEndpoint({ baseUrl, apiKey, model: flag("--model"), timeoutMs: (Number.isFinite(timeoutS) && timeoutS > 0 ? timeoutS : 60) * 1000 });
 	stdout.write(`${formatReport(report)}\n`);
 	exit(report.api ? 0 : 1);
 }

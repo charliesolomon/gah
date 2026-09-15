@@ -62,6 +62,9 @@ const sse = {
 	contentType: "text/event-stream",
 	text: 'data: {"choices":[{"delta":{"content":"OK"}}]}\n\ndata: [DONE]\n\n',
 };
+/** A streamed ping/ok reply — unless the request carries the tool protocol, which the protocol probe streams. */
+const streamOrAnswer = (body: any, opts: any = {}) =>
+	body.stream && !JSON.stringify(body.messages ?? body.input ?? "").includes("TOOL_NAME") ? sse : answer(body, opts);
 const PING_BLOCK = "Sure.\n```tool\nTOOL_NAME: ls\nBEGIN_ARG: path\n.\nEND_ARG\n```";
 const reply = (content: string) => ({ status: 200, json: { choices: [{ message: { role: "assistant", content } }] } });
 /** A model behind a Chat Completions endpoint: honours the system prompt (or not), follows the protocol (from where). */
@@ -153,10 +156,10 @@ test("historyBody puts the answer in the first turn for both wire shapes; sawHis
 test("a gateway that only honours its own assistant turns: history kept, with a note", async () => {
 	const fetchFn = fakeFetch((path, body) => {
 		if (path === "/models") return { status: 200, json: { data: [{ id: "m" }] } };
-		if (path === "/chat/completions") return body.stream ? sse : answer(body, { ownTurnsOnly: true });
+		if (path === "/chat/completions") return streamOrAnswer(body, { ownTurnsOnly: true });
 		return undefined;
 	});
-	const report = await probeEndpoint({ baseUrl: BASE, apiKey: "k", fetchFn });
+	const report = await probeEndpoint({ baseUrl: BASE, apiKey: "k", fetchFn, pauseMs: 0 });
 	assert.equal(report.history, "kept", "the two-step probe uses the gateway's own reply");
 	assert.equal(report.historyOwnTurnsOnly, true);
 	assert.ok(report.notes.some((n: string) => /fabricated "OK".*None/.test(n)), `notes: ${report.notes}`);
@@ -168,15 +171,51 @@ test("a quota rejection of the absurd cap states no limit", async () => {
 		if (path === "/chat/completions") {
 			if (body.max_tokens === ABSURD_MAX_TOKENS)
 				return { status: 429, json: { error: { message: "You've used 16319 of your 50000000 token allowance for this 24-hour window. Your limit resets in 23h 50m." } } };
-			return body.stream ? sse : answer(body, { clamp: true });
+			return streamOrAnswer(body, { clamp: true });
 		}
 		return undefined;
 	});
-	const report = await probeEndpoint({ baseUrl: BASE, apiKey: "k", fetchFn });
+	const report = await probeEndpoint({ baseUrl: BASE, apiKey: "k", fetchFn, pauseMs: 0 });
 	assert.equal(report.outputCap.rateLimited, true);
 	assert.equal(report.outputCap.maxTokens, undefined, "16319 is usage, not a limit");
 	assert.equal(report.models[0].maxTokens, undefined);
 	assert.match(formatReport(report), /Max output tokens: not determined/);
+});
+
+test("transient failures: one retry, timeouts are failures not refusals, no fabricated turn", async () => {
+	let modelsCalls = 0;
+	const fetchFn = fakeFetch((path, body) => {
+		if (path === "/models") return ++modelsCalls === 1 ? { status: 503, text: "no healthy upstream" } : { status: 200, json: { data: [{ id: "m" }] } };
+		if (path === "/chat/completions") {
+			if (body.tools) throw Object.assign(new Error("aborted"), { name: "AbortError" }); // the tools request times out, twice
+			if (body.messages.length === 1 && body.messages[0].content.includes(HISTORY_WORD)) return { status: 502, text: "bad gateway" }; // the opening turn fails, twice
+			return streamOrAnswer(body);
+		}
+		return undefined;
+	});
+	const report = await probeEndpoint({ baseUrl: BASE, apiKey: "k", fetchFn, pauseMs: 0 });
+	assert.equal(report.models.length, 1, "GET /models succeeded on the retry");
+	assert.ok(report.retried >= 1);
+	assert.equal(report.tools, "failed");
+	assert.equal(toolModeFor(report), undefined, "a failed tool probe recommends nothing");
+	assert.match(formatReport(report), /Tool calls: could not be tested/);
+	assert.equal(report.history, "inconclusive");
+	assert.ok(report.notes.some((n: string) => /opening turn failed .*fabricated/.test(n)), `notes: ${report.notes}`);
+});
+
+test("the output cap is probed last, so its quota side effect cannot poison the other probes", async () => {
+	const order: string[] = [];
+	const fetchFn = fakeFetch((path, body) => {
+		if (path === "/models") return { status: 200, json: { data: [{ id: "m" }] } };
+		if (path === "/chat/completions") {
+			order.push(body.max_tokens === ABSURD_MAX_TOKENS ? "cap" : "other");
+			return streamOrAnswer(body);
+		}
+		return undefined;
+	});
+	await probeEndpoint({ baseUrl: BASE, apiKey: "k", fetchFn, pauseMs: 0 });
+	assert.equal(order.at(-1), "cap");
+	assert.equal(order.filter((o) => o === "cap").length, 1);
 });
 
 test("a reply cut by the output limit is inconclusive, not dropped", async () => {
@@ -185,11 +224,11 @@ test("a reply cut by the output limit is inconclusive, not dropped", async () =>
 		if (path === "/chat/completions") {
 			if (body.messages.length === 3 && body.messages[0].content.includes(HISTORY_WORD))
 				return { status: 200, json: { choices: [{ message: { role: "assistant", content: "### 🔑 Codeword Verification\n\n| Item |" }, finish_reason: "length" }] } };
-			return body.stream ? sse : answer(body);
+			return streamOrAnswer(body);
 		}
 		return undefined;
 	});
-	const report = await probeEndpoint({ baseUrl: BASE, apiKey: "k", fetchFn });
+	const report = await probeEndpoint({ baseUrl: BASE, apiKey: "k", fetchFn, pauseMs: 0 });
 	assert.equal(report.history, "inconclusive");
 	assert.match(formatReport(report), /Conversation history: inconclusive/);
 	assert.ok(report.notes.some((n: string) => /output limit/.test(n)));
@@ -198,10 +237,10 @@ test("a reply cut by the output limit is inconclusive, not dropped", async () =>
 test("a single-turn gateway that forwards only the last message is reported as dropping history (#96)", async () => {
 	const fetchFn = fakeFetch((path, body) => {
 		if (path === "/models") return { status: 200, json: { data: [{ id: "m" }] } };
-		if (path === "/chat/completions") return body.stream ? sse : answer(body, { keepHistory: false });
+		if (path === "/chat/completions") return streamOrAnswer(body, { keepHistory: false });
 		return undefined;
 	});
-	const report = await probeEndpoint({ baseUrl: BASE, apiKey: "k", fetchFn });
+	const report = await probeEndpoint({ baseUrl: BASE, apiKey: "k", fetchFn, pauseMs: 0 });
 	assert.equal(report.history, "dropped");
 	assert.match(formatReport(report), /Conversation history: DROPPED/);
 	assert.ok(report.notes.some((n: string) => /history probe reply .*I don't have a code word/.test(n)), "the model's actual reply is in the notes");
@@ -227,11 +266,11 @@ test("a gateway that refuses tools: completions only, streaming, tools refused -
 			return { status: 200, json: { data: [{ id: "gemini-flash", max_model_len: 1000000 }, { id: "gpt-4.1" }] } };
 		if (path === "/chat/completions") {
 			if (body.tools) return { status: 400, json: { error: { message: "tools are disabled on this endpoint" } } };
-			return body.stream ? sse : answer(body);
+			return streamOrAnswer(body);
 		}
 		return undefined;
 	}, seen);
-	const report = await probeEndpoint({ baseUrl: BASE, apiKey: "k", fetchFn });
+	const report = await probeEndpoint({ baseUrl: BASE, apiKey: "k", fetchFn, pauseMs: 0 });
 	assert.deepEqual(report.models, [
 		{ id: "gemini-flash", contextWindow: 1000000, maxTokens: 8192 },
 		{ id: "gpt-4.1" },
@@ -307,10 +346,10 @@ test("limitsFromError reads the common error shapes", () => {
 test("an endpoint that clamps the output cap silently is reported as not enforced", async () => {
 	const fetchFn = fakeFetch((path, body) => {
 		if (path === "/models") return { status: 200, json: { data: [{ id: "m" }] } };
-		if (path === "/chat/completions") return body.stream ? sse : answer(body, { clamp: true });
+		if (path === "/chat/completions") return streamOrAnswer(body, { clamp: true });
 		return undefined;
 	});
-	const report = await probeEndpoint({ baseUrl: BASE, fetchFn });
+	const report = await probeEndpoint({ baseUrl: BASE, fetchFn, pauseMs: 0 });
 	assert.deepEqual(report.outputCap, { enforced: false, note: `accepted max_tokens: ${ABSURD_MAX_TOKENS}` });
 	assert.match(formatReport(report), /Max output tokens: not enforced/);
 });
@@ -340,10 +379,10 @@ test("a gateway that drops system prompts: protocol followed only from the user 
 	const fetchFn = fakeFetch((path, body) => {
 		if (path === "/models") return { status: 200, json: { data: [{ id: "m" }] } };
 		if (path === "/chat/completions")
-			return body.stream ? sse : answer(body, { honourSystem: false, followFrom: "user" });
+			return streamOrAnswer(body, { honourSystem: false, followFrom: "user" });
 		return undefined;
 	});
-	const report = await probeEndpoint({ baseUrl: BASE, fetchFn });
+	const report = await probeEndpoint({ baseUrl: BASE, fetchFn, pauseMs: 0 });
 	assert.equal(report.tools, "ignored");
 	assert.equal(report.systemPrompt, "ignored");
 	assert.equal(report.protocol, "user");
@@ -356,10 +395,10 @@ test("a gateway that drops system prompts: protocol followed only from the user 
 test("a model that never follows the protocol is reported as not-followed", async () => {
 	const fetchFn = fakeFetch((path, body) => {
 		if (path === "/models") return { status: 200, json: { data: [{ id: "m" }] } };
-		if (path === "/chat/completions") return body.stream ? sse : answer(body, { followFrom: "never" });
+		if (path === "/chat/completions") return streamOrAnswer(body, { followFrom: "never" });
 		return undefined;
 	});
-	const report = await probeEndpoint({ baseUrl: BASE, fetchFn });
+	const report = await probeEndpoint({ baseUrl: BASE, fetchFn, pauseMs: 0 });
 	assert.equal(report.systemPrompt, "honoured");
 	assert.equal(report.protocol, "not-followed");
 	assert.equal(promptPlacementFor(report), undefined);
@@ -373,7 +412,7 @@ test("a gateway that silently strips tools -> ignored -> prompted", async () => 
 		if (path === "/chat/completions") return body.stream ? sse : chatOk; // tools accepted, never called
 		return undefined;
 	});
-	const report = await probeEndpoint({ baseUrl: BASE, fetchFn });
+	const report = await probeEndpoint({ baseUrl: BASE, fetchFn, pauseMs: 0 });
 	assert.equal(report.tools, "ignored");
 	assert.equal(toolModeFor(report), "prompted");
 	assert.match(formatReport(report), /Tool calls: ignored/);
@@ -394,7 +433,7 @@ test("a full-featured endpoint: Responses preferred, tools native", async () => 
 		if (path === "/chat/completions") return body.tools ? chatToolCall : chatOk;
 		return undefined;
 	});
-	const report = await probeEndpoint({ baseUrl: BASE, apiKey: "k", fetchFn });
+	const report = await probeEndpoint({ baseUrl: BASE, apiKey: "k", fetchFn, pauseMs: 0 });
 	assert.equal(report.api, "openai-responses");
 	assert.equal(report.apis["openai-completions"], "ok");
 	assert.equal(report.streaming, true);
@@ -406,13 +445,13 @@ test("a full-featured endpoint: Responses preferred, tools native", async () => 
 
 test("nothing answers: report says so and never throws", async () => {
 	const fetchFn = fakeFetch(() => ({ status: 401, json: { error: { message: "bad key" } } }));
-	const report = await probeEndpoint({ baseUrl: BASE, apiKey: "k", fetchFn });
+	const report = await probeEndpoint({ baseUrl: BASE, apiKey: "k", fetchFn, pauseMs: 0 });
 	assert.equal(report.api, undefined);
 	assert.equal(report.model, undefined);
 	assert.ok(report.notes.some((n) => /GET \/models failed \(401: bad key\)/.test(n)));
 	assert.ok(report.notes.some((n) => /pass --model/.test(n)));
 	// With a model given, the protocol probes still run and fail cleanly.
-	const r2 = await probeEndpoint({ baseUrl: BASE, model: "m", fetchFn });
+	const r2 = await probeEndpoint({ baseUrl: BASE, model: "m", fetchFn, pauseMs: 0 });
 	assert.equal(r2.api, undefined);
 	assert.match(r2.apis["openai-completions"], /^401/);
 	assert.ok(r2.notes.some((n) => /neither/.test(n)));
@@ -422,7 +461,7 @@ test("a fetch that throws (DNS, proxy, timeout) is reported, not thrown", async 
 	const fetchFn = async () => {
 		throw new Error("getaddrinfo ENOTFOUND gw.example.com");
 	};
-	const report = await probeEndpoint({ baseUrl: BASE, model: "m", fetchFn });
+	const report = await probeEndpoint({ baseUrl: BASE, model: "m", fetchFn, pauseMs: 0 });
 	assert.ok(report.notes.some((n) => /ENOTFOUND/.test(n)));
 	assert.equal(report.api, undefined);
 });

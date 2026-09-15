@@ -59,9 +59,9 @@ build-offline: ## Rebuild reusing src/providers/data as-is (needs a prior build-
 add-provider: ## Interactively register a dev inference endpoint in ~/.gah/providers.json
 	node scripts/add-provider.mjs
 
-probe-endpoint: ## Report what an endpoint offers (models, protocol, streaming, tool calls). Usage: make probe-endpoint URL=https://... [KEY_ENV=VAR] [MODEL=id]
+probe-endpoint: ## Report what an endpoint offers (models, protocol, streaming, history, tool calls). Usage: make probe-endpoint URL=https://... [KEY_ENV=VAR] [MODEL=id] [TIMEOUT=seconds]
 	@test -n "$(URL)" || { echo "usage: make probe-endpoint URL=<baseUrl> [KEY_ENV=<env var holding the key>] [MODEL=<id>]"; exit 2; }
-	node scripts/probe-endpoint.mjs "$(URL)" $(if $(KEY_ENV),--key-env "$(KEY_ENV)") $(if $(MODEL),--model "$(MODEL)")
+	node scripts/probe-endpoint.mjs "$(URL)" $(if $(KEY_ENV),--key-env "$(KEY_ENV)") $(if $(MODEL),--model "$(MODEL)") $(if $(TIMEOUT),--timeout "$(TIMEOUT)")
 
 test-policy: ## Unit tests for the policy pack (node:test via jiti; no build needed)
 	@node --import ./$(PI_DIR)/node_modules/jiti/lib/jiti-register.mjs --test packages/policy-pack/test/*.test.ts

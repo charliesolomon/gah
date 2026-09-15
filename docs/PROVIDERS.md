@@ -80,8 +80,11 @@ session sends (the policy pack's SYSTEM.md plus the protocol as
 without the persona got "I do not have access to tools like ls" from a model
 that calls `ls` in every session). Every negative verdict carries an excerpt
 of what the model actually replied, so a surprising result can be read rather
-than guessed at. Nothing is written by the probe, and the key is never put on
-a command line.
+than guessed at. Requests go one at a time with a short pause, a timeout of
+60 s (`TIMEOUT=seconds`), and one retry after a timeout, a 429 or a 5xx; the
+output-cap request runs last, because an absurd cap can trip a quota check
+whose after-effects would turn the following probes into noise. Nothing is
+written by the probe, and the key is never put on a command line.
 
 - Works for any endpoint speaking an API PI knows: `openai-completions`,
   `openai-responses`, `anthropic-messages`, etc. Most enterprise gateways

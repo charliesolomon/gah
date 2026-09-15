@@ -74,7 +74,7 @@ http
 			// Exactly the probe's phrasing: a real session's prompt can contain the
 			// protocol and the word "ping" inside other words, and must get the
 			// tool-block reply below instead.
-			const protocolPing = /## ls\n/.test(`${systemText}\n${userText}`) && /call the ls tool with path "\." now, then stop/.test(userText);
+			const protocolPing = /## ls\n/.test(`${systemText}\n${userText}`) && /(call the ls tool with path "\." now, then stop|Then name two real things that are actually there)/.test(userText);
 			// probe-endpoint's history probe: the code word sits in the first of three turns.
 			const codeWord = messages.length === 3 ? text(messages[0]).match(/code word is ([\w-]+)/)?.[1] : undefined;
 			const historyAnswer = codeWord && process.env.MOCK_HISTORY !== "drop" ? `The code word is ${codeWord}.` : codeWord ? "You have not given me a code word." : undefined;
