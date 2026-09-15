@@ -13,6 +13,7 @@ import {
 	probeBody,
 	probeEndpoint,
 	promptPlacementFor,
+	replyExcerpt,
 	replyWasCut,
 	sawHistoryWord,
 	sawToolBlock,
@@ -48,7 +49,7 @@ const chatToolCall = {
 			{
 				message: {
 					role: "assistant",
-					tool_calls: [{ id: "c1", type: "function", function: { name: "ping", arguments: "{}" } }],
+					tool_calls: [{ id: "c1", type: "function", function: { name: "ls", arguments: "{\"path\":\".\"}" } }],
 				},
 			},
 		],
@@ -59,7 +60,7 @@ const sse = {
 	contentType: "text/event-stream",
 	text: 'data: {"choices":[{"delta":{"content":"OK"}}]}\n\ndata: [DONE]\n\n',
 };
-const PING_BLOCK = "Sure.\n```tool\nTOOL_NAME: ping\n```";
+const PING_BLOCK = "Sure.\n```tool\nTOOL_NAME: ls\nBEGIN_ARG: path\n.\nEND_ARG\n```";
 const reply = (content: string) => ({ status: 200, json: { choices: [{ message: { role: "assistant", content } }] } });
 /** A model behind a Chat Completions endpoint: honours the system prompt (or not), follows the protocol (from where). */
 const capError = {
@@ -112,10 +113,10 @@ test("parseModelList reads OpenAI, vLLM, LiteLLM, OpenRouter and Ollama shapes",
 	assert.deepEqual(parseModelList({ nonsense: true }), []);
 });
 
-test("probeBody shapes a Chat Completions and a Responses request, with and without the ping tool", () => {
+test("probeBody shapes a Chat Completions and a Responses request, with and without the ls tool", () => {
 	const c = probeBody("openai-completions", "m", { tools: true });
 	assert.equal(c.messages[0].role, "user");
-	assert.equal(c.tools[0].function.name, "ping");
+	assert.equal(c.tools[0].function.name, "ls");
 	assert.equal(c.stream, false);
 	const r = probeBody("openai-responses", "m", { stream: true });
 	assert.equal(typeof r.input, "string");
@@ -163,11 +164,19 @@ test("a single-turn gateway that forwards only the last message is reported as d
 	const report = await probeEndpoint({ baseUrl: BASE, apiKey: "k", fetchFn });
 	assert.equal(report.history, "dropped");
 	assert.match(formatReport(report), /Conversation history: DROPPED/);
+	assert.ok(report.notes.some((n: string) => /history probe reply .*I don't have a code word/.test(n)), "the model's actual reply is in the notes");
+});
+
+test("replyExcerpt reads Chat Completions, Responses and streamed bodies", () => {
+	assert.equal(replyExcerpt('{"choices":[{"message":{"content":"### Hi\\n\\n| a |  b |"}}]}'), "### Hi | a | b |");
+	assert.equal(replyExcerpt('{"output":[{"type":"message","content":[{"type":"output_text","text":"yes"}]}]}'), "yes");
+	assert.equal(replyExcerpt('data: {"choices":[{"delta":{"content":"pel"}}]}\n\ndata: {"choices":[{"delta":{"content":"ican"}}]}\n\ndata: [DONE]\n'), "pelican");
+	assert.equal(replyExcerpt("x".repeat(300), 10), `${"x".repeat(10)}…`);
 });
 
 test("sawToolCall recognises both wire shapes", () => {
 	assert.ok(sawToolCall(JSON.stringify(chatToolCall.json)));
-	assert.ok(sawToolCall('{"output":[{"type":"function_call","name":"ping"}]}'));
+	assert.ok(sawToolCall('{"output":[{"type":"function_call","name":"ls"}]}'));
 	assert.ok(!sawToolCall(JSON.stringify(chatOk.json)));
 });
 
@@ -263,8 +272,9 @@ test("an endpoint that clamps the output cap silently is reported as not enforce
 
 test("sawToolBlock and systemBody", () => {
 	assert.ok(sawToolBlock(PING_BLOCK));
-	assert.ok(sawToolBlock("```tool\r\nTOOL_NAME:   ping\r\n```"));
-	assert.ok(!sawToolBlock("I would call ping but cannot."));
+	assert.ok(sawToolBlock("```tool\r\nTOOL_NAME:   ls\r\n```"));
+	assert.ok(!sawToolBlock("I would call ls but cannot."));
+	assert.ok(!sawToolBlock("```tool\nTOOL_NAME: lsof\n```"), "ls is a whole word");
 	const sys = systemBody("openai-completions", "m", "SYS", "USER");
 	assert.deepEqual(
 		sys.messages.map((m: any) => m.role),
@@ -331,7 +341,7 @@ test("a full-featured endpoint: Responses preferred, tools native", async () => 
 		if (path === "/models") return { status: 200, json: { data: [{ id: "gpt-5" }] } };
 		if (path === "/responses") {
 			if (body.tools)
-				return { status: 200, json: { output: [{ type: "function_call", name: "ping", arguments: "{}" }] } };
+				return { status: 200, json: { output: [{ type: "function_call", name: "ls", arguments: "{\"path\":\".\"}" }] } };
 			return body.stream
 				? { status: 200, contentType: "text/event-stream", text: "data: {}\n\n" }
 				: { status: 200, json: { output: [] } };

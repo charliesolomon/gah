@@ -60,23 +60,24 @@ export function parseModelList(json) {
 	return models;
 }
 
-const PING_TOOL_COMPLETIONS = {
-	type: "function",
-	function: {
-		name: "ping",
-		description: "Reports that tool calling works. Call it with no arguments.",
-		parameters: { type: "object", properties: {}, additionalProperties: false },
-	},
+// A realistic tool, the one every session calls first. A first version used a
+// toy "ping" that "reports that tool calling works"; a model can decline a tool
+// that does nothing (and gemini flash models did, #96) while calling ls the
+// moment it is asked to list a directory.
+const LS_PARAMETERS = {
+	type: "object",
+	properties: { path: { type: "string", description: "Directory to list, relative to the working directory." } },
+	required: ["path"],
+	additionalProperties: false,
 };
-const PING_TOOL_RESPONSES = {
+const LS_TOOL_COMPLETIONS = {
 	type: "function",
-	name: "ping",
-	description: "Reports that tool calling works. Call it with no arguments.",
-	parameters: { type: "object", properties: {}, additionalProperties: false },
+	function: { name: "ls", description: "List the files and directories at a path.", parameters: LS_PARAMETERS },
 };
+const LS_TOOL_RESPONSES = { type: "function", name: "ls", description: "List the files and directories at a path.", parameters: LS_PARAMETERS };
 
 const SAY_OK = "Reply with the single word OK.";
-const CALL_PING = "Call the ping tool now. Do not reply with text.";
+const CALL_LS = "List the files in the current directory. Use the ls tool with path \".\"; do not answer from memory.";
 
 // Does a system prompt reach the model at all? A gateway that drops it also
 // drops the prompted tool protocol, whichever the model is.
@@ -103,11 +104,11 @@ const PROTOCOL_TEST = [
 	"",
 	"Available tools:",
 	"",
-	"## ping",
-	"Reports that tool calling works.",
-	"Arguments: none",
+	"## ls",
+	"List the files and directories at a path.",
+	"Arguments: path (string, required) — the directory to list, relative to the working directory.",
 ].join("\n");
-const PROTOCOL_TEST_USER = "Use the ping tool now, then stop.";
+const PROTOCOL_TEST_USER = "List the files in the current directory: call the ls tool with path \".\" now, then stop.";
 
 // An output cap far beyond any model. The error that rejects it usually
 // states the real limit, and a 200 means the endpoint clamps silently.
@@ -139,9 +140,34 @@ export function limitsFromError(text, sent = ABSURD_MAX_TOKENS) {
 	return out;
 }
 
-/** The model answered a prompted-protocol request with a ping block. */
+/** The model answered a prompted-protocol request with an ls block. */
 export function sawToolBlock(text) {
-	return /```\s*tool[\s\S]*?TOOL_NAME:\s*ping/.test(text);
+	return /```\s*tool[\s\S]*?TOOL_NAME:\s*ls\b/.test(text);
+}
+
+/**
+ * What the model actually said, for the report: the assistant text out of a
+ * Chat Completions or Responses body (streamed or not), else the raw body,
+ * whitespace collapsed and clipped. Every negative verdict carries one, so a
+ * surprising result can be read instead of guessed at (#96).
+ */
+export function replyExcerpt(text, limit = 240) {
+	let out = "";
+	try {
+		const j = JSON.parse(text);
+		out =
+			j?.choices?.[0]?.message?.content ??
+			j?.output_text ??
+			(Array.isArray(j?.output) ? j.output.flatMap((o) => o?.content ?? []).map((c) => c?.text ?? "").join("") : "") ??
+			"";
+		if (typeof out !== "string") out = JSON.stringify(out);
+		if (!out) out = j?.error?.message ?? "";
+	} catch {
+		const deltas = [...text.matchAll(/"content"\s*:\s*"((?:[^"\\]|\\.)*)"/g)].map((m) => JSON.parse(`"${m[1]}"`));
+		out = deltas.join("") || text;
+	}
+	out = String(out).replace(/\s+/g, " ").trim();
+	return out.length > limit ? `${out.slice(0, limit)}…` : out;
 }
 
 /** Chat/Responses body carrying a system prompt (or the same text at the front of the user turn). */
@@ -207,16 +233,16 @@ export function probeBody(api, model, { stream = false, tools = false } = {}) {
 	if (api === "openai-responses") {
 		return {
 			model,
-			input: tools ? CALL_PING : SAY_OK,
+			input: tools ? CALL_LS : SAY_OK,
 			stream,
-			...(tools ? { tools: [PING_TOOL_RESPONSES] } : {}),
+			...(tools ? { tools: [LS_TOOL_RESPONSES] } : {}),
 		};
 	}
 	return {
 		model,
-		messages: [{ role: "user", content: tools ? CALL_PING : SAY_OK }],
+		messages: [{ role: "user", content: tools ? CALL_LS : SAY_OK }],
 		stream,
-		...(tools ? { tools: [PING_TOOL_COMPLETIONS] } : {}),
+		...(tools ? { tools: [LS_TOOL_COMPLETIONS] } : {}),
 	};
 }
 
@@ -227,7 +253,7 @@ export function probePath(api) {
 /** Did a (non-streamed or streamed) response body contain a tool call? */
 export function sawToolCall(text) {
 	// Chat Completions: message.tool_calls / delta.tool_calls; Responses: output
-	// items of type function_call. Either form, streamed or not, names ping.
+	// items of type function_call. Either form, streamed or not, names ls.
 	return /"tool_calls"\s*:\s*\[/.test(text) || /"type"\s*:\s*"function_call"/.test(text);
 }
 
@@ -377,6 +403,8 @@ export async function probeEndpoint({
 	} else {
 		const limits = limitsFromError(cap.text);
 		report.outputCap = { enforced: true, ...limits, note: errorSummary(cap.status, cap.text) };
+		// The number above is parsed from this message; when it looks wrong, this is the evidence.
+		report.notes.push(`output cap rejection: ${errorSummary(cap.status, cap.text)}`);
 		const m = report.models.find((x) => x.id === report.model);
 		if (m) {
 			if (limits.maxTokens && !m.maxTokens) m.maxTokens = limits.maxTokens;
@@ -402,8 +430,10 @@ export async function probeEndpoint({
 	} else if (replyWasCut(hist.text)) {
 		report.history = "inconclusive";
 		report.notes.push("history probe: the reply was cut by an output limit before it could answer; raise the endpoint's default output cap or retry");
+		report.notes.push(`history probe reply: ${replyExcerpt(hist.text)}`);
 	} else {
 		report.history = "dropped";
+		report.notes.push(`history probe reply (asked for the code word from turn 1): ${replyExcerpt(hist.text)}`);
 	}
 
 	// 6. Tools. Three outcomes matter for providers.json:
@@ -420,6 +450,7 @@ export async function probeEndpoint({
 		report.tools = "native";
 	} else {
 		report.tools = "ignored";
+		report.notes.push(`tool probe reply (asked to call ls natively): ${replyExcerpt(t.text)}`);
 	}
 	if (report.tools === "native") return report;
 
@@ -432,6 +463,7 @@ export async function probeEndpoint({
 		systemBody(report.api, report.model, SYSTEM_TEST, SYSTEM_TEST_USER),
 	);
 	report.systemPrompt = sys.ok ? (sys.text.includes(SYSTEM_MARKER) ? "honoured" : "ignored") : "failed";
+	if (report.systemPrompt === "ignored") report.notes.push(`system prompt probe reply (should have been ${SYSTEM_MARKER}): ${replyExcerpt(sys.text)}`);
 	if (!sys.ok) report.notes.push(`system prompt probe failed (${sys.error ?? errorSummary(sys.status, sys.text)})`);
 	for (const placement of ["system", "user"]) {
 		if (placement === "system" && report.systemPrompt === "ignored") continue;
@@ -444,6 +476,7 @@ export async function probeEndpoint({
 			report.protocol = placement;
 			break;
 		}
+		if (r.ok) report.notes.push(`protocol probe reply (${placement} placement, asked to call ls): ${replyExcerpt(r.text)}`);
 		if (!r.ok)
 			report.notes.push(`protocol probe (${placement}) failed (${r.error ?? errorSummary(r.status, r.text)})`);
 	}
