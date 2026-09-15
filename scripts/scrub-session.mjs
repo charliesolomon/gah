@@ -239,6 +239,9 @@ export function learnFromConfig(ids, obj, path = []) {
 			if (k.startsWith("$")) continue; // $comment, $schema
 			if (typeof v === "string") {
 				if (KEY_SECRET.test(k) && v.length >= 6 && !v.startsWith("$")) ids.secret.add(v);
+				// A model id such as gemini-3.7-flash is dotted like a host but is a model;
+				// the provider-entry branch below records it as one (#96 saw <host-3>).
+				else if (path.includes("models") && (k === "id" || k === "name")) continue;
 				else if (isUrl(v) || isHostLike(v)) addUrlOrHost(ids, v);
 				else if (KEY_IDENTIFYING.test(k) && v.length >= 3) ids.org.add(v);
 			} else {
