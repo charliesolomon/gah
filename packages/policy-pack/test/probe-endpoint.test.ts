@@ -8,6 +8,8 @@ import {
 	formatReport,
 	HISTORY_WORD,
 	historyBody,
+	historyBodyWith,
+	historyOpeningBody,
 	limitsFromError,
 	parseModelList,
 	probeBody,
@@ -73,14 +75,20 @@ const capError = {
 };
 function answer(
 	body: any,
-	opts: { honourSystem?: boolean; followFrom?: "system" | "user" | "never"; clamp?: boolean; keepHistory?: boolean } = {},
+	opts: { honourSystem?: boolean; followFrom?: "system" | "user" | "never"; clamp?: boolean; keepHistory?: boolean; ownTurnsOnly?: boolean } = {},
 ) {
-	const { honourSystem = true, followFrom = "system", clamp = false, keepHistory = true } = opts;
+	const { honourSystem = true, followFrom = "system", clamp = false, keepHistory = true, ownTurnsOnly = false } = opts;
 	if (body.max_tokens === ABSURD_MAX_TOKENS && !clamp) return capError;
-	// The history probe: three turns, the answer in the first. A single-turn
-	// gateway (keepHistory: false) sees only the last message and cannot answer.
+	// The history probe, two steps: the opening turn alone gets this gateway's own
+	// reply; the three-turn body answers from turn 1 unless the gateway is single-turn
+	// (keepHistory: false) or validates the assistant slot against what it said
+	// itself (ownTurnsOnly: true).
+	const opening = `Understood — ${HISTORY_WORD} noted. OK`;
+	if (body.messages.length === 1 && body.messages[0].content.includes(HISTORY_WORD)) return reply(opening);
 	if (body.messages.length === 3 && body.messages[0].content.includes(HISTORY_WORD)) {
-		return reply(keepHistory ? `The code word is ${HISTORY_WORD}.` : "I don't have a code word from you.");
+		if (!keepHistory) return reply("I don't have a code word from you.");
+		if (ownTurnsOnly && body.messages[1].content !== opening) return reply("None");
+		return reply(`The code word is ${HISTORY_WORD}.`);
 	}
 	const system = body.messages.find((m: any) => m.role === "system")?.content ?? "";
 	const user = body.messages.find((m: any) => m.role === "user")?.content ?? "";
@@ -131,12 +139,44 @@ test("historyBody puts the answer in the first turn for both wire shapes; sawHis
 	assert.ok(c.messages[0].content.includes(HISTORY_WORD));
 	const r = historyBody("openai-responses", "m");
 	assert.equal(r.input.length, 3);
+	assert.equal(historyOpeningBody("openai-completions", "m").messages.length, 1);
+	assert.equal(historyBodyWith("openai-completions", "m", "Sure thing").messages[1].content, "Sure thing");
+	assert.equal(historyBodyWith("openai-completions", "m", "").messages[1].content, "OK", "an empty own reply falls back to OK");
 	assert.ok(!("max_tokens" in c) && !("max_output_tokens" in r), "no output cap: a verbose model must be allowed to reach the word");
 	assert.ok(sawHistoryWord(`Sure: ${HISTORY_WORD}`));
 	assert.ok(sawHistoryWord("### 🔑 Codeword\n\n| Item | Value |\n|---|---|\n| Codeword | `Pelican‑4471` |"), "markdown, capitals and a unicode hyphen still count");
 	assert.ok(!sawHistoryWord("I don't know"));
 	assert.ok(replyWasCut('{"choices":[{"message":{"content":"### Codeword\\n\\n| Item"},"finish_reason":"length"}]}'));
 	assert.ok(!replyWasCut('{"choices":[{"message":{"content":"x"},"finish_reason":"stop"}]}'));
+});
+
+test("a gateway that only honours its own assistant turns: history kept, with a note", async () => {
+	const fetchFn = fakeFetch((path, body) => {
+		if (path === "/models") return { status: 200, json: { data: [{ id: "m" }] } };
+		if (path === "/chat/completions") return body.stream ? sse : answer(body, { ownTurnsOnly: true });
+		return undefined;
+	});
+	const report = await probeEndpoint({ baseUrl: BASE, apiKey: "k", fetchFn });
+	assert.equal(report.history, "kept", "the two-step probe uses the gateway's own reply");
+	assert.equal(report.historyOwnTurnsOnly, true);
+	assert.ok(report.notes.some((n: string) => /fabricated "OK".*None/.test(n)), `notes: ${report.notes}`);
+});
+
+test("a quota rejection of the absurd cap states no limit", async () => {
+	const fetchFn = fakeFetch((path, body) => {
+		if (path === "/models") return { status: 200, json: { data: [{ id: "m" }] } };
+		if (path === "/chat/completions") {
+			if (body.max_tokens === ABSURD_MAX_TOKENS)
+				return { status: 429, json: { error: { message: "You've used 16319 of your 50000000 token allowance for this 24-hour window. Your limit resets in 23h 50m." } } };
+			return body.stream ? sse : answer(body, { clamp: true });
+		}
+		return undefined;
+	});
+	const report = await probeEndpoint({ baseUrl: BASE, apiKey: "k", fetchFn });
+	assert.equal(report.outputCap.rateLimited, true);
+	assert.equal(report.outputCap.maxTokens, undefined, "16319 is usage, not a limit");
+	assert.equal(report.models[0].maxTokens, undefined);
+	assert.match(formatReport(report), /Max output tokens: not determined/);
 });
 
 test("a reply cut by the output limit is inconclusive, not dropped", async () => {
@@ -204,6 +244,11 @@ test("a gateway that refuses tools: completions only, streaming, tools refused -
 	assert.match(formatReport(report), /Conversation history: kept/);
 	assert.equal(report.tools, "refused");
 	assert.equal(toolModeFor(report), "prompted");
+	assert.equal(report.protocolSource, "gah", "inside the checkout the real preamble is used");
+	assert.ok(
+		seen.some((r) => r.body && JSON.stringify(r.body).includes("Good Agent Harness") && JSON.stringify(r.body).includes("## ls")),
+		"the protocol probe carried SYSTEM.md and the real protocol",
+	);
 	assert.ok(
 		seen.every((r) => r.headers.authorization === "Bearer k"),
 		"key sent as bearer",

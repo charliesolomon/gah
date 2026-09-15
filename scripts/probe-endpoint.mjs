@@ -151,7 +151,7 @@ export function sawToolBlock(text) {
  * whitespace collapsed and clipped. Every negative verdict carries one, so a
  * surprising result can be read instead of guessed at (#96).
  */
-export function replyExcerpt(text, limit = 240) {
+export function replyText(text) {
 	let out = "";
 	try {
 		const j = JSON.parse(text);
@@ -166,8 +166,39 @@ export function replyExcerpt(text, limit = 240) {
 		const deltas = [...text.matchAll(/"content"\s*:\s*"((?:[^"\\]|\\.)*)"/g)].map((m) => JSON.parse(`"${m[1]}"`));
 		out = deltas.join("") || text;
 	}
-	out = String(out).replace(/\s+/g, " ").trim();
+	return String(out);
+}
+
+export function replyExcerpt(text, limit = 240) {
+	const out = replyText(text).replace(/\s+/g, " ").trim();
 	return out.length > limit ? `${out.slice(0, limit)}…` : out;
+}
+
+/**
+ * The preamble a real prompted session sends — the policy pack's SYSTEM.md and
+ * the protocol as lib/prompted-tools.ts renders it for one `ls` tool — loaded
+ * through jiti from this checkout. A probe with a bare protocol and no persona
+ * got "I am Gemini Enterprise, I do not have access to tools like ls" from a
+ * model that calls ls all day inside a session (#96); the model has to see
+ * what the session shows it. Null outside a checkout; the compact copy is
+ * used then, and the report says so.
+ */
+export async function loadGahPreamble(repoRoot = REPO_ROOT) {
+	try {
+		const systemPath = join(repoRoot, "packages", "policy-pack", "SYSTEM.md");
+		const libPath = join(repoRoot, "packages", "policy-pack", "extensions", "lib", "prompted-tools.ts");
+		const jitiPath = join(repoRoot, "vendor", "pi", "node_modules", "jiti", "lib", "jiti.mjs");
+		if (!existsSync(systemPath) || !existsSync(libPath) || !existsSync(jitiPath)) return null;
+		const { createJiti } = await import(pathToFileURL(jitiPath).href);
+		const jiti = createJiti(import.meta.url);
+		const lib = await jiti.import(libPath);
+		const protocol = lib.renderToolsPrompt([{ name: "ls", description: LS_TOOL_COMPLETIONS.function.description, parameters: LS_PARAMETERS }]);
+		const systemMd = readFileSync(systemPath, "utf8").replaceAll("{{ALLOWED_TOOLS}}", "`ls`");
+		return `${systemMd.trimEnd()}\n\n${protocol}`;
+	} catch (err) {
+		if (process.env.GAH_PROBE_DEBUG) console.error(`probe: real preamble unavailable: ${err?.message ?? err}`);
+		return null;
+	}
 }
 
 /** Chat/Responses body carrying a system prompt (or the same text at the front of the user turn). */
@@ -203,19 +234,22 @@ const HISTORY_TURNS = [
  * answer with a heading and a table never reached the code word — a false
  * "dropped" on an endpoint that keeps history perfectly well.
  */
-export function historyBody(api, model) {
+export function historyBody(api, model, turns = HISTORY_TURNS) {
 	if (api === "openai-responses") {
-		return {
-			model,
-			input: HISTORY_TURNS.map((m) => ({ role: m.role, content: m.text })),
-			stream: false,
-		};
+		return { model, input: turns.map((m) => ({ role: m.role, content: m.text })), stream: false };
 	}
-	return {
-		model,
-		messages: HISTORY_TURNS.map((m) => ({ role: m.role, content: m.text })),
-		stream: false,
-	};
+	return { model, messages: turns.map((m) => ({ role: m.role, content: m.text })), stream: false };
+}
+
+/** The first turn alone, to collect the gateway's own reply for the assistant slot. */
+export function historyOpeningBody(api, model) {
+	return historyBody(api, model, HISTORY_TURNS.slice(0, 1));
+}
+
+/** The three turns with the assistant slot filled by what the gateway actually said. */
+export function historyBodyWith(api, model, assistantText) {
+	const turns = [HISTORY_TURNS[0], { role: "assistant", text: assistantText || HISTORY_TURNS[1].text }, HISTORY_TURNS[2]];
+	return historyBody(api, model, turns);
 }
 
 /** Did the reply carry the code word? Case-insensitive; any hyphen-like dash between the parts. */
@@ -400,6 +434,11 @@ export async function probeEndpoint({
 		report.outputCap = { enforced: false, note: `accepted ${capField}: ${ABSURD_MAX_TOKENS}` };
 	} else if (cap.status === 0) {
 		report.notes.push(`output cap probe failed (${cap.error})`);
+	} else if (cap.status === 429 || /allowance|quota|rate.?limit/i.test(cap.text)) {
+		// A quota message restates the account's usage, not the model's limit;
+		// parsing a number out of it gave a "max output" that grew with every run.
+		report.outputCap = { enforced: undefined, rateLimited: true, note: errorSummary(cap.status, cap.text) };
+		report.notes.push(`output cap probe was rate-limited, so the limit is unknown: ${errorSummary(cap.status, cap.text)}`);
 	} else {
 		const limits = limitsFromError(cap.text);
 		report.outputCap = { enforced: true, ...limits, note: errorSummary(cap.status, cap.text) };
@@ -421,12 +460,29 @@ export async function probeEndpoint({
 	// 5. Conversation history. Every agent turn resends the whole conversation;
 	//    an endpoint that keeps only the last message answers each turn from a
 	//    blank slate (#96: "the writeup was not attached", no tool calls).
-	const hist = await call("POST", probePath(report.api), historyBody(report.api, report.model));
+	//    Two requests, as an agent would make them: the first turn alone, then all
+	//    three with the assistant slot holding what the gateway itself replied. A
+	//    fabricated assistant turn is not the same test: one gateway kept history
+	//    in sessions yet answered "None" to a three-turn body with an invented
+	//    "OK" in the middle (#96) — it appears to discard turns it did not produce.
+	const opening = await call("POST", probePath(report.api), historyOpeningBody(report.api, report.model));
+	const ownReply = opening.ok ? replyText(opening.text).trim() : "";
+	const hist = await call("POST", probePath(report.api), historyBodyWith(report.api, report.model, ownReply));
 	if (!hist.ok) {
 		report.history = "failed";
 		report.notes.push(`history probe failed (${hist.error ?? errorSummary(hist.status, hist.text)})`);
 	} else if (sawHistoryWord(hist.text)) {
 		report.history = "kept";
+		// Informational: does it also accept an assistant turn it never produced?
+		// GAH replays history verbatim, so this rarely matters, but a gateway that
+		// checks turns against its own transcript is worth knowing about.
+		const synthetic = await call("POST", probePath(report.api), historyBody(report.api, report.model));
+		if (synthetic.ok && !sawHistoryWord(synthetic.text) && !replyWasCut(synthetic.text)) {
+			report.historyOwnTurnsOnly = true;
+			report.notes.push(
+				`history probe: the code word came back only when the assistant turn was the gateway's own reply; with a fabricated "OK" in that slot it answered: ${replyExcerpt(synthetic.text)} — this gateway seems to discard assistant turns it did not produce`,
+			);
+		}
 	} else if (replyWasCut(hist.text)) {
 		report.history = "inconclusive";
 		report.notes.push("history probe: the reply was cut by an output limit before it could answer; raise the endpoint's default output cap or retry");
@@ -465,12 +521,15 @@ export async function probeEndpoint({
 	report.systemPrompt = sys.ok ? (sys.text.includes(SYSTEM_MARKER) ? "honoured" : "ignored") : "failed";
 	if (report.systemPrompt === "ignored") report.notes.push(`system prompt probe reply (should have been ${SYSTEM_MARKER}): ${replyExcerpt(sys.text)}`);
 	if (!sys.ok) report.notes.push(`system prompt probe failed (${sys.error ?? errorSummary(sys.status, sys.text)})`);
+	const gahPreamble = await loadGahPreamble();
+	report.protocolSource = gahPreamble ? "gah" : "compact";
+	const protocolText = gahPreamble ?? PROTOCOL_TEST;
 	for (const placement of ["system", "user"]) {
 		if (placement === "system" && report.systemPrompt === "ignored") continue;
 		const r = await call(
 			"POST",
 			probePath(report.api),
-			systemBody(report.api, report.model, PROTOCOL_TEST, PROTOCOL_TEST_USER, placement),
+			systemBody(report.api, report.model, protocolText, PROTOCOL_TEST_USER, placement),
 		);
 		if (r.ok && sawToolBlock(r.text)) {
 			report.protocol = placement;
@@ -515,7 +574,8 @@ export function formatReport(report) {
 	if (report.api) lines.push(`Protocol to use: ${report.api}`);
 	if (report.outputCap) {
 		const c = report.outputCap;
-		if (!c.enforced)
+		if (c.rateLimited) lines.push("Max output tokens: not determined (the endpoint rate-limited the probe; see notes)");
+		else if (!c.enforced)
 			lines.push(
 				`Max output tokens: not enforced by the endpoint (${c.note}); it clamps silently, so maxTokens is documentation here`,
 			);
@@ -573,7 +633,11 @@ export function formatReport(report) {
 // --- CLI ---------------------------------------------------------------------------
 
 import { argv, env, exit, stderr, stdout } from "node:process";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+
+const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 function flag(name) {
 	const i = argv.indexOf(name);
