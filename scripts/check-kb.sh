@@ -204,6 +204,14 @@ hits="$(grep -rniE 'password[[:space:]]*[:=]|api[_-]?key[[:space:]]*[:=]|BEGIN [
 check "no credential-shaped strings" "$([ -z "$hits" ] && echo 1 || echo 0)"
 [ -n "$hits" ] && printf '%s\n' "$hits" | sed 's/^/    /'
 
+# Control characters in shipped text. A backspace written into a command line by
+# a careless generator turns `.\bin\gah.ps1` into `.in\gah.ps1` on screen: the
+# instruction still looks right in a diff and cannot work. It has happened twice.
+ctrl="$(grep -rlP '[\x00-\x08\x0b\x0c\x0e-\x1f]' templates/kb-repo templates/deploy docs/KB.md docs/SKILLS.md bin scripts \
+	--include='*.md' --include='*.sh' --include='*.ps1' --include='*.json' 2>/dev/null || true)"
+check "no stray control characters in shipped text" "$([ -z "$ctrl" ] && echo 1 || echo 0)"
+[ -n "$ctrl" ] && printf '%s\n' "$ctrl" | sed 's/^/    /'
+
 if command -v pwsh >/dev/null 2>&1; then
 	echo
 	echo "-- PowerShell twins (pwsh present) --"
@@ -258,6 +266,27 @@ if command -v pwsh >/dev/null 2>&1; then
 	printf 'A second fact.\n' >>"$PS_KB/articles/network/gym-switch.md"
 	KB_PUBLISH=direct pwsh -NoProfile -File "$PS_KB/bin/kb-propose.ps1" -Message "Add a second fact" >/dev/null 2>&1
 	check_eq "kb-propose.ps1 honours KB_PUBLISH=direct" "2" "$(git -C "$WORK/ps-origin.git" rev-list --count main)"
+
+	# The third launcher: the packaged one an end user actually runs. It fetches
+	# skills as a read-only archive, so a knowledge base reaches it only as a
+	# local clone named by GAH_KB_DIR -- and a scaffolding subcommand typed at it
+	# must not become a question to the model, which is how this was found.
+	PKG="$WORK/pkg/gah-1.0"
+	mkdir -p "$PKG/bundle"
+	printf '{"gitlab":{"url":"https://gitlab.invalid","project":"x","package":"y","proxy":"none"},"skills":{"project":"a/b","branch":"main"},"env":{}}' >"$PKG/deploy.json"
+	echo 'console.log("cli")' >"$PKG/bundle/cli.js"
+	cp templates/deploy/windows/gah.ps1 "$PKG/gah.ps1"
+	out="$(pwsh -NoProfile -File "$PKG/gah.ps1" init-kb "$WORK/whatever" 2>&1)"; rc=$?
+	check_eq "the packaged launcher refuses init-kb instead of prompting the model" "2" "$rc"
+	check "and says where the subcommand does live" \
+		"$(printf '%s' "$out" | grep -qF 'bin\gah.ps1 init-kb' && echo 1 || echo 0)"
+	argv="$(PATH="$WORK/fakebin:$PATH" GAH_ALLOW_NO_SKILLS=1 GAH_KB_DIR="$PS_KB" pwsh -NoProfile -File "$PKG/gah.ps1" 2>/dev/null)"
+	check "the packaged launcher passes the knowledge base's skills" \
+		"$(printf '%s' "$argv" | grep -qF "$PS_KB/skills" && echo 1 || echo 0)"
+	check "and its prompts" "$(printf '%s' "$argv" | grep -qF "$PS_KB/prompts" && echo 1 || echo 0)"
+	argv="$(PATH="$WORK/fakebin:$PATH" GAH_ALLOW_NO_SKILLS=1 pwsh -NoProfile -File "$PKG/gah.ps1" 2>/dev/null)"
+	check "and passes nothing when GAH_KB_DIR is unset" \
+		"$(printf '%s' "$argv" | grep -qF "$PS_KB" && echo 0 || echo 1)"
 else
 	echo
 	echo "-- PowerShell twins: SKIPPED (no pwsh on PATH) --"

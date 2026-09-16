@@ -83,7 +83,7 @@ are computed from it.
 
 | Variable | Value | Used by | Situation |
 |---|---|---|---|
-| `GAH_KB_DIR` | a **local directory** | `bin/gah`, `bin/gah.ps1` | one person, one machine |
+| `GAH_KB_DIR` | a **local directory** | `bin/gah`, `bin/gah.ps1`, the packaged Windows launcher | one person, one machine |
 | `KB_REPO` | a **git URL** | `deploy/host/gah-launch` | shared host, many users |
 
 On a workstation — the Windows case, which is where most of this gets used:
@@ -107,6 +107,20 @@ is also what grants `kb-search`, `kb-article`, `kb-propose` and `kb-curate`. A
 deployment without a knowledge base does not have skills that refer to one — and
 a skill of the same name in the shared or personal set wins, so an organization
 that outgrows the scaffolded versions can simply write its own.
+
+### From an installed package
+
+The packaged Windows launcher honours `GAH_KB_DIR` too, but only as a **local
+git clone the person owns** — not as an archive the way it fetches skills. That
+is deliberate: the knowledge base is the one thing the agent writes to, and an
+archive cannot be committed from. Reading and drafting then work with what the
+package already ships; proposing needs `git` on `PATH`.
+
+Scaffolding is not available from an installed package, because the templates it
+copies are not shipped there. `gah init-kb` typed at a packaged launcher says so
+and stops, rather than passing the words to the model as a question. An
+administrator creates the knowledge base once from a checkout, pushes it, and
+people clone it — the same shape as the skills repository.
 
 ### The one checkout the agent writes to
 

@@ -14,9 +14,28 @@ $ErrorActionPreference = 'Stop'
 
 $Here   = Split-Path -Parent $MyInvocation.MyCommand.Path      # <root>\<package>
 $Root   = Split-Path -Parent $Here                              # %LOCALAPPDATA%\gah
+# Scaffolding subcommands belong to a gah checkout, not to an installed package:
+# the templates they copy are not shipped here. Caught explicitly because the
+# alternative is silent and baffling -- every argument this launcher does not
+# recognise is passed to the agent, so `gah init-kb ..\kb` starts a session and
+# sends "init-kb" to the model as a question.
+if ($args.Count -ge 1 -and @('init', 'init-kb') -contains $args[0]) {
+    [Console]::Error.WriteLine(@"
+gah: '$($args[0])' scaffolds a repository and is only available in a gah checkout,
+not in an installed package. From a checkout:
+
+  .\bin\gah.ps1 $($args[0]) <directory>
+
+Your administrator normally does this once for the organisation and shares the
+result; see docs/SKILLS.md and docs/KB.md in the gah repository.
+"@)
+    exit 2
+}
+
 $Deploy = Get-Content -LiteralPath (Join-Path $Here 'deploy.json') -Raw | ConvertFrom-Json
 $InfoOnly = $false
 foreach ($flag in @('--help', '-h', '--version', '-v')) { if ($args -contains $flag) { $InfoOnly = $true } }
+
 
 $GitLab  = $Deploy.gitlab.url.TrimEnd('/')
 # Every GitLab call carries the same extras: the token header, the deployment's
@@ -153,6 +172,22 @@ $SkillArgs = @()
 if ($Skills) {
     $SkillArgs += @('--no-skills', '--skill', (Join-Path $Skills 'skills'))
     if (Test-Path (Join-Path $Skills 'prompts')) { $SkillArgs += @('--prompt-template', (Join-Path $Skills 'prompts')) }
+}
+
+# The knowledge base (optional, docs/KB.md). Unlike the skills repository it is
+# NOT fetched as an archive: it is the one thing the agent writes to, so it has
+# to be a real git clone the person owns, named by GAH_KB_DIR. Reading and
+# drafting work with what is in the package; proposing needs git on PATH.
+# Loaded after the organisation's skills, so a shared skill of the same name wins.
+if ($env:GAH_KB_DIR) {
+    $KbSkills = Join-Path $env:GAH_KB_DIR 'skills'
+    if (Test-Path $KbSkills) {
+        $SkillArgs += @('--skill', $KbSkills)
+        $KbPrompts = Join-Path $env:GAH_KB_DIR 'prompts'
+        if (Test-Path $KbPrompts) { $SkillArgs += @('--prompt-template', $KbPrompts) }
+    } elseif (-not $InfoOnly) {
+        Warn "GAH_KB_DIR=$($env:GAH_KB_DIR) has no skills\ - knowledge base not loaded"
+    }
 }
 & node (Join-Path $Here 'bundle\cli.js') --no-extensions @SkillArgs @args
 exit $LASTEXITCODE

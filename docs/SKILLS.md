@@ -95,7 +95,7 @@ it. Keep the shared project in the variable and add the private one per run:
 # shared, tracked in git, in your PowerShell profile:
 $env:GAH_SKILLS_DIR = 'C:\dev\it-skills\skills'
 # add your private project (its prompts too, if it has any):
-.in\gah.ps1 --skill C:\dev\my-skills\skills --prompt-template C:\dev\my-skills\prompts
+.\bin\gah.ps1 --skill C:\dev\my-skills\skills --prompt-template C:\dev\my-skills\prompts
 ```
 
 ```bash
@@ -107,7 +107,7 @@ the private project's templates with `--prompt-template` explicitly. A profile
 function makes it one word:
 
 ```powershell
-function gahdev { .in\gah.ps1 --skill C:\dev\my-skills\skills --prompt-template C:\dev\my-skills\prompts @args }
+function gahdev { .\bin\gah.ps1 --skill C:\dev\my-skills\skills --prompt-template C:\dev\my-skills\prompts @args }
 ```
 
 **Precedence is first-wins.** When both folders hold a skill of the *same name*,
@@ -120,7 +120,7 @@ order by passing both folders explicitly, private first (which also satisfies
 the skills check, so the variable is not needed for that run):
 
 ```powershell
-.in\gah.ps1 --skill C:\dev\my-skills\skills --skill C:\dev\it-skills\skills
+.\bin\gah.ps1 --skill C:\dev\my-skills\skills --skill C:\dev\it-skills\skills
 ```
 
 **Promoting** a private skill is a move: relocate its `<name>/` directory into
