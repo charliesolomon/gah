@@ -66,7 +66,7 @@ articles/
   example-article.md     one worked example; delete it once you have your own
 templates/article.md     what a new article starts from
 skills/                  kb-search, kb-article, kb-propose, kb-curate
-bin/                     kb-search, kb-new, kb-gap, kb-status, kb-propose (.sh and .ps1)
+bin/                     kb-search, kb-new, kb-gap, kb-status, kb-propose, kb-sync (.sh and .ps1)
 prompts/kb.md            /kb <question>
 ```
 

@@ -1,6 +1,6 @@
 ---
 name: kb-propose
-description: Put a knowledge base change in front of the team - commit it on a branch, push it, and return the link that opens the pull or merge request. Use when someone asks to publish, submit or share a documentation change, and immediately after an article has been written or updated. Aliases - publish it, submit the article, open a PR for this, push the KB change
+description: Put a knowledge base change in front of the team - commit it on a branch, push it, return the link that opens the pull or merge request - and bring this copy up to date once something is merged. Use when someone asks to publish, submit or share a documentation change, immediately after an article has been written or updated, and when someone asks to pull, sync or refresh the knowledge base. Aliases - publish it, submit the article, open a PR for this, push the KB change, pull latest, sync the KB, update my copy
 allowed-tools: Read, Bash(git:*), Bash(./bin/kb-propose.sh:*), Bash(bin/kb-propose.sh:*)
 ---
 
@@ -8,6 +8,9 @@ allowed-tools: Read, Bash(git:*), Bash(./bin/kb-propose.sh:*), Bash(bin/kb-propo
 
 This is the step that turns one person's knowledge into the team's. Everything
 before it helps the person who was already in the conversation.
+
+It is also the only skill here that touches git, so it owns both ends of that:
+sending a change out, and bringing merged changes back in.
 
 **This skill needs a shell.** It is the only one of the four that does, and a
 deployment may deliberately not grant one — reading and drafting work without
@@ -86,3 +89,29 @@ branch.
 Report back with: the article path, the branch, the link, and — if a gap was
 answered — that the gap is closed. Then let it go. The loop is finished when the
 change is in front of a person; it is not finished when the article is perfect.
+
+## Bringing this copy up to date
+
+Once someone merges the change, **this clone is behind** — including the copy
+the author is still working in. Every search in this session and the next one
+answers from the stale version until somebody pulls, which is a quiet way for
+the loop to stop compounding. Nothing on a workstation does it automatically; a
+shared host fast-forwards at launch, which is exactly why the workstation case
+gets forgotten.
+
+```bash
+bin/kb-sync.sh
+```
+
+```powershell
+.\bin\kb-sync.ps1
+```
+
+It fetches, fast-forwards the default branch, lists what arrived, and deletes
+the local `kb/...` branch when its change is already merged — a clone left on a
+merged branch is how the next article ends up written on top of the last one.
+
+Run it when someone says the change is merged, when someone asks to pull or
+sync, and at the start of a session that is going to rely on the knowledge base
+being current. It refuses if there are uncommitted changes under `articles/`,
+and says to propose them first; do that rather than working around it.

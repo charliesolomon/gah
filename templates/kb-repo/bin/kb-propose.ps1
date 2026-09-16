@@ -111,15 +111,26 @@ if (-not $push.Ok) {
     Write-Output "Committed on $Branch but NOT pushed — resolve the above and push."
     exit 4
 }
-# GitLab prints the merge-request URL in the push output; GitHub prints a
-# compare link. Show it verbatim rather than guessing.
-foreach ($line in ($push.Text -split "`n")) {
-    if ($line -match 'https?://') { Write-Output ("  " + ($line -replace '^\s*remote:\s*', '')) }
+# A forge prints the link to open the request in the push banner. Pull the URLs
+# out of the whole banner rather than echoing every line that contains one: the
+# banner also carries the repository URL, and a server notice wrapped mid-
+# sentence produced "certificate.](https://...)" in a real run.
+$urls = @()
+foreach ($m in [regex]::Matches($push.Text, 'https?://[^\s<>"]+')) {
+    $u = $m.Value.TrimEnd('.', ',', ')')
+    if ($urls -notcontains $u) { $urls += $u }
 }
-
-$remote = (Invoke-Git 'remote' 'get-url' 'origin').Text.Trim()
-$web = $remote -replace '^git@([^:]+):', 'https://$1/' -replace '\.git$', ''
-if ($web -like 'https://github.com/*') {
-    Write-Output ("  Open the pull request: {0}/compare/{1}...{2}?expand=1" -f $web, $defaultBranch, $Branch)
+$request = $urls | Where-Object { $_ -match 'merge_request|pull/new|pull-requests|/compare/' } | Select-Object -First 1
+if ($request) {
+    Write-Output ("  Open the request: " + $request)
+} else {
+    $remote = (Invoke-Git 'remote' 'get-url' 'origin').Text.Trim()
+    $web = $remote -replace '^git@([^:]+):', 'https://$1/' -replace '\.git$', ''
+    if ($web -like 'https://github.com/*') {
+        Write-Output ("  Open the pull request: {0}/compare/{1}...{2}?expand=1" -f $web, $defaultBranch, $Branch)
+    } elseif ($urls.Count -gt 0) {
+        foreach ($u in $urls) { Write-Output ("  " + $u) }
+    }
 }
 Write-Output 'Proposed. Someone reviews it, and every later question is answered from the better version.'
+Write-Output 'When it is merged, run kb-sync to bring this copy up to date.'

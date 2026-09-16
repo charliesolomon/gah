@@ -42,7 +42,7 @@ KB="$WORK/kb"
 echo "-- gah init-kb --"
 ./bin/gah init-kb "$KB" >"$WORK/init.out" 2>&1
 check "init-kb succeeded" "$([ $? -eq 0 ] && echo 1 || echo 0)"
-for want in articles/README.md templates/article.md bin/kb-search.sh bin/kb-search.ps1 \
+for want in articles/README.md templates/article.md bin/kb-search.sh bin/kb-search.ps1 bin/kb-sync.sh bin/kb-sync.ps1 \
             skills/kb-search/SKILL.md skills/kb-article/SKILL.md skills/kb-propose/SKILL.md \
             skills/kb-curate/SKILL.md prompts/kb.md README.md; do
 	check "scaffold has $want" "$([ -e "$KB/$want" ] && echo 1 || echo 0)"
@@ -195,13 +195,48 @@ check "a change to bin/ is NOT swept into an article proposal" \
 git -C "$KB" checkout -q -- bin 2>/dev/null
 
 echo
+echo "-- bringing the copy up to date after a merge --"
+# The last mile: until somebody pulls, the author is still searching the stale
+# copy they just improved, and so is every later session on that machine.
+git -C "$WORK/origin.git" symbolic-ref HEAD refs/heads/main
+git -C "$KB" checkout -q main
+"$KB/bin/kb-sync.sh" >"$WORK/sync1.out" 2>&1
+check_eq "sync on an unchanged clone succeeds" "0" "$?"
+check "and says it is already up to date" "$(grep -qi 'already up to date' "$WORK/sync1.out" && echo 1 || echo 0)"
+
+# Someone merges the proposal on the remote, as a reviewer would.
+git clone -q "$WORK/origin.git" "$WORK/reviewer"
+git -C "$WORK/reviewer" config user.name "Reviewer"
+git -C "$WORK/reviewer" config user.email "rev@example.com"
+git -C "$WORK/reviewer" merge -q --no-ff origin/kb/document-the-gym-switch -m "Merge the gym switch article"
+git -C "$WORK/reviewer" push -q origin main
+
+git -C "$KB" checkout -q kb/document-the-gym-switch
+"$KB/bin/kb-sync.sh" >"$WORK/sync2.out" 2>&1
+check_eq "sync succeeds from a merged branch" "0" "$?"
+check_eq "it leaves the clone on the default branch" "main" "$(git -C "$KB" rev-parse --abbrev-ref HEAD)"
+check "it names what arrived" "$(grep -q 'Document the gym switch' "$WORK/sync2.out" && echo 1 || echo 0)"
+check "it clears the merged branch, so the next article is not written on top of it" \
+	"$(git -C "$KB" rev-parse --verify -q kb/document-the-gym-switch >/dev/null && echo 0 || echo 1)"
+check "and says so" "$(grep -qi 'cleared the merged branch' "$WORK/sync2.out" && echo 1 || echo 0)"
+
+printf 'Uncommitted.\n' >>"$KB/$new_path"
+"$KB/bin/kb-sync.sh" >"$WORK/sync3.out" 2>&1
+check_eq "sync refuses to touch uncommitted work" "3" "$?"
+check "and says to propose it first" "$(grep -q 'kb-propose' "$WORK/sync3.out" && echo 1 || echo 0)"
+git -C "$KB" checkout -q -- articles
+
+echo
 echo "-- direct publishing, for teams that choose it --"
 git -C "$KB" checkout -q main
+# Relative, not absolute: earlier sections legitimately move main along, and an
+# absolute count turns every new test above this one into a failure here.
+main_before="$(git -C "$WORK/origin.git" rev-list --count main)"
 printf 'A third fact.\n' >>"$KB/$new_path"
 KB_PUBLISH=direct "$KB/bin/kb-propose.sh" --message "Add a third fact" >/dev/null 2>&1
 check_eq "KB_PUBLISH=direct succeeds" "0" "$?"
 check_eq "and lands on main" "main" "$(git -C "$KB" rev-parse --abbrev-ref HEAD)"
-check_eq "which the remote now has" "2" "$(git -C "$WORK/origin.git" rev-list --count main)"
+check_eq "which the remote now has" "$((main_before + 1))" "$(git -C "$WORK/origin.git" rev-list --count main)"
 
 echo
 echo "-- the launcher actually passes the knowledge base to the harness --"
@@ -348,6 +383,15 @@ PSEOF
 	argv="$(PATH="$WORK/fakebin:$PATH" GAH_ALLOW_NO_SKILLS=1 pwsh -NoProfile -File "$REPO_ROOT/bin/gah.ps1" --skill init-kb 2>/dev/null)"
 	check "a flag whose value happens to be 'init-kb' is not read as a subcommand" \
 		"$(printf '%s' "$argv" | grep -qF -- '--skill' && echo 1 || echo 0)"
+
+	pwsh -NoProfile -File "$PS_KB/bin/kb-sync.ps1" >"$WORK/ps-sync.out" 2>&1
+	check_eq "kb-sync.ps1 succeeds" "0" "$?"
+	check "and reports the state of the copy" \
+		"$(grep -qiE 'up to date|new since' "$WORK/ps-sync.out" && echo 1 || echo 0)"
+	printf 'Uncommitted.\n' >>"$PS_KB/articles/network/gym-switch.md"
+	pwsh -NoProfile -File "$PS_KB/bin/kb-sync.ps1" >/dev/null 2>&1
+	check_eq "kb-sync.ps1 refuses to touch uncommitted work" "3" "$?"
+	git -C "$PS_KB" checkout -q -- articles
 
 	# The third launcher: the packaged one an end user actually runs. It fetches
 	# skills as a read-only archive, so a knowledge base reaches it only as a

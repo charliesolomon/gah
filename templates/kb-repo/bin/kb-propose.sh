@@ -100,14 +100,21 @@ if ! push_out="$(git -C "$root" push -u origin "$branch" 2>&1)"; then
 	printf 'Committed on %s but NOT pushed — resolve the above and push.\n' "$branch"
 	exit 4
 fi
-# GitLab prints the merge-request URL in the push output; GitHub prints a
-# compare link. Show it verbatim rather than guessing.
-printf '%s\n' "$push_out" | grep -iE 'https?://' | sed 's/^[[:space:]]*remote:[[:space:]]*//' | sed 's/^/  /'
-
-remote="$(git -C "$root" remote get-url origin 2>/dev/null)"
-web="$(printf '%s' "$remote" | sed -e 's#^git@\([^:]*\):#https://\1/#' -e 's#\.git$##')"
-case "$web" in
-	https://github.com/*) printf '  Open the pull request: %s/compare/%s...%s?expand=1\n' "$web" "$default_branch" "$branch" ;;
-	https://gitlab.*|*/gitlab/*) printf '  (the merge-request link above comes from GitLab)\n' ;;
-esac
+# A forge prints the link to open the request in the push banner. Pull the URLs
+# out of the whole banner rather than echoing every line that contains one: the
+# banner also carries the repository URL, and a server notice wrapped mid-
+# sentence produced "certificate.](https://...)" in a real run.
+urls="$(printf '%s' "$push_out" | grep -oE 'https?://[^[:space:]<>"]+' | sed 's/[.,)]*$//' | awk '!seen[$0]++')"
+request="$(printf '%s' "$urls" | grep -m1 -iE 'merge_request|pull/new|pull-requests|/compare/' || true)"
+if [ -n "$request" ]; then
+	printf '  Open the request: %s\n' "$request"
+else
+	remote="$(git -C "$root" remote get-url origin 2>/dev/null)"
+	web="$(printf '%s' "$remote" | sed -e 's#^git@\([^:]*\):#https://\1/#' -e 's#\.git$##')"
+	case "$web" in
+		https://github.com/*) printf '  Open the pull request: %s/compare/%s...%s?expand=1\n' "$web" "$default_branch" "$branch" ;;
+		*) [ -n "$urls" ] && printf '%s\n' "$urls" | sed 's/^/  /' ;;
+	esac
+fi
 printf 'Proposed. Someone reviews it, and every later question is answered from the better version.\n'
+printf 'When it is merged, run kb-sync to bring this copy up to date.\n'

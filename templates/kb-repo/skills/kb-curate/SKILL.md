@@ -70,6 +70,14 @@ Prioritise stale articles that describe things that **change**: firmware,
 inventories, people, addressing. A stale article about a naming convention is
 probably still fine.
 
+## Is this copy even current?
+
+Everything above is computed from the clone on this machine. If someone merged
+an article an hour ago and nobody has pulled, the report is honest about a
+knowledge base that no longer exists. When the answer matters — before telling
+someone what is missing, or before starting on the top gap — bring the copy up
+to date first (`kb-propose` owns that: `bin/kb-sync.sh`, `.\bin\kb-sync.ps1`).
+
 ## Health problems worth raising
 
 - Articles with no `description` — they will not be found by search, so they

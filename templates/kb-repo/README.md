@@ -12,7 +12,8 @@ can read every file in it, and so can the agent.
 articles/     the knowledge, one Markdown file per article
 templates/    the article template new articles are written from
 skills/       the four skills that make the loop work (loaded from here)
-bin/          wrapper scripts (.sh and .ps1) the skills call
+bin/          wrapper scripts (.sh and .ps1) the skills call:
+              kb-search, kb-new, kb-gap, kb-status, kb-propose, kb-sync
 prompts/      /kb — the question people type most
 ```
 
