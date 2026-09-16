@@ -139,6 +139,38 @@ gah: knowledge base is on branch 'kb/gym-switch' — left as it is (finish or pu
 
 Both of those are normal, not errors. Someone is mid-article.
 
+## What counts as a knowledge base question
+
+A session is rarely only about the estate. Someone writing a script against a
+server asks a general question about the technique and an organizational one
+about the window, the mirror, the naming convention and the proxy — often in one
+sentence. So `kb-search` applies one test before it does anything:
+
+> Would an equally competent engineer at a different organization give the same
+> answer?
+
+Yes means general knowledge: answer it, touch nothing. No means a fact about
+this organization: search, cite, and record a gap if nothing covers it.
+
+The three actions have deliberately different thresholds, because their costs
+differ by orders of magnitude. **Searching** costs a grep, so it happens
+whenever a question might touch something documented. **Citing** costs nothing.
+**Recording a gap** creates a permanent file that answers future searches and
+takes a place in the backlog — so it happens only for organizational questions.
+A backlog padded with general technology questions stops being a signal about
+your documentation, and that signal is the whole reason to order by demand.
+
+For the ambiguous middle — which is the common case in a working session — the
+skill answers from general knowledge and then invites: *"that is the standard
+answer; if your team does it differently, tell me and I will write it down."*
+That captures the organizational fact at the moment it is cheapest without
+creating a file on a guess. `kb-curate` reports any gap that looks like a
+general technology question, so the backlog self-cleans when one leaks through.
+
+If a session should not involve the knowledge base at all, do not give it one:
+the skills load only when `GAH_KB_DIR` (or `KB_REPO`) is set, so a shortcut or
+alias for development work that omits it gets no `kb-*` skills.
+
 ## Granting capability in stages
 
 The skills are split along the line that matters, so a deployment can let people

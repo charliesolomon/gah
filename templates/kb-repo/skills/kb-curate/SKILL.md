@@ -34,6 +34,31 @@ Report it as work, not as a table dump:
 **Name who would know**, where it is obvious from the gap or the articles
 around it. The obstacle is rarely the writing; it is finding the person.
 
+## Gaps that should not be there
+
+Some gaps will be recorded that are not gaps at all: a general technology
+question that happened to be asked here. `kb-search` is told not to record
+those, but judgement in the moment is imperfect and the cost is silent — a
+backlog padded with Linux questions stops being a signal about *your*
+documentation, which is the one property that makes it worth ordering by
+demand.
+
+Apply the same test the question should have faced:
+
+> Would an equally competent engineer at a different organization give the same
+> answer?
+
+If yes, the stub does not belong. Two tells: it names a public technology and
+nothing of yours, or the answer would be identical at any other organization.
+*"How do I use systemd timers"* is not a gap. *"Which of our hosts use the
+overnight patch window"* is.
+
+**Report those separately from the backlog, and offer to delete them.** Do not
+delete silently — someone recorded it for a reason, and the phrasing may hide an
+organizational question inside a general one ("how do I use systemd timers"
+might mean "what is our convention for scheduled jobs"). Ask which it was; if it
+is the organizational one, the fix is to reword the stub rather than remove it.
+
 ## Stale articles
 
 An article whose `updated` is more than about six months old is a fact that
@@ -56,10 +81,15 @@ probably still fine.
 - The example article that shipped with the scaffold, if it is still there. It
   is invented, and it will eventually be quoted to someone as though it were
   true.
+- Gap stubs that survived the article answering them. A stub left behind keeps
+  telling searchers that nobody has written this down, while the article sits
+  two directories away.
 
 ## How to report
 
-**Lead with the single most useful next action**, not with statistics. "Four
+**Lead with the single most useful next action**, not with statistics.
+If the top item is a gap that does not belong, say that first — clearing it
+costs a second and the backlog reads honestly afterwards. "Four
 articles, two gaps" tells nobody what to do.
 
 **Three items, not fifteen.** A backlog nobody can finish is a backlog nobody

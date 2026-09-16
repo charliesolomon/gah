@@ -66,6 +66,16 @@ for s in "$KB"/skills/*/SKILL.md; do
 	check "$rel description names when to use it" \
 		"$(printf '%s' "$desc" | grep -qi 'use when\|use whenever' && echo 1 || echo 0)"
 done
+# The description is the trigger, so it is where a negative clause does the most
+# work: kb-search must say out loud that general technology questions are not
+# its business, or a working session records a gap on every miss.
+desc="$(awk -F': *' '/^description: /{print substr($0, 14); exit}' "$KB/skills/kb-search/SKILL.md")"
+check "kb-search's description rules out general technology questions" \
+	"$(printf '%s' "$desc" | grep -qi 'not for general\|NOT for general' && echo 1 || echo 0)"
+check "kb-search gates on the cross-organization test before searching" \
+	"$(grep -q 'different organization give the' "$KB/skills/kb-search/SKILL.md" && echo 1 || echo 0)"
+check "kb-curate can prune gaps that do not belong" \
+	"$(grep -qi 'gaps that should not be there' "$KB/skills/kb-curate/SKILL.md" && echo 1 || echo 0)"
 
 echo
 echo "-- search, on a knowledge base that holds only the example --"
