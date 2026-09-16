@@ -68,6 +68,22 @@ Say yes, and you have your first gap.
 Whatever you explain most often to a new colleague. Ask the agent — `kb-article`
 walks it, and the one example article here shows the shape.
 
+## Keeping the tooling current
+
+The scripts and skills here came from `gah init-kb` and will gain fixes. Refresh
+them without touching your articles:
+
+```bash
+gah update-kb <this directory>
+```
+
+Commit your work first: the update writes the shipped files over what is here
+and leaves `git diff` as the review. A session whose knowledge base is behind
+says so at startup, so you do not have to remember to check.
+
+Customisations belong in your skills repository rather than here — a skill of
+the same name there wins over this one, and survives the update.
+
 ## What belongs here
 
 The documented facts of your estate, and the reasoning behind them:

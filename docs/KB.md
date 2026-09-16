@@ -122,6 +122,44 @@ and stops, rather than passing the words to the model as a question. An
 administrator creates the knowledge base once from a checkout, pushes it, and
 people clone it — the same shape as the skills repository.
 
+### Updating the scaffold in an existing knowledge base
+
+The scaffold ships **tooling** — five scripts and four skills — into a
+repository that then fills with **your articles**. When the tooling gains a fix,
+`init-kb` is no help: it refuses a directory that has anything in it, which by
+then is every real knowledge base.
+
+```bash
+./bin/gah update-kb ~/dev/my-org-kb          # PowerShell: .\bin\gah.ps1 update-kb ..\my-org-kb
+```
+
+It refreshes `bin/`, `skills/`, `templates/` and `prompts/`, and **does not
+touch `articles/`**. Nothing is merged: the shipped files are written over what
+is there, and git is the review — which is why it insists on a clean tree, so
+`git diff` afterwards shows exactly what changed, including any local edit it
+replaced, and `git checkout` puts it back. Files of your own in those
+directories survive; nothing is deleted.
+
+If you have customised a skill or a script, expect the update to overwrite it
+and to show up in that diff. The better place for a customisation is your own
+skills repository: a skill of the same name there wins over the scaffold's, and
+survives every update.
+
+**You will be told when it is due.** A knowledge base records which scaffold it
+carries in `.kb-scaffold`, and a session that loads one whose tooling is behind
+the checkout says so at startup:
+
+```
+gah: this knowledge base's scripts and skills are at 9f2ab31, behind the scaffold in this checkout (17dd00c5)
+     refresh them with:  gah update-kb ~/dev/my-org-kb
+```
+
+The marker is git's tree hash for `templates/kb-repo`, so it changes exactly
+when the scaffold's contents change — an unrelated commit does not make every
+knowledge base look stale — and it is the same value whether it was written from
+bash or PowerShell. Outside a git checkout nothing is compared and nothing is
+said, since there would be no way to update from there anyway.
+
 ### The one checkout the agent writes to
 
 The shared skills checkout is hard-reset on every launch: the repository is

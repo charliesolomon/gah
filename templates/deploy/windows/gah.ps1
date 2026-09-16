@@ -26,13 +26,13 @@ foreach ($a in $args) {
 # injects flags ahead of the person's own arguments --
 #   function gah { & '<path>\bin\gah.ps1' --skill '<dir>' @args }
 # -- so `gah init-kb <dir>` arrives as `--skill <dir> init-kb <dir>`. Find the
-# first bare `init`/`init-kb` token instead, ignoring one that is the value of a
+# first bare `init`/`init-kb`/`update-kb` token instead, ignoring one that is the value of a
 # preceding flag (`--skill init-kb` names a directory, not a subcommand).
 $SubCommand = ''
 $SubTarget  = ''
 for ($i = 0; $i -lt $GahArgs.Count; $i++) {
     $tok = [string]$GahArgs[$i]
-    if (@('init', 'init-kb') -notcontains $tok) { continue }
+    if (@('init', 'init-kb', 'update-kb') -notcontains $tok) { continue }
     if ($i -gt 0 -and ([string]$GahArgs[$i - 1]).StartsWith('-')) { continue }
     $SubCommand = $tok
     if ($i + 1 -lt $GahArgs.Count) { $SubTarget = [string]$GahArgs[$i + 1] }

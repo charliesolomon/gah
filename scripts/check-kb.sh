@@ -39,6 +39,15 @@ check_eq() {
 
 KB="$WORK/kb"
 
+# A fake `node` that prints argv: the only way to assert on what bin/gah execs
+# without starting a session. Used by the launcher checks below.
+mkdir -p "$WORK/fakebin"
+cat >"$WORK/fakebin/node" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$@"
+EOF
+chmod +x "$WORK/fakebin/node"
+
 echo "-- gah init-kb --"
 ./bin/gah init-kb "$KB" >"$WORK/init.out" 2>&1
 check "init-kb succeeded" "$([ $? -eq 0 ] && echo 1 || echo 0)"
@@ -50,6 +59,69 @@ done
 check "the .sh scripts are executable" "$([ -x "$KB/bin/kb-search.sh" ] && echo 1 || echo 0)"
 ./bin/gah init-kb "$KB" >/dev/null 2>&1
 check_eq "init-kb refuses a non-empty directory" "1" "$?"
+
+check "the scaffold records which version it is" "$([ -s "$KB/.kb-scaffold" ] && echo 1 || echo 0)"
+
+echo
+echo "-- updating the tooling in an existing knowledge base --"
+# init-kb refuses a non-empty directory, which by the time tooling needs a fix
+# is every real knowledge base. This is the path out of that.
+UKB="$WORK/kb-update"
+./bin/gah init-kb "$UKB" >/dev/null 2>&1
+git -C "$UKB" init -q -b main .
+git -C "$UKB" config user.name "Tech"; git -C "$UKB" config user.email "t@example.com"
+mkdir -p "$UKB/articles/theirs"
+printf -- '---\ntitle: Theirs\ndescription: An article of their own.\nstatus: current\nupdated: %s\ntags: []\n---\nbody\n' "$(date +%Y-%m-%d)" >"$UKB/articles/theirs/keep-me.md"
+printf 'their own prompt\n' >"$UKB/prompts/theirs.md"
+# Simulate a knowledge base carrying an older scaffold with a local edit.
+sed -i '2i # a local edit that the update will replace' "$UKB/bin/kb-search.sh"
+printf 'scaffold 0000000\n' >"$UKB/.kb-scaffold"
+git -C "$UKB" add -A >/dev/null 2>&1; git -C "$UKB" commit -qm "their knowledge base" >/dev/null 2>&1
+
+./bin/gah update-kb "$UKB" >"$WORK/update.out" 2>&1
+check_eq "update-kb succeeds on an existing knowledge base" "0" "$?"
+check "their article is untouched" "$([ -f "$UKB/articles/theirs/keep-me.md" ] && echo 1 || echo 0)"
+check "their own prompt survives — nothing is deleted" "$([ -f "$UKB/prompts/theirs.md" ] && echo 1 || echo 0)"
+check "the local edit to a shipped script is replaced" \
+	"$(grep -q 'a local edit that the update will replace' "$UKB/bin/kb-search.sh" && echo 0 || echo 1)"
+check "and shows up in git, so it is reviewable and reversible" \
+	"$(git -C "$UKB" status --porcelain -- bin | grep -q 'kb-search.sh' && echo 1 || echo 0)"
+check "the marker moves forward" \
+	"$(grep -q '^scaffold 0000000$' "$UKB/.kb-scaffold" && echo 0 || echo 1)"
+check "it reports what changed" "$(grep -q 'Changed:' "$WORK/update.out" && echo 1 || echo 0)"
+check "and says articles were not touched" "$(grep -q 'articles/ was not touched' "$WORK/update.out" && echo 1 || echo 0)"
+
+./bin/gah update-kb "$UKB" >"$WORK/update2.out" 2>&1
+check "a second update says it is already current, without minding the dirty tree it left" \
+	"$(grep -q 'already current' "$WORK/update2.out" && echo 1 || echo 0)"
+
+# The dirty-tree guard only applies when there is actually something to write:
+# an update that has nothing to do says so first.
+git -C "$UKB" add -A >/dev/null 2>&1; git -C "$UKB" commit -qm "take the update" >/dev/null 2>&1
+printf 'scaffold 0000000\n' >"$UKB/.kb-scaffold"
+printf 'uncommitted\n' >>"$UKB/articles/theirs/keep-me.md"
+./bin/gah update-kb "$UKB" >/dev/null 2>&1
+check_eq "it refuses a dirty tree, so the diff stays readable" "3" "$?"
+./bin/gah update-kb "$UKB" --force >/dev/null 2>&1
+check_eq "--force goes ahead anyway" "0" "$?"
+git -C "$UKB" checkout -q -- articles 2>/dev/null
+
+./bin/gah update-kb "$WORK" >/dev/null 2>&1
+check_eq "it refuses a directory that is not a knowledge base" "1" "$?"
+./bin/gah update-kb >/dev/null 2>&1
+check_eq "and refuses with no directory at all" "2" "$?"
+
+# The launch notice is the only way anyone finds out an update exists.
+printf 'scaffold 0000000\n' >"$UKB/.kb-scaffold"
+out="$(PATH="$WORK/fakebin:$PATH" GAH_ALLOW_NO_SKILLS=1 GAH_KB_DIR="$UKB" GAH_SKIP_SETUP=1 ./bin/gah 2>&1 >/dev/null)"
+check "a session says when the knowledge base's tooling is behind" \
+	"$(printf '%s' "$out" | grep -q 'behind the scaffold in this checkout' && echo 1 || echo 0)"
+check "and names the command that fixes it" \
+	"$(printf '%s' "$out" | grep -q 'update-kb' && echo 1 || echo 0)"
+./bin/gah update-kb "$UKB" --force >/dev/null 2>&1
+out="$(PATH="$WORK/fakebin:$PATH" GAH_ALLOW_NO_SKILLS=1 GAH_KB_DIR="$UKB" GAH_SKIP_SETUP=1 ./bin/gah 2>&1 >/dev/null)"
+check "and says nothing once it is current" \
+	"$(printf '%s' "$out" | grep -q 'behind the scaffold' && echo 0 || echo 1)"
 
 echo
 echo "-- every skill is loadable --"
@@ -261,12 +333,6 @@ echo
 echo "-- the launcher actually passes the knowledge base to the harness --"
 # A fake `node` that prints argv: the only way to assert on what bin/gah execs
 # without starting a session.
-mkdir -p "$WORK/fakebin"
-cat >"$WORK/fakebin/node" <<'EOF'
-#!/usr/bin/env bash
-printf '%s\n' "$@"
-EOF
-chmod +x "$WORK/fakebin/node"
 argv="$(PATH="$WORK/fakebin:$PATH" GAH_ALLOW_NO_SKILLS=1 GAH_KB_DIR="$KB" GAH_SKIP_SETUP=1 ./bin/gah 2>/dev/null)"
 check "the KB's skills directory is passed with --skill" \
 	"$(printf '%s' "$argv" | grep -qF "$KB/skills" && echo 1 || echo 0)"

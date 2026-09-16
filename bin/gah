@@ -14,19 +14,34 @@ POLICY_DIR="$HERE/packages/policy-pack/extensions"
 TEMPLATE_DIR="$HERE/templates/skills-repo"
 KB_TEMPLATE_DIR="$HERE/templates/kb-repo"
 
+# Which scaffold a knowledge base carries. Written on init and on update, read
+# at launch to say when the tooling in a knowledge base has fallen behind --
+# otherwise nobody finds out, because the scripts keep working and simply lack
+# the fix.
+#
+# It is git's tree hash for templates/kb-repo, not the gah version or commit:
+# that changes exactly when the scaffold's own contents change, so an unrelated
+# commit does not make every knowledge base look stale, and it is the same value
+# computed from bash or PowerShell, so a knowledge base updated on a host and
+# read on a workstation agrees with itself. Empty outside a git checkout, and
+# nothing warns on an empty value.
+kb_scaffold_id() {
+  git -C "$HERE" rev-parse --short "HEAD:templates/kb-repo" 2>/dev/null || true
+}
+
 # --- Subcommands -----------------------------------------------------------
 # The subcommand is not necessarily the first argument: a wrapper commonly
 # injects flags ahead of the person's own arguments --
 #   gah() { ~/gah/bin/gah --skill ~/skills "$@"; }
 # -- so `gah init-kb <dir>` arrives as `--skill <dir> init-kb <dir>`. Find the
-# first bare init/init-kb token instead, ignoring one that is the value of a
-# preceding flag (`--skill init-kb` names a directory, not a subcommand).
+# first bare init/init-kb/update-kb token instead, ignoring one that is the
+# value of a preceding flag (`--skill init-kb` names a directory, not one).
 subcommand=""
 subtarget=""
 prev=""
 for arg in "$@"; do
   case "$arg" in
-    init|init-kb)
+    init|init-kb|update-kb)
       case "$prev" in -*) prev="$arg"; continue ;; esac
       subcommand="$arg"
       ;;
@@ -85,6 +100,7 @@ if [ "$subcommand" = "init-kb" ]; then
   mkdir -p "$target"
   cp -R "$KB_TEMPLATE_DIR/." "$target/"
   chmod +x "$target"/bin/*.sh 2>/dev/null || true
+  printf 'scaffold %s\n' "$(kb_scaffold_id)" >"$target/.kb-scaffold"
   cat <<EOF
 
 Created a knowledge base in $target
@@ -103,6 +119,85 @@ Ask it something you already know the answer to. It should tell you that
 nothing covers it yet, and offer to record the gap — that is the loop starting.
 
 EOF
+  exit 0
+fi
+
+# --- gah update-kb ---------------------------------------------------------
+# The scaffold ships tooling -- the scripts and the four skills -- into a
+# repository that then fills up with an organisation's own articles. When the
+# tooling gains a fix, `init-kb` is no help: it refuses a directory that has
+# anything in it, which by then is every real knowledge base. This refreshes the
+# tooling in place and leaves articles/ alone.
+#
+# Nothing is merged: the shipped files are written over whatever is there, and
+# git is the review. That is why it insists on a clean tree -- so `git diff`
+# afterwards shows exactly what changed, including any local edit it replaced,
+# and `git checkout` puts it back.
+if [ "$subcommand" = "update-kb" ]; then
+  target="$subtarget"
+  [ -n "$target" ] || { echo "usage: gah update-kb <directory>" >&2; exit 2; }
+  [ -d "$KB_TEMPLATE_DIR" ] || { echo "gah: template missing at $KB_TEMPLATE_DIR" >&2; exit 1; }
+  if [ ! -d "$target/articles" ] || [ ! -d "$target/bin" ]; then
+    echo "gah: $target does not look like a knowledge base (no articles/ and bin/)." >&2
+    echo "  To create one:  gah init-kb $target" >&2
+    exit 1
+  fi
+  force=0
+  case " $* " in *" --force "*) force=1 ;; esac
+
+  # Already current: say so and touch nothing. Checked before the clean-tree
+  # rule below, because a no-op is harmless and refusing one is baffling when
+  # the uncommitted changes in question are the ones a previous run just made.
+  want_id="$(kb_scaffold_id)"
+  have_id="$(sed -n 's/^scaffold //p' "$target/.kb-scaffold" 2>/dev/null || true)"
+  if [ "$force" -eq 0 ] && [ -n "$want_id" ] && [ "$have_id" = "$want_id" ]; then
+    echo "The knowledge base tooling in $target is already current ($want_id)."
+    echo "  To write the shipped files over local edits anyway:  gah update-kb $target --force"
+    exit 0
+  fi
+
+  is_git=0
+  git -C "$target" rev-parse --git-dir >/dev/null 2>&1 && is_git=1
+  if [ "$is_git" -eq 1 ] && [ "$force" -eq 0 ] && [ -n "$(git -C "$target" status --porcelain 2>/dev/null)" ]; then
+    echo "gah: $target has uncommitted changes." >&2
+    echo "  Commit or stash them first, so the update shows up cleanly in git diff." >&2
+    echo "  Or pass --force to write over them anyway." >&2
+    exit 3
+  fi
+  [ "$is_git" -eq 0 ] && echo "gah: $target is not a git repository, so there is no undo. Continuing." >&2
+
+  was="$(sed -n 's/^scaffold //p' "$target/.kb-scaffold" 2>/dev/null || true)"; : "${was:=unknown}"
+  # Only the tooling. articles/ is the organisation's, and README.md and
+  # .gitignore are theirs to have edited; extra files of their own in these
+  # directories are left in place, since nothing is deleted.
+  for d in bin skills templates prompts; do
+    [ -d "$KB_TEMPLATE_DIR/$d" ] || continue
+    mkdir -p "$target/$d"
+    cp -R "$KB_TEMPLATE_DIR/$d/." "$target/$d/"
+  done
+  chmod +x "$target"/bin/*.sh 2>/dev/null || true
+  printf 'scaffold %s\n' "$(kb_scaffold_id)" >"$target/.kb-scaffold"
+
+  echo ""
+  echo "Updated the knowledge base tooling in $target"
+  echo "  was: $was"
+  echo "  now: $(kb_scaffold_id)"
+  echo ""
+  if [ "$is_git" -eq 1 ]; then
+    changed="$(git -C "$target" status --porcelain -- bin skills templates prompts .kb-scaffold 2>/dev/null)"
+    if [ -n "$changed" ]; then
+      echo "Changed:"
+      printf '%s\n' "$changed" | sed 's/^/  /'
+      echo ""
+      echo "Review with:  git -C $target diff"
+      echo "Undo with:    git -C $target checkout -- bin skills templates prompts .kb-scaffold"
+    else
+      echo "Nothing changed — the tooling was already current."
+    fi
+  fi
+  echo ""
+  echo "articles/ was not touched."
+  echo ""
   exit 0
 fi
 
@@ -138,6 +233,10 @@ Then start a session with:
 A knowledge base is optional and scaffolded separately (docs/KB.md):
 
   gah init-kb <directory>   then   GAH_KB_DIR=<directory> gah
+
+Refresh an existing one's scripts and skills, leaving its articles alone:
+
+  gah update-kb <directory>
 
 Or pass one directly for a single run:  gah --skill <path>
 
@@ -222,6 +321,19 @@ if [ -n "${GAH_KB_DIR:-}" ]; then
     echo "gah: GAH_KB_DIR=$GAH_KB_DIR has no skills/ — knowledge base not loaded" >&2
   fi
   [ -d "$GAH_KB_DIR/prompts" ] && skill_args+=(--prompt-template "$GAH_KB_DIR/prompts")
+  # Say when the tooling in the knowledge base is older than this build. The
+  # scripts keep working when they fall behind; they simply lack the fix, which
+  # is a failure nobody notices without being told.
+  if [ "$info_only" -eq 0 ] && [ -d "$KB_TEMPLATE_DIR" ]; then
+    kb_want="$(kb_scaffold_id)"
+    kb_have="$(sed -n 's/^scaffold //p' "$GAH_KB_DIR/.kb-scaffold" 2>/dev/null || true)"
+    # Silent when this is not a checkout (nothing to compare, and no way to
+    # update from here anyway).
+    if [ -n "$kb_want" ] && [ "$kb_have" != "$kb_want" ]; then
+      echo "gah: this knowledge base's scripts and skills are ${kb_have:+at $kb_have, }behind the scaffold in this checkout ($kb_want)" >&2
+      echo "     refresh them with:  gah update-kb $GAH_KB_DIR" >&2
+    fi
+  fi
 fi
 
 # --- Onboarding / setup steps -------------------------------------------------
