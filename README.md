@@ -27,6 +27,7 @@ gah/
 ├── deploy/host/               ← shared SSH agent host (tmux launcher, per-user manifests)
 ├── deploy/windows/            ← laptop-side shortcut installer: one worked example, for TacticalRMM
 ├── templates/skills-repo/     ← scaffold written by `gah init`: skills, prompts, setup steps
+├── templates/kb-repo/         ← scaffold written by `gah init-kb`: the optional knowledge base
 ├── templates/deploy/          ← gah-deploy.json example + the Windows launcher/installer shipped in packages
 ├── skills/                    ← skills for running GAH on GAH itself (package-deploy)
 ├── scripts/                   ← sync, patch, build helpers
@@ -36,6 +37,7 @@ gah/
 ├── docs/GITLAB.md             ← what an organisation's GitLab holds in a deployment
 ├── docs/PROVIDERS.md          ← inference-provider restriction + approved endpoints
 ├── docs/SKILLS.md             ← the skills repository: gah init, layout, rollout
+├── docs/KB.md                 ← the knowledge base: the context loop, staged capability
 ├── docs/SUPPLY-CHAIN.md       ← what reaches the network, and the fd/ripgrep install
 ├── docs/DEPLOY-WINDOWS.md     ← one zip for consumers: package, install, auto-update, skills sync
 ├── docs/CONCEPT.html         ← the concept, for a non-technical audience (standalone, offline)

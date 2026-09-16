@@ -32,6 +32,30 @@ SKILLS_SUBDIR="skills"
 #MY_SKILLS_BRANCH="main"
 #MY_SKILLS_DIR="$HOME/.gah/my-skills"
 
+# --- Knowledge base (optional) ------------------------------------------------
+# What this organization knows: sites, equipment, conventions, and the standing
+# exceptions that only your own staff can explain. Scaffold one with
+# `gah init-kb <dir>`; see docs/KB.md. Unset = this deployment has no knowledge
+# base, and the kb-* skills do not exist for the user.
+#
+# Cloned to ~/.gah/kb and, unlike the shared skills checkout, NEVER hard-reset:
+# this is the one repository the agent writes to, so a draft article or an
+# unpushed branch survives a launch. A clean checkout on the default branch is
+# fast-forwarded; anything else is left alone and reported.
+#
+# The knowledge base carries the four skills that operate it (kb-search,
+# kb-article, kb-propose, kb-curate), so setting this is what grants them. A
+# skill of the same name in the shared or personal set wins over the KB's.
+#
+# Reading and drafting need no shell. Only kb-propose does (git), so a
+# deployment can run read-only simply by not granting one below.
+#KB_REPO="git@github.com:ORG/kb.git"
+#KB_BRANCH="main"
+#KB_DIR="$HOME/.gah/kb"
+# Set to "direct" for teams that commit straight to the default branch instead
+# of opening a pull request per change (docs/KB.md).
+#KB_PUBLISH="propose"
+
 # --- Models -------------------------------------------------------------------
 # Comma-separated provider/model-id globs against the built-in catalog
 # (docs/PROVIDERS.md). Unset or empty = deny-all. This gates what the TUI

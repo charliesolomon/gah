@@ -8,17 +8,63 @@
 $ErrorActionPreference = "Stop"
 
 $Here = Split-Path -Parent $PSScriptRoot
+
+# A wrapper or alias may hand the arguments over as one nested array -- that is
+# what `& gah.ps1 $args` does, as against `@args` -- and then $args[0] is an
+# array, not the subcommand. Flatten once, and use this everywhere below, so
+# `gah init-kb <dir>` behaves the same however the person wired up their alias.
+$GahArgs = @()
+foreach ($a in $args) {
+    if ($null -ne $a -and $a -isnot [string] -and $a -is [System.Collections.IEnumerable]) { foreach ($b in $a) { $GahArgs += $b } }
+    else { $GahArgs += $a }
+}
 $PiCli = Join-Path $Here "vendor\pi\packages\coding-agent\dist\cli.js"
 $PolicyDir = Join-Path $Here "packages\policy-pack\extensions"
+
+# The subcommand is not necessarily the first argument. A wrapper commonly
+# injects flags ahead of the person's own arguments --
+#   function gah { & '<path>\bin\gah.ps1' --skill '<dir>' @args }
+# -- so `gah init-kb <dir>` arrives as `--skill <dir> init-kb <dir>`. Find the
+# first bare `init`/`init-kb`/`update-kb` token instead, ignoring one that is the
+# value of a preceding flag (`--skill init-kb` names a directory, not one).
+$SubCommand = ''
+$SubTarget  = ''
+for ($i = 0; $i -lt $GahArgs.Count; $i++) {
+    $tok = [string]$GahArgs[$i]
+    if (@('init', 'init-kb', 'update-kb') -notcontains $tok) { continue }
+    if ($i -gt 0 -and ([string]$GahArgs[$i - 1]).StartsWith('-')) { continue }
+    $SubCommand = $tok
+    if ($i + 1 -lt $GahArgs.Count) { $SubTarget = [string]$GahArgs[$i + 1] }
+    break
+}
+
+# One shape cannot be recovered: a wrapper that joins its arguments into a
+# single string (`& gah.ps1 "$args"`), which arrives as "init-kb C:\path" in one
+# argument. Detect the exact shape -- a subcommand word, then one token with no
+# spaces -- and say what is wrong, rather than sending those words to the model
+# as a question. A genuine prompt beginning with the word "init" has more than
+# one word after it and is not caught.
+if ($GahArgs.Count -eq 1 -and $GahArgs[0] -is [string] -and $GahArgs[0] -match '^(init|init-kb)\s+(\S+)$') {
+    [Console]::Error.WriteLine(@"
+gah: received '$($GahArgs[0])' as a single argument, so '$($Matches[1])' could not
+be read as a subcommand. The wrapper or alias calling this script is joining its
+arguments into one string. Use the splat form instead:
+
+  function gah { & "<path>\bin\gah.ps1" @args }     # not: `$args, and not: "`$args"
+
+Or call the script directly:  .\bin\gah.ps1 $($Matches[1]) $($Matches[2])
+"@)
+    exit 2
+}
 
 # --- gah init --------------------------------------------------------------
 # Handled before anything else: a new deployment scaffolds its skills repo
 # first, and should not need a built PI to do it. Also breaks the circularity of
 # a launcher that refuses to start without skills.
 $TemplateDir = Join-Path $Here 'templates\skills-repo'
-if ($args.Count -ge 1 -and $args[0] -eq 'init') {
-    if ($args.Count -lt 2) { [Console]::Error.WriteLine('usage: gah.ps1 init <directory>'); exit 2 }
-    $Target = $args[1]
+if ($SubCommand -eq 'init') {
+    if (-not $SubTarget) { [Console]::Error.WriteLine('usage: gah.ps1 init <directory>'); exit 2 }
+    $Target = $SubTarget
     if (-not (Test-Path $TemplateDir)) { [Console]::Error.WriteLine("gah: template missing at $TemplateDir"); exit 1 }
     if ((Test-Path $Target) -and (Get-ChildItem -Force $Target | Measure-Object).Count -gt 0) {
         [Console]::Error.WriteLine("gah: $Target exists and is not empty - refusing to overwrite"); exit 1
@@ -42,6 +88,153 @@ if ($args.Count -ge 1 -and $args[0] -eq 'init') {
     exit 0
 }
 
+# --- gah init-kb -----------------------------------------------------------
+# The knowledge base is the other half of the context the concept rests on, and
+# unlike skills it is optional: a deployment without one simply has no kb-*
+# skills. Scaffolded separately for that reason, and because the two are
+# different repositories with different review rules -- skills are procedure,
+# the knowledge base is fact.
+$KbTemplateDir = Join-Path $Here 'templates\kb-repo'
+
+# Which scaffold a knowledge base carries. Written on init and on update, read
+# at launch to say when the tooling in a knowledge base has fallen behind --
+# otherwise nobody finds out, because the scripts keep working and simply lack
+# the fix.
+#
+# It is git's tree hash for templates\kb-repo, not the gah version or commit:
+# that changes exactly when the scaffold's own contents change, so an unrelated
+# commit does not make every knowledge base look stale, and it is the same value
+# computed from bash or PowerShell, so a knowledge base updated on a host and
+# read on a workstation agrees with itself. Empty outside a git checkout, and
+# nothing warns on an empty value.
+function Get-KbScaffoldId {
+    try {
+        # Validate the value rather than $LASTEXITCODE, which is not set at all
+        # until some native command has run in this scope -- and $null -eq 0 is
+        # false, so checking it silently discarded a perfectly good hash.
+        $id = "$(& git -C $Here rev-parse --short 'HEAD:templates/kb-repo' 2>$null | Select-Object -First 1)".Trim()
+        if ($id -match '^[0-9a-f]{4,}$') { return $id }
+    } catch { }
+    return ''
+}
+function Read-KbScaffoldId([string]$Path) {
+    if (-not (Test-Path $Path)) { return '' }
+    $line = (Get-Content -Raw $Path).Trim()
+    if ($line -match '^scaffold\s+(\S+)$') { return $Matches[1] }
+    return ''
+}
+if ($SubCommand -eq 'init-kb') {
+    if (-not $SubTarget) { [Console]::Error.WriteLine('usage: gah.ps1 init-kb <directory>'); exit 2 }
+    $Target = $SubTarget
+    if (-not (Test-Path $KbTemplateDir)) { [Console]::Error.WriteLine("gah: template missing at $KbTemplateDir"); exit 1 }
+    if ((Test-Path $Target) -and (Get-ChildItem -Force $Target | Measure-Object).Count -gt 0) {
+        [Console]::Error.WriteLine("gah: $Target exists and is not empty - refusing to overwrite"); exit 1
+    }
+    New-Item -ItemType Directory -Force -Path $Target | Out-Null
+    Copy-Item -Recurse -Force (Join-Path $KbTemplateDir '*') $Target
+    Set-Content -LiteralPath (Join-Path $Target '.kb-scaffold') -Value ("scaffold " + (Get-KbScaffoldId))
+    $Full = (Resolve-Path $Target).Path
+    Write-Host ""
+    Write-Host "Created a knowledge base in $Full"
+    Write-Host ""
+    Write-Host "  articles/   what your organization knows, one Markdown file each"
+    Write-Host "  skills/     kb-search, kb-article, kb-propose, kb-curate"
+    Write-Host "  bin/        the scripts those skills call (.ps1 and .sh)"
+    Write-Host ""
+    Write-Host "Next:"
+    Write-Host "  cd $Full; git init; git add .; git commit -m 'Initial knowledge base'"
+    Write-Host ""
+    Write-Host "Then start a session with:"
+    Write-Host "  `$env:GAH_KB_DIR = '$Full'; .\bin\gah.ps1"
+    Write-Host ""
+    Write-Host "Ask it something you already know the answer to. It should tell you that"
+    Write-Host "nothing covers it yet, and offer to record the gap - that is the loop starting."
+    Write-Host ""
+    exit 0
+}
+
+# --- gah update-kb ---------------------------------------------------------
+# The scaffold ships tooling -- the scripts and the four skills -- into a
+# repository that then fills up with an organisation's own articles. When the
+# tooling gains a fix, init-kb is no help: it refuses a directory that has
+# anything in it, which by then is every real knowledge base. This refreshes the
+# tooling in place and leaves articles\ alone. Nothing is merged: git is the
+# review, which is why it insists on a clean tree.
+if ($SubCommand -eq 'update-kb') {
+    if (-not $SubTarget) { [Console]::Error.WriteLine('usage: gah.ps1 update-kb <directory>'); exit 2 }
+    $Target = $SubTarget
+    if (-not (Test-Path $KbTemplateDir)) { [Console]::Error.WriteLine("gah: template missing at $KbTemplateDir"); exit 1 }
+    if (-not (Test-Path (Join-Path $Target 'articles')) -or -not (Test-Path (Join-Path $Target 'bin'))) {
+        [Console]::Error.WriteLine("gah: $Target does not look like a knowledge base (no articles\ and bin\).")
+        [Console]::Error.WriteLine("  To create one:  .\bin\gah.ps1 init-kb $Target")
+        exit 1
+    }
+    $Force = $GahArgs -contains '--force'
+
+    # Already current: say so and touch nothing. Checked before the clean-tree
+    # rule below, because a no-op is harmless and refusing one is baffling when
+    # the uncommitted changes in question are the ones a previous run just made.
+    $wantId = Get-KbScaffoldId
+    $haveId = Read-KbScaffoldId (Join-Path $Target '.kb-scaffold')
+    if (-not $Force -and $wantId -and $haveId -eq $wantId) {
+        Write-Host "The knowledge base tooling in $Target is already current ($wantId)."
+        Write-Host "  To write the shipped files over local edits anyway:  .\bin\gah.ps1 update-kb $Target --force"
+        exit 0
+    }
+
+    $IsGit = $false
+    & git -C $Target rev-parse --git-dir *> $null
+    if ($LASTEXITCODE -eq 0) { $IsGit = $true }
+    if ($IsGit -and -not $Force) {
+        $dirty = (& git -C $Target status --porcelain 2>$null | Out-String).Trim()
+        if ($dirty) {
+            [Console]::Error.WriteLine("gah: $Target has uncommitted changes.")
+            [Console]::Error.WriteLine('  Commit or stash them first, so the update shows up cleanly in git diff.')
+            [Console]::Error.WriteLine('  Or pass --force to write over them anyway.')
+            exit 3
+        }
+    }
+    if (-not $IsGit) { [Console]::Error.WriteLine("gah: $Target is not a git repository, so there is no undo. Continuing.") }
+
+    $markerPath = Join-Path $Target '.kb-scaffold'
+    $was = Read-KbScaffoldId $markerPath
+    if (-not $was) { $was = 'unknown' }
+    # Only the tooling. articles\ is the organisation's, and README.md and
+    # .gitignore are theirs to have edited; extra files of their own in these
+    # directories are left in place, since nothing is deleted.
+    foreach ($d in @('bin', 'skills', 'templates', 'prompts')) {
+        $src = Join-Path $KbTemplateDir $d
+        if (-not (Test-Path $src)) { continue }
+        $dest = Join-Path $Target $d
+        New-Item -ItemType Directory -Force -Path $dest | Out-Null
+        Copy-Item -Recurse -Force (Join-Path $src '*') $dest
+    }
+    $now = Get-KbScaffoldId
+    Set-Content -LiteralPath $markerPath -Value ("scaffold " + $now)
+
+    Write-Host ""
+    Write-Host "Updated the knowledge base tooling in $Target"
+    Write-Host "  was: $was"
+    Write-Host "  now: $now"
+    Write-Host ""
+    if ($IsGit) {
+        $changed = (& git -C $Target status --porcelain -- bin skills templates prompts .kb-scaffold 2>$null | Out-String).Trim()
+        if ($changed) {
+            Write-Host "Changed:"
+            foreach ($line in ($changed -split "`n")) { if ($line.Trim()) { Write-Host ("  " + $line.Trim()) } }
+            Write-Host ""
+            Write-Host "Review with:  git -C $Target diff"
+            Write-Host "Undo with:    git -C $Target checkout -- bin skills templates prompts .kb-scaffold"
+        } else {
+            Write-Host "Nothing changed - the tooling was already current."
+        }
+    }
+    Write-Host ""
+    Write-Host "articles\ was not touched."
+    Write-Host ""
+    exit 0
+}
+
 # --- skills are required ---------------------------------------------------
 # GAH exists to run skills; a session with none is a misconfiguration, not a
 # lighter mode. Without this the policy layer loads with nothing to govern and
@@ -56,7 +249,7 @@ if ($args -contains '--skill') { $SkillsConfigured = $true }
 # also skip the setup steps below. Computed at script scope on purpose: inside
 # a Where-Object scriptblock, $args is the scriptblock's own (empty) list.
 $InfoOnly = $false
-foreach ($flag in @('--help', '-h', '--version', '-v')) { if ($args -contains $flag) { $InfoOnly = $true } }
+foreach ($flag in @('--help', '-h', '--version', '-v')) { if ($GahArgs -contains $flag) { $InfoOnly = $true } }
 if ($InfoOnly) { $SkillsConfigured = $true }
 if ($env:GAH_ALLOW_NO_SKILLS) { $SkillsConfigured = $true }
 if ($env:GAH_SKILLS_DIR -and (Test-Path $env:GAH_SKILLS_DIR)) { $SkillsConfigured = $true }
@@ -68,6 +261,12 @@ if (-not $SkillsConfigured) {
     Write-Host ""
     Write-Host "Then start a session with:"
     Write-Host "  `$env:GAH_SKILLS_DIR = '<directory>\skills'; .\bin\gah.ps1"
+    Write-Host ""
+    Write-Host "A knowledge base is optional and scaffolded separately (docs/KB.md):"
+    Write-Host "  .\bin\gah.ps1 init-kb <directory>   then   `$env:GAH_KB_DIR = '<directory>'"
+    Write-Host ""
+    Write-Host "Refresh an existing one's scripts and skills, leaving its articles alone:"
+    Write-Host "  .\bin\gah.ps1 update-kb <directory>"
     Write-Host ""
     Write-Host "Or pass one directly for a single run:  .\bin\gah.ps1 --skill <path>"
     Write-Host ""
@@ -82,6 +281,36 @@ if ($env:GAH_SKILLS_DIR -and (Test-Path $env:GAH_SKILLS_DIR)) {
     # Prompt templates: the repo's prompts\ (sibling of skills\). See bin/gah.
     $PromptsDir = Join-Path (Split-Path -Parent $env:GAH_SKILLS_DIR) 'prompts'
     if (Test-Path $PromptsDir) { $SkillArgs += @('--prompt-template', $PromptsDir) }
+}
+
+# The knowledge base (optional, docs/KB.md) carries its own skills and prompts,
+# so a deployment that has one gets the kb-* skills and a deployment that does
+# not is unaffected. Its skills load AFTER the organisation's: where both define
+# a name, the organisation's wins, which is the right way round for a set that
+# ships as a scaffold.
+if ($env:GAH_KB_DIR) {
+    $KbSkills = Join-Path $env:GAH_KB_DIR 'skills'
+    if (Test-Path $KbSkills) {
+        $SkillArgs += @('--skill', $KbSkills)
+    } elseif (-not $InfoOnly) {
+        [Console]::Error.WriteLine("gah: GAH_KB_DIR=$($env:GAH_KB_DIR) has no skills\ - knowledge base not loaded")
+    }
+    $KbPrompts = Join-Path $env:GAH_KB_DIR 'prompts'
+    if (Test-Path $KbPrompts) { $SkillArgs += @('--prompt-template', $KbPrompts) }
+    # Say when the tooling in the knowledge base is older than this build. The
+    # scripts keep working when they fall behind; they simply lack the fix,
+    # which is a failure nobody notices without being told.
+    if (-not $InfoOnly -and (Test-Path $KbTemplateDir)) {
+        $want = Get-KbScaffoldId
+        $have = Read-KbScaffoldId (Join-Path $env:GAH_KB_DIR '.kb-scaffold')
+        # Silent when this is not a checkout (nothing to compare, and no way to
+        # update from here anyway).
+        if ($want -and $have -ne $want) {
+            $at = if ($have) { "at $have, " } else { '' }
+            [Console]::Error.WriteLine("gah: this knowledge base's scripts and skills are ${at}behind the scaffold in this checkout ($want)")
+            [Console]::Error.WriteLine("     refresh them with:  .\bin\gah.ps1 update-kb $($env:GAH_KB_DIR)")
+        }
+    }
 }
 
 if (-not (Test-Path $PiCli)) {
@@ -165,7 +394,7 @@ try {
         --extension (Join-Path $PolicyDir "branding.ts") `
         --extension (Join-Path $PolicyDir "providers.ts") `
         --extension (Join-Path $PolicyDir "skills-freshness.ts") `
-        @args
+        @GahArgs
     $ExitCode = $LASTEXITCODE
 } finally {
     foreach ($name in $Restore.Keys) {

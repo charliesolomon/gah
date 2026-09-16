@@ -6,7 +6,7 @@
 PI_DIR := vendor/pi
 
 .DEFAULT_GOAL := help
-.PHONY: help install install-tools install-hooks build build-all build-offline smoke test-policy add-provider probe-endpoint check-tools check-prompted package-windows refresh-model-data patches bundle-policy clean-vendor sync sync-init status patch-new patch-export
+.PHONY: help install install-tools install-hooks build build-all build-offline smoke test-policy add-provider probe-endpoint check-tools check-prompted check-kb package-windows refresh-model-data patches bundle-policy clean-vendor sync sync-init status patch-new patch-export
 
 help: ## Show available targets
 	@awk 'BEGIN { FS = ":.*##"; printf "Usage: make <target> [VAR=value]\n\nTargets:\n" } \
@@ -86,6 +86,9 @@ check-tools: ## Assert the model is offered exactly the policy's tool allowlist 
 
 check-prompted: ## Assert tool use works through a gateway with tool calls disabled ("tools": "prompted", #42)
 	./scripts/check-prompted-tools.sh
+
+check-kb: ## Scaffold a knowledge base and drive the loop end to end (gap -> article -> proposal). No network.
+	./scripts/check-kb.sh
 
 scrub-session: ## Copy a session with environment identifiers replaced, for sharing. Usage: make scrub-session FILE=~/.gah/agent/sessions/<cwd>/<id>.jsonl [ARGS="--drop-tool-results"]
 	@test -n "$(FILE)" || { echo "usage: make scrub-session FILE=<session.jsonl> [ARGS=...]"; exit 2; }

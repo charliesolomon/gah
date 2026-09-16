@@ -14,9 +14,72 @@ $ErrorActionPreference = 'Stop'
 
 $Here   = Split-Path -Parent $MyInvocation.MyCommand.Path      # <root>\<package>
 $Root   = Split-Path -Parent $Here                              # %LOCALAPPDATA%\gah
+
+# A wrapper or alias may hand the arguments over as one nested array (`$args`
+# rather than `@args`); flatten so a subcommand is still seen as one.
+$GahArgs = @()
+foreach ($a in $args) {
+    if ($null -ne $a -and $a -isnot [string] -and $a -is [System.Collections.IEnumerable]) { foreach ($b in $a) { $GahArgs += $b } }
+    else { $GahArgs += $a }
+}
+# The subcommand is not necessarily the first argument. A wrapper commonly
+# injects flags ahead of the person's own arguments --
+#   function gah { & '<path>\bin\gah.ps1' --skill '<dir>' @args }
+# -- so `gah init-kb <dir>` arrives as `--skill <dir> init-kb <dir>`. Find the
+# first bare `init`/`init-kb`/`update-kb` token instead, ignoring one that is the value of a
+# preceding flag (`--skill init-kb` names a directory, not a subcommand).
+$SubCommand = ''
+$SubTarget  = ''
+for ($i = 0; $i -lt $GahArgs.Count; $i++) {
+    $tok = [string]$GahArgs[$i]
+    if (@('init', 'init-kb', 'update-kb') -notcontains $tok) { continue }
+    if ($i -gt 0 -and ([string]$GahArgs[$i - 1]).StartsWith('-')) { continue }
+    $SubCommand = $tok
+    if ($i + 1 -lt $GahArgs.Count) { $SubTarget = [string]$GahArgs[$i + 1] }
+    break
+}
+
+# One shape cannot be recovered: a wrapper that joins its arguments into a
+# single string (`& gah.ps1 "$args"`), which arrives as "init-kb C:\path" in one
+# argument. Detect the exact shape -- a subcommand word, then one token with no
+# spaces -- and say what is wrong, rather than sending those words to the model
+# as a question. A genuine prompt beginning with the word "init" has more than
+# one word after it and is not caught.
+if ($GahArgs.Count -eq 1 -and $GahArgs[0] -is [string] -and $GahArgs[0] -match '^(init|init-kb)\s+(\S+)$') {
+    [Console]::Error.WriteLine(@"
+gah: received '$($GahArgs[0])' as a single argument, so '$($Matches[1])' could not
+be read as a subcommand. The wrapper or alias calling this script is joining its
+arguments into one string. Use the splat form instead:
+
+  function gah { & "<path>\bin\gah.ps1" @args }     # not: `$args, and not: "`$args"
+
+Or call the script directly:  .\bin\gah.ps1 $($Matches[1]) $($Matches[2])
+"@)
+    exit 2
+}
+
+# Scaffolding subcommands belong to a gah checkout, not to an installed package:
+# the templates they copy are not shipped here. Caught explicitly because the
+# alternative is silent and baffling -- every argument this launcher does not
+# recognise is passed to the agent, so `gah init-kb ..\kb` starts a session and
+# sends "init-kb" to the model as a question.
+if ($SubCommand) {
+    [Console]::Error.WriteLine(@"
+gah: '$SubCommand' scaffolds a repository and is only available in a gah checkout,
+not in an installed package. From a checkout:
+
+  .\bin\gah.ps1 $SubCommand <directory>
+
+Your administrator normally does this once for the organisation and shares the
+result; see docs/SKILLS.md and docs/KB.md in the gah repository.
+"@)
+    exit 2
+}
+
 $Deploy = Get-Content -LiteralPath (Join-Path $Here 'deploy.json') -Raw | ConvertFrom-Json
 $InfoOnly = $false
-foreach ($flag in @('--help', '-h', '--version', '-v')) { if ($args -contains $flag) { $InfoOnly = $true } }
+foreach ($flag in @('--help', '-h', '--version', '-v')) { if ($GahArgs -contains $flag) { $InfoOnly = $true } }
+
 
 $GitLab  = $Deploy.gitlab.url.TrimEnd('/')
 # Every GitLab call carries the same extras: the token header, the deployment's
@@ -85,7 +148,7 @@ if (-not $InfoOnly -and -not $env:GAH_NO_UPDATE) {
             # The new package's installer unpacks its own tools and rewrites current.txt.
             & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Root "$newName\Install-Gah.ps1") -Update
             $env:GAH_NO_UPDATE = '1'
-            & (Join-Path $Root "$newName\gah.ps1") @args
+            & (Join-Path $Root "$newName\gah.ps1") @GahArgs
             exit $LASTEXITCODE
         }
     } catch {
@@ -154,5 +217,21 @@ if ($Skills) {
     $SkillArgs += @('--no-skills', '--skill', (Join-Path $Skills 'skills'))
     if (Test-Path (Join-Path $Skills 'prompts')) { $SkillArgs += @('--prompt-template', (Join-Path $Skills 'prompts')) }
 }
-& node (Join-Path $Here 'bundle\cli.js') --no-extensions @SkillArgs @args
+
+# The knowledge base (optional, docs/KB.md). Unlike the skills repository it is
+# NOT fetched as an archive: it is the one thing the agent writes to, so it has
+# to be a real git clone the person owns, named by GAH_KB_DIR. Reading and
+# drafting work with what is in the package; proposing needs git on PATH.
+# Loaded after the organisation's skills, so a shared skill of the same name wins.
+if ($env:GAH_KB_DIR) {
+    $KbSkills = Join-Path $env:GAH_KB_DIR 'skills'
+    if (Test-Path $KbSkills) {
+        $SkillArgs += @('--skill', $KbSkills)
+        $KbPrompts = Join-Path $env:GAH_KB_DIR 'prompts'
+        if (Test-Path $KbPrompts) { $SkillArgs += @('--prompt-template', $KbPrompts) }
+    } elseif (-not $InfoOnly) {
+        Warn "GAH_KB_DIR=$($env:GAH_KB_DIR) has no skills\ - knowledge base not loaded"
+    }
+}
+& node (Join-Path $Here 'bundle\cli.js') --no-extensions @SkillArgs @GahArgs
 exit $LASTEXITCODE

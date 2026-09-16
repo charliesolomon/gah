@@ -1,0 +1,8 @@
+# Nothing here should be generated, but editors and OSes disagree.
+.DS_Store
+Thumbs.db
+*.swp
+*~
+
+# Local working files that are not articles.
+/scratch/
