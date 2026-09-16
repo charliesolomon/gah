@@ -10,7 +10,10 @@
 # Exit 0 with matches, 1 with none (so a caller can branch on "nothing known").
 [CmdletBinding()]
 param(
-    [Parameter(ValueFromRemainingArguments = $true)][string[]]$Query,
+    # Position 0 as well as ValueFromRemainingArguments: without the explicit
+    # position a single quoted argument (the way a skill calls this) binds to
+    # nothing at all and the script reports an empty query.
+    [Parameter(Position = 0, ValueFromRemainingArguments = $true)][string[]]$Query,
     [string]$Tag = '',
     [string]$Status = '',
     [int]$Limit = 10

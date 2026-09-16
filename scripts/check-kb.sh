@@ -227,6 +227,37 @@ if command -v pwsh >/dev/null 2>&1; then
 	check_eq "kb-gap.ps1 bumps rather than duplicating" "requests: 2" "$(grep '^requests:' "$PS_KB/$g")"
 	out="$(pwsh -NoProfile -File "$PS_KB/bin/kb-status.ps1" 2>&1)"
 	check "kb-status.ps1 reports the backlog" "$(printf '%s' "$out" | grep -q '2x  Which switch serves the gym' && echo 1 || echo 0)"
+
+	# Both twins must rank the same way, or an answer depends on which platform
+	# the person happens to be on.
+	sh_out="$("$PS_KB/bin/kb-search.sh" "wireless north site" 2>/dev/null | head -n1)"
+	ps_out="$(pwsh -NoProfile -File "$PS_KB/bin/kb-search.ps1" "wireless north site" 2>/dev/null | head -n1 | tr -d '\r')"
+	check_eq "both search twins return the same top hit" "$sh_out" "$ps_out"
+
+	# kb-propose.ps1 is the riskiest twin: it drives git and reads exit codes.
+	git init -q --bare "$WORK/ps-origin.git"
+	git -C "$PS_KB" init -q -b main .
+	git -C "$PS_KB" remote add origin "$WORK/ps-origin.git"
+	git -C "$PS_KB" config user.name "PS Tech"
+	git -C "$PS_KB" config user.email "ps@example.com"
+	git -C "$PS_KB" add -A && git -C "$PS_KB" commit -qm "Initial knowledge base"
+	git -C "$PS_KB" push -q -u origin main
+	pwsh -NoProfile -File "$PS_KB/bin/kb-propose.ps1" -Message "nothing changed" >/dev/null 2>&1
+	check_eq "kb-propose.ps1 exits 1 when articles/ is unchanged" "1" "$?"
+	printf 'The gym is served by the Building B switch.\n' >>"$PS_KB/articles/network/gym-switch.md"
+	pwsh -NoProfile -File "$PS_KB/bin/kb-propose.ps1" -Message "Document the gym switch" >"$WORK/ps-propose.out" 2>&1
+	check_eq "kb-propose.ps1 succeeds" "0" "$?"
+	check_eq "and uses the same branch name as its twin" "kb/document-the-gym-switch" \
+		"$(git -C "$PS_KB" rev-parse --abbrev-ref HEAD)"
+	check "the branch reached the remote" \
+		"$(git -C "$WORK/ps-origin.git" rev-parse --verify -q kb/document-the-gym-switch >/dev/null && echo 1 || echo 0)"
+	check "main is untouched" "$([ "$(git -C "$WORK/ps-origin.git" rev-list --count main)" = "1" ] && echo 1 || echo 0)"
+	check "the commit is attributed to the person" \
+		"$([ "$(git -C "$PS_KB" log -1 --format='%an')" = "PS Tech" ] && echo 1 || echo 0)"
+	git -C "$PS_KB" checkout -q main
+	printf 'A second fact.\n' >>"$PS_KB/articles/network/gym-switch.md"
+	KB_PUBLISH=direct pwsh -NoProfile -File "$PS_KB/bin/kb-propose.ps1" -Message "Add a second fact" >/dev/null 2>&1
+	check_eq "kb-propose.ps1 honours KB_PUBLISH=direct" "2" "$(git -C "$WORK/ps-origin.git" rev-list --count main)"
 else
 	echo
 	echo "-- PowerShell twins: SKIPPED (no pwsh on PATH) --"
