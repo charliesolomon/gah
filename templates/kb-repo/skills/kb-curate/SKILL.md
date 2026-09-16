@@ -34,6 +34,11 @@ Report it as work, not as a table dump:
 **Name who would know**, where it is obvious from the gap or the articles
 around it. The obstacle is rarely the writing; it is finding the person.
 
+**Give the link alongside the path** for anything you name — `kb-status` prints
+the forge page under each gap and each stale article. Someone reading a backlog
+is deciding what to pick up, and a link is the difference between deciding now
+and deciding later. Pass on what the wrapper printed; never construct one.
+
 ## Gaps that should not be there
 
 Some gaps will be recorded that are not gaps at all: a general technology

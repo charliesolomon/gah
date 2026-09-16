@@ -65,4 +65,6 @@ $header = @(
 Write-KbFile $full ($header + "`n" + $body.TrimStart("`n") + "`n")
 
 Write-Output $relative
+$url = Get-KbArticleUrl $relative
+if ($url) { Write-KbNote "Will live at: $url (once merged)" }
 Write-KbNote 'Created. Fill in `description` before proposing it: that one line is what search matches on.'

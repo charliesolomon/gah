@@ -90,4 +90,6 @@ body="$(printf '%s' "$body" | sed -e "s/<Title>/$(printf '%s' "$title" | sed 's/
 } >"$full" || kb_die "cannot write $path"
 
 printf '%s\n' "$path"
+u="$(kb_article_url "$path")"
+[ -n "$u" ] && printf 'Will live at: %s (once merged)\n' "$u" >&2
 printf 'Created. Fill in `description` before proposing it: that one line is what search matches on.\n' >&2

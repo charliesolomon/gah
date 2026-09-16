@@ -80,6 +80,10 @@ foreach ($hit in ($hits | Sort-Object -Property @{Expression='Score';Descending=
     if ([string]$front['status'] -eq 'gap') { $line += "   requests: " + [string]$front['requests'] }
     Write-Output $line
     if ($front['description']) { Write-Output ("  " + [string]$front['description']) }
+    # The page in the forge, so a cited path can be opened rather than hunted
+    # for. Silent when the knowledge base has no remote yet.
+    $url = Get-KbArticleUrl (Get-KbRelative $hit.File.FullName)
+    if ($url) { Write-Output ("  " + $url) }
 
     # The first line of PROSE that mentions a query word, so a reader can judge
     # relevance without opening the file. Headings are navigation and usually

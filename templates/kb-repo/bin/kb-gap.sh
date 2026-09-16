@@ -53,6 +53,8 @@ if [ -f "$full" ]; then
 		{ print }
 	' "$full" >"$tmp" && mv "$tmp" "$full" || { rm -f "$tmp"; kb_die "cannot update $path"; }
 	printf '%s\n' "$path"
+	u="$(kb_article_url "$path")"
+	[ -n "$u" ] && printf 'At: %s\n' "$u" >&2
 	printf 'Asked %s times now. That makes it a strong candidate for the next article written.\n' "$n" >&2
 	exit 0
 fi
@@ -90,4 +92,6 @@ mkdir -p "$(dirname "$full")" || kb_die "cannot create $(dirname "$path")"
 } >"$full" || kb_die "cannot write $path"
 
 printf '%s\n' "$path"
+u="$(kb_article_url "$path")"
+[ -n "$u" ] && printf 'Will live at: %s (once merged)\n' "$u" >&2
 printf 'Gap recorded. It will show up in searches for this subject until someone answers it.\n' >&2

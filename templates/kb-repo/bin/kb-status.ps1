@@ -94,6 +94,8 @@ if ($gaps.Count -gt 0) {
     foreach ($g in ($gaps | Sort-Object -Property Requests -Descending | Select-Object -First 15)) {
         Write-Output ("  {0}x  {1}" -f $g.Requests, $g.Title)
         Write-Output ("      {0}" -f $g.Path)
+        $url = Get-KbArticleUrl $g.Path
+        if ($url) { Write-Output ("      {0}" -f $url) }
     }
 }
 
@@ -103,6 +105,8 @@ if ($stale.Count -gt 0) {
     foreach ($s in ($stale | Sort-Object -Property Age -Descending | Select-Object -First 15)) {
         Write-Output ("  {0} days  {1}" -f $s.Age, $s.Title)
         Write-Output ("           {0}" -f $s.Path)
+        $url = Get-KbArticleUrl $s.Path
+        if ($url) { Write-Output ("           {0}" -f $url) }
     }
 }
 

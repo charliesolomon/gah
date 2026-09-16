@@ -116,5 +116,16 @@ else
 		*) [ -n "$urls" ] && printf '%s\n' "$urls" | sed 's/^/  /' ;;
 	esac
 fi
+# The articles as they now exist on the pushed branch. That link works before
+# anyone has reviewed anything, which is the point: a reviewer can read the
+# article rather than a diff.
+while IFS= read -r f; do
+	[ -n "$f" ] || continue
+	[ -f "$root/$f" ] || continue
+	u="$(kb_article_url "$f" "$branch")"
+	[ -n "$u" ] && printf '  %s\n' "$u"
+done <<EOF
+$(git -C "$root" show --name-only --format= HEAD -- articles 2>/dev/null)
+EOF
 printf 'Proposed. Someone reviews it, and every later question is answered from the better version.\n'
 printf 'When it is merged, run kb-sync to bring this copy up to date.\n'

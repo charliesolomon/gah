@@ -36,6 +36,9 @@ function Get-KbSlug([string]$Text) {
 
 function Get-KbToday { return (Get-Date).ToString('yyyy-MM-dd') }
 
+# Web-address helpers live next door so this file stays about the articles.
+. (Join-Path $PSScriptRoot '_kb-url.ps1')
+
 <#
 Every kb-*.ps1 hands its arguments to this rather than to PowerShell's own
 parameter binding, for two reasons that both bite in practice.

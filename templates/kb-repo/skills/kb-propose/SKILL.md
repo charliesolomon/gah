@@ -86,8 +86,12 @@ branch.
 
 ## After it is pushed
 
-Report back with: the article path, the branch, the link, and — if a gap was
-answered — that the gap is closed. Then let it go. The loop is finished when the
+Report back with: the article path, the branch, **both links**, and — if a gap
+was answered — that the gap is closed. The wrapper prints two, and they are for
+different people: the **request link** opens the pull or merge request, which is
+what a reviewer wants, and the **article link** is the page on the pushed
+branch, which is what someone who just wants to read it wants. Label which is
+which rather than pasting two bare URLs, and never build either yourself. Then let it go. The loop is finished when the
 change is in front of a person; it is not finished when the article is perfect.
 
 ## Bringing this copy up to date

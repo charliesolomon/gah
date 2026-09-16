@@ -132,5 +132,15 @@ if ($request) {
         foreach ($u in $urls) { Write-Output ("  " + $u) }
     }
 }
+# The articles as they now exist on the pushed branch. That link works before
+# anyone has reviewed anything, which is the point: a reviewer can read the
+# article rather than a diff.
+foreach ($f in ((Invoke-Git 'show' '--name-only' '--format=' 'HEAD' '--' 'articles').Text -split "`n")) {
+    $rel = $f.Trim()
+    if (-not $rel) { continue }
+    if (-not (Test-Path (Join-Path $root ($rel -replace '/', [System.IO.Path]::DirectorySeparatorChar)))) { continue }
+    $url = Get-KbArticleUrl $rel $Branch
+    if ($url) { Write-Output ("  " + $url) }
+}
 Write-Output 'Proposed. Someone reviews it, and every later question is answered from the better version.'
 Write-Output 'When it is merged, run kb-sync to bring this copy up to date.'

@@ -94,6 +94,10 @@ printf '%s' "$hits" | LC_ALL=C sort -t'	' -k1,1nr -k2,2 | head -n "$limit" | whi
 	printf '\n'
 	d="$(kb_field "$f" description)"
 	[ -n "$d" ] && printf '  %s\n' "$d"
+	# The page in the forge, so a cited path can be opened rather than hunted
+	# for. Silent when the knowledge base has no remote yet.
+	u="$(kb_article_url "$rel")"
+	[ -n "$u" ] && printf '  %s\n' "$u"
 	# The first line of PROSE that mentions a query word, so a reader can judge
 	# relevance without opening the file. Frontmatter is skipped: it is already
 	# printed above, and every word of a title matches its own article.

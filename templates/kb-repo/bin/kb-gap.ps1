@@ -49,6 +49,8 @@ if (Test-Path $full) {
     }
     Write-KbFile $full $text
     Write-Output $relative
+    $url = Get-KbArticleUrl $relative
+    if ($url) { Write-KbNote "At: $url" }
     Write-KbNote "Asked $count times now. That makes it a strong candidate for the next article written."
     exit 0
 }
@@ -80,4 +82,6 @@ $content = @(
 
 Write-KbFile $full ($content + "`n")
 Write-Output $relative
+$url = Get-KbArticleUrl $relative
+if ($url) { Write-KbNote "Will live at: $url (once merged)" }
 Write-KbNote 'Gap recorded. It will show up in searches for this subject until someone answers it.'

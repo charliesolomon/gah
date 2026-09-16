@@ -69,9 +69,18 @@ snippet. The snippet is a reason to open the file, not evidence.
 > The two gym access points are deliberately on 6.9 — upgrading them takes the
 > gym offline because of the older PoE switch there.
 > — `articles/network/north-wireless.md`, verified 2026-09-15
+> https://git.example.com/it/kb/-/blob/main/articles/network/north-wireless.md
 
 **Always give the article path.** A cited answer can be checked and corrected;
 an uncited one has to be trusted or ignored.
+
+**And give the link, when the wrapper printed one.** `kb-search` emits the
+article's page in the forge under each hit; pass it on, because a path someone
+can click beats one they have to go and find. **Never build the link yourself**
+— the two forges spell the same URL differently and a guessed link that 404s is
+worse than no link. If the wrapper printed none there is no remote yet, or you
+searched with grep rather than the wrapper; the path alone is then the honest
+answer.
 
 **Say how old it is** when the article's `updated` date is more than a few
 months back, and when it matters. "That was last verified in March" is the

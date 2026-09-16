@@ -101,6 +101,8 @@ if [ -n "$gaps" ]; then
 	printf '\nAsked and unanswered (most-asked first — this is the backlog):\n'
 	printf '%s' "$gaps" | LC_ALL=C sort -t'	' -k1,1nr | head -n 15 | while IFS=$'\t' read -r n rel title; do
 		printf '  %sx  %s\n      %s\n' "$n" "$title" "$rel"
+		u="$(kb_article_url "$rel")"
+		[ -n "$u" ] && printf '      %s\n' "$u"
 	done
 fi
 
@@ -108,6 +110,8 @@ if [ -n "$stale" ]; then
 	printf '\nNot verified in over %s days:\n' "$stale_days"
 	printf '%s' "$stale" | LC_ALL=C sort -t'	' -k1,1nr | head -n 15 | while IFS=$'\t' read -r age rel title; do
 		printf '  %s days  %s\n           %s\n' "$age" "$title" "$rel"
+		u="$(kb_article_url "$rel")"
+		[ -n "$u" ] && printf '           %s\n' "$u"
 	done
 fi
 

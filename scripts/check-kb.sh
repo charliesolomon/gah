@@ -256,6 +256,8 @@ check "main is untouched — nothing published without a person" \
 check "the commit is attributed to the person, not a robot" \
 	"$([ "$(git -C "$KB" log -1 --format='%an')" = "Test Tech" ] && echo 1 || echo 0)"
 check "it says what was staged" "$(printf '%s' "$out" | grep -q 'Staged:' && echo 1 || echo 0)"
+check "and links the article on the branch it just pushed, not the default one" \
+	"$(printf '%s' "$out" | grep -q 'blob/kb/document-the-gym-switch/articles/network/gym-switch.md' && echo 1 || echo 0)"
 
 # Tooling changes must not ride along with an article.
 git -C "$KB" checkout -q main
@@ -265,6 +267,47 @@ printf 'Another fact.\n' >>"$KB/$new_path"
 check "a change to bin/ is NOT swept into an article proposal" \
 	"$(git -C "$KB" diff --quiet HEAD -- articles && ! git -C "$KB" diff --quiet HEAD -- bin && echo 1 || echo 0)"
 git -C "$KB" checkout -q -- bin 2>/dev/null
+
+echo
+echo "-- links back to the articles --"
+# A cited path someone can click is worth more than one they have to hunt for.
+# Built from the origin remote, which by this point is a file:// path, so the
+# shapes that matter are checked directly against the helper.
+LKB="$WORK/kb-links"
+./bin/gah init-kb "$LKB" >/dev/null 2>&1
+git -C "$LKB" init -q -b main .
+for remote_case in \
+	"git@github.com:org/kb.git|https://github.com/org/kb/blob/main/articles/a.md" \
+	"https://github.com/org/kb.git|https://github.com/org/kb/blob/main/articles/a.md" \
+	"git@gitlab.example.com:it/kb.git|https://gitlab.example.com/it/kb/-/blob/main/articles/a.md" \
+	"https://user@gitlab.example.com/it/kb.git|https://gitlab.example.com/it/kb/-/blob/main/articles/a.md" \
+	"ssh://git@forge.example.com:2222/it/kb.git|https://forge.example.com/it/kb/-/blob/main/articles/a.md"; do
+	remote="${remote_case%%|*}"; want="${remote_case##*|}"
+	git -C "$LKB" remote remove origin 2>/dev/null
+	git -C "$LKB" remote add origin "$remote"
+	got="$(cd "$LKB" && bash -c '. bin/_kb-common.sh; kb_article_url articles/a.md main')"
+	check_eq "link for ${remote%%:*}…" "$want" "$got"
+done
+got="$(cd "$LKB" && KB_WEB_STYLE=github bash -c '. bin/_kb-common.sh; kb_article_url articles/a.md main')"
+check_eq "KB_WEB_STYLE overrides the guess for a self-hosted forge" \
+	"https://forge.example.com/it/kb/blob/main/articles/a.md" "$got"
+git -C "$LKB" remote remove origin 2>/dev/null
+got="$(cd "$LKB" && bash -c '. bin/_kb-common.sh; kb_article_url articles/a.md main')"
+check_eq "no remote means no link, rather than a guessed one" "" "$got"
+
+# And the scripts actually print them.
+git -C "$LKB" remote add origin "git@gitlab.example.com:it/kb.git"
+out="$("$LKB/bin/kb-search.sh" "wireless north" 2>&1)"
+check "kb-search prints the article's page under each hit" \
+	"$(printf '%s' "$out" | grep -q 'https://gitlab.example.com/it/kb/-/blob/main/articles/example-article.md' && echo 1 || echo 0)"
+out="$("$LKB/bin/kb-gap.sh" --question "which switch serves the gym?" 2>&1 >/dev/null)"
+check "kb-gap says where the stub will live" \
+	"$(printf '%s' "$out" | grep -q 'Will live at: https://' && echo 1 || echo 0)"
+path_only="$("$LKB/bin/kb-new.sh" --title "Link check" 2>/dev/null)"
+check_eq "kb-new keeps stdout to the bare path, link on stderr" "articles/link-check.md" "$path_only"
+out="$("$LKB/bin/kb-status.sh" 2>&1)"
+check "kb-status links the backlog" \
+	"$(printf '%s' "$out" | grep -q 'blob/main/articles/gaps/which-switch-serves-the-gym.md' && echo 1 || echo 0)"
 
 echo
 echo "-- a date the model guessed rather than read --"
@@ -468,6 +511,19 @@ PSEOF
 	argv="$(PATH="$WORK/fakebin:$PATH" GAH_ALLOW_NO_SKILLS=1 pwsh -NoProfile -File "$REPO_ROOT/bin/gah.ps1" --skill init-kb 2>/dev/null)"
 	check "a flag whose value happens to be 'init-kb' is not read as a subcommand" \
 		"$(printf '%s' "$argv" | grep -qF -- '--skill' && echo 1 || echo 0)"
+
+	# Links, and that both platforms produce the same one for the same repo.
+	git -C "$PS_KB" remote remove origin 2>/dev/null
+	git -C "$PS_KB" remote add origin "git@gitlab.example.com:it/kb.git"
+	ps_link="$(pwsh -NoProfile -File "$PS_KB/bin/kb-search.ps1" "wireless north" 2>/dev/null | grep -m1 '^  https' | tr -d '\r')"
+	sh_link="$("$PS_KB/bin/kb-search.sh" "wireless north" 2>/dev/null | grep -m1 '^  https')"
+	check "kb-search.ps1 prints the article's page" "$([ -n "$ps_link" ] && echo 1 || echo 0)"
+	check_eq "and both twins produce the same link" "$sh_link" "$ps_link"
+	out="$(pwsh -NoProfile -File "$PS_KB/bin/kb-status.ps1" 2>&1)"
+	check "kb-status.ps1 links the backlog" \
+		"$(printf '%s' "$out" | grep -q 'blob/main/articles/gaps/' && echo 1 || echo 0)"
+	git -C "$PS_KB" remote remove origin 2>/dev/null
+	git -C "$PS_KB" remote add origin "$WORK/ps-origin.git"
 
 	pwsh -NoProfile -File "$PS_KB/bin/kb-sync.ps1" >"$WORK/ps-sync.out" 2>&1
 	check_eq "kb-sync.ps1 succeeds" "0" "$?"

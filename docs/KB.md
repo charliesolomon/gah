@@ -269,6 +269,27 @@ whether the thing stays trustworthy:
    next person an afternoon. A rule without its reason gets "fixed" by someone
    helpful.
 
+## Links back to the articles
+
+Everything that names an article also links to it, when the knowledge base has
+a remote: search hits, the backlog, a newly written article, a proposal. A path
+someone can click is worth more than one they have to go and find, and it is
+what makes an answer checkable by the person who received it rather than only by
+the person who asked.
+
+The link is built from the `origin` remote — ssh and https forms both, with any
+credentials or port dropped — and points at the branch the article lives on once
+merged. `kb-propose` links the pushed branch instead, so a reviewer can read the
+article rather than a diff. No remote means no link, and nothing pretends
+otherwise.
+
+The two forges spell the same URL differently (`/blob/…` against `/-/blob/…`)
+and only the hostname says which is which, so a self-hosted forge under a name
+that gives nothing away is assumed to be GitLab. Set `KB_WEB_STYLE=github` or
+`gitlab` where that guess is wrong. The skills are told never to construct a
+link themselves for the same reason: a guessed URL that 404s is worse than a
+path.
+
 ## A note on dates
 
 `updated` is what staleness reporting rests on, so it has to be the real date.

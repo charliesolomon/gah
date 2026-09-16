@@ -117,5 +117,11 @@ sections if not. Two reasons: they are the one who knows whether it is right,
 and seeing their knowledge come back as a clean article is what makes them do
 it again next time.
 
+**Give the path, and the link the wrapper printed with it.** `kb-new` prints
+"Will live at: …" — the article's page in the forge once the change is merged.
+Pass that on and say it is not live yet, so nobody clicks it expecting the
+article and finds a 404. Never construct the link yourself: the forges spell it
+differently and a guessed one is worse than none.
+
 Then offer to put it up: hand over to `kb-propose`. A written article that is
 never proposed helps nobody but the person who wrote it.
