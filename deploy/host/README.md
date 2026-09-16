@@ -100,7 +100,11 @@ Then per component:
    `GAH_SECRET_FILES` is why granting `bash` does not hand over the
    credentials files: reads are refused, and the values are redacted from
    every tool result regardless of how they were produced.
-4. `exec bin/gah --no-skills --skill <dir> …` from `~/work` — auto-discovery
+4. Syncs `~/.gah/kb` when the manifest sets `KB_REPO` (optional; docs/KB.md).
+   Unlike the skills checkout this one is never hard-reset — it is the one
+   repository the agent writes to — so an unclean checkout or a branch is left
+   alone and reported. Its four `kb-*` skills load with it.
+5. `exec bin/gah --no-skills --skill <dir> …` from `~/work` — auto-discovery
    off, one `--skill` per approved skill directory. Personal skills
    (`~/.gah/my-skills`, optional `MY_SKILLS_REPO`) take precedence over shared
    ones of the same name and the launcher warns when that happens; see
@@ -123,6 +127,7 @@ also be on; it is the per-user switch that produces the "Copied!" flash.
 | Task | Command |
 |---|---|
 | Update gah build | `sudo gah-update` (sessions pick it up on next launch) |
+| Update the knowledge base | merge the proposal `kb-propose` opened — every launch fast-forwards a clean checkout (docs/KB.md) |
 | Update skills | merge a PR in the skills repo — every launch pulls. Open sessions are told within 10 min that updates are waiting (`/quit` and relaunch); the next launch summarises what changed (#91) |
 | Test a skill under a user's account | `sudo -u <user> -H /usr/local/bin/gah-launch --no-mark-seen` — bypasses the login shell (which drops arguments) and leaves the user's skills-update notice unconsumed. Inside the TUI, `/skills-seen reset` undoes a launch that did consume it |
 | Update a host-side checkout the launcher does not sync (an ops repo, a cron tool) | `ssh -A <admin>@<host> "git -C ~/<repo> pull --ff-only"` — the forwarded agent supplies the GitHub credential; `sudo -u <user> git pull` drops it and fails |

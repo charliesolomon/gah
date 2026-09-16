@@ -12,6 +12,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CA_DIR="$HERE/vendor/pi/packages/coding-agent"
 POLICY_DIR="$HERE/packages/policy-pack/extensions"
 TEMPLATE_DIR="$HERE/templates/skills-repo"
+KB_TEMPLATE_DIR="$HERE/templates/kb-repo"
 
 # --- gah init --------------------------------------------------------------
 # Handled before the build check on purpose: a new deployment scaffolds its
@@ -46,6 +47,44 @@ EOF
   exit 0
 fi
 
+# --- gah init-kb -----------------------------------------------------------
+# The knowledge base is the other half of the context the concept rests on, and
+# unlike skills it is optional: a deployment without one simply has no kb-*
+# skills. Scaffolded separately for that reason, and because the two are
+# different repositories with different review rules -- skills are procedure,
+# the knowledge base is fact.
+if [ "${1:-}" = "init-kb" ]; then
+  target="${2:-}"
+  [ -n "$target" ] || { echo "usage: gah init-kb <directory>" >&2; exit 2; }
+  [ -d "$KB_TEMPLATE_DIR" ] || { echo "gah: template missing at $KB_TEMPLATE_DIR" >&2; exit 1; }
+  if [ -e "$target" ] && [ -n "$(ls -A "$target" 2>/dev/null)" ]; then
+    echo "gah: $target exists and is not empty — refusing to overwrite" >&2
+    exit 1
+  fi
+  mkdir -p "$target"
+  cp -R "$KB_TEMPLATE_DIR/." "$target/"
+  chmod +x "$target"/bin/*.sh 2>/dev/null || true
+  cat <<EOF
+
+Created a knowledge base in $target
+
+  articles/   what your organization knows, one Markdown file each
+  skills/     kb-search, kb-article, kb-propose, kb-curate
+  bin/        the scripts those skills call (.sh and .ps1)
+
+Next:
+  cd $target && git init && git add . && git commit -m "Initial knowledge base"
+
+Then point a session at it:
+  GAH_KB_DIR=$(cd "$target" && pwd) gah
+
+Ask it something you already know the answer to. It should tell you that
+nothing covers it yet, and offer to record the gap — that is the loop starting.
+
+EOF
+  exit 0
+fi
+
 # --- skills are required ---------------------------------------------------
 # GAH exists to run skills; a session with none is a misconfiguration, not a
 # lighter mode. Without this the policy layer loads with nothing to govern and
@@ -74,6 +113,10 @@ Set them up using:
 Then start a session with:
 
   GAH_SKILLS_DIR=<directory>/skills gah
+
+A knowledge base is optional and scaffolded separately (docs/KB.md):
+
+  gah init-kb <directory>   then   GAH_KB_DIR=<directory> gah
 
 Or pass one directly for a single run:  gah --skill <path>
 
@@ -144,6 +187,20 @@ skill_args=()
 # person's own ~/.gah/agent/prompts/ still loads alongside them.
 if [ -n "${GAH_SKILLS_DIR:-}" ] && [ -d "$(dirname "$GAH_SKILLS_DIR")/prompts" ]; then
   skill_args+=(--prompt-template "$(dirname "$GAH_SKILLS_DIR")/prompts")
+fi
+
+# The knowledge base (optional, docs/KB.md) carries its own skills and prompts,
+# so a deployment that has one gets the kb-* skills and a deployment that does
+# not is unaffected. Its skills load AFTER the organisation's: where both define
+# a name, the organisation's wins, which is the right way round for a set that
+# ships as a scaffold.
+if [ -n "${GAH_KB_DIR:-}" ]; then
+  if [ -d "$GAH_KB_DIR/skills" ]; then
+    skill_args+=(--skill "$GAH_KB_DIR/skills")
+  elif [ "$info_only" -eq 0 ]; then
+    echo "gah: GAH_KB_DIR=$GAH_KB_DIR has no skills/ — knowledge base not loaded" >&2
+  fi
+  [ -d "$GAH_KB_DIR/prompts" ] && skill_args+=(--prompt-template "$GAH_KB_DIR/prompts")
 fi
 
 # --- Onboarding / setup steps -------------------------------------------------

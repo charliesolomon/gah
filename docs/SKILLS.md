@@ -11,6 +11,14 @@ So every GAH deployment has two halves:
 | Agent, policy, branding, launchers | this repository | whoever maintains the fork |
 | Skills, setup steps, org context | **your skills repository** | your organization |
 
+There is an optional third piece: a **knowledge base** — what is *true* at your
+organization, as against what your team *does*, which is what a skill is. It is a
+separate repository with its own scaffold (`gah init-kb`) and its own four
+skills, because facts and procedures have different authors, different review
+rules and different lifetimes. See [KB.md](KB.md). Small deployments keep context
+in this repository's `context/` folder and never need one; the knowledge base is
+what that grows into when people start correcting it as they work.
+
 **GAH will not start without the second half.** A session with no skills is a
 misconfiguration, not a lighter mode — the system prompt is written around
 skills that are not there, so the agent ends up declining ordinary work while

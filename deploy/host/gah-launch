@@ -73,6 +73,12 @@ MY_SKILLS_DIR="${MY_SKILLS_DIR:-$HOME/.gah/my-skills}"
 MY_SKILLS_REPO="${MY_SKILLS_REPO:-}"
 MY_SKILLS_BRANCH="${MY_SKILLS_BRANCH:-main}"
 
+# The knowledge base: optional, and the only checkout here the agent WRITES to.
+# Unset KB_REPO means this deployment has no knowledge base and no kb-* skills.
+KB_REPO="${KB_REPO:-}"
+KB_BRANCH="${KB_BRANCH:-main}"
+KB_DIR="${KB_DIR:-$HOME/.gah/kb}"
+
 # --- Sync the skills checkout -------------------------------------------------
 # The repo is authoritative: every launch hard-resets to origin/<branch>, so
 # improvements land by PR merge and local edits never drift. Network failure
@@ -116,6 +122,34 @@ if [ -n "$MY_SKILLS_REPO" ]; then
 	fi
 else
 	mkdir -p "$MY_SKILLS_DIR" 2>/dev/null || true
+fi
+
+# --- Sync the knowledge base (optional) ---------------------------------------
+# Note the asymmetry with the shared skills checkout, which is `reset --hard`:
+# this one is the agent's own workbench. A draft article, or a branch waiting to
+# be pushed, is work in progress that a launch must not destroy -- so an unclean
+# checkout is left exactly as it is and reported, and only a clean one on the
+# default branch is fast-forwarded. The repo is still authoritative; it is just
+# never authoritative at the cost of somebody's unpushed article.
+if [ -n "$KB_REPO" ]; then
+	if [ -d "$KB_DIR/.git" ]; then
+		kb_branch_now="$(git -C "$KB_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")"
+		if [ -n "$(git -C "$KB_DIR" status --porcelain 2>/dev/null)" ]; then
+			warn "knowledge base has uncommitted changes — left as it is (propose them with kb-propose)"
+		elif [ "$kb_branch_now" != "$KB_BRANCH" ]; then
+			warn "knowledge base is on branch '$kb_branch_now' — left as it is (finish or push it, then switch back to $KB_BRANCH)"
+		elif timeout 30 git -C "$KB_DIR" fetch --quiet origin "$KB_BRANCH"; then
+			git -C "$KB_DIR" merge --ff-only --quiet "origin/$KB_BRANCH" 2>/dev/null \
+				|| warn "knowledge base could not fast-forward — continuing with the local copy"
+		else
+			warn "knowledge base not updated — continuing with the local copy"
+		fi
+	else
+		timeout 120 git clone --quiet --branch "$KB_BRANCH" "$KB_REPO" "$KB_DIR" \
+			|| warn "knowledge base clone failed — continuing without it"
+	fi
+	# The scripts and skills locate the knowledge base through this.
+	[ -d "$KB_DIR" ] && export GAH_KB_DIR="$KB_DIR"
 fi
 
 # --- Onboarding / setup steps ---------------------------------------------------
@@ -208,6 +242,7 @@ skill_name_of() {
 
 skill_args=()
 personal_names=" "
+shared_names=" "
 
 # Personal skills first: they are the ones that win, so they define the shadow set.
 if [ -d "$MY_SKILLS_DIR" ]; then
@@ -235,11 +270,34 @@ if [ -d "$SKILLS_DIR/$SKILLS_SUBDIR" ]; then
 				;;
 		esac
 		skill_args+=(--skill "$d")
+		shared_names="${shared_names}${n} "
 		shared_count=$((shared_count + 1))
 	done
 	[ "$shared_count" -eq 0 ] && warn "no shared skills loaded from $SKILLS_DIR/$SKILLS_SUBDIR"
 else
 	warn "no skills at $SKILLS_DIR/$SKILLS_SUBDIR — launching without shared skills"
+fi
+
+# The knowledge base ships the kb-* skills that operate it, so a deployment with
+# one gets them and a deployment without one is untouched. Loaded last: where the
+# organisation has written its own skill of the same name, that one wins, because
+# these arrive as a scaffold and theirs is a decision.
+if [ -n "${GAH_KB_DIR:-}" ] && [ -d "$GAH_KB_DIR/skills" ]; then
+	kb_count=0
+	for d in "$GAH_KB_DIR"/skills/*/; do
+		[ -d "$d" ] || continue
+		d="${d%/}"
+		n=$(skill_name_of "$d") || continue
+		case "$personal_names" in
+			*" $n "*) warn "personal skill '$n' shadows the knowledge base one — the KB version is NOT loaded"; continue ;;
+		esac
+		case "$shared_names" in
+			*" $n "*) warn "shared skill '$n' shadows the knowledge base one — the KB version is NOT loaded"; continue ;;
+		esac
+		skill_args+=(--skill "$d")
+		kb_count=$((kb_count + 1))
+	done
+	[ "$kb_count" -eq 0 ] && warn "knowledge base at $GAH_KB_DIR has no skills — it will not be searchable"
 fi
 
 # Refuse rather than warn. A session with no skills is a misconfiguration: the
@@ -259,5 +317,6 @@ fi
 # so a user's own ~/.gah/agent/prompts/ loads alongside them -- they are text
 # expansions the person could have typed, so there is nothing to pin.
 [ -d "$SKILLS_DIR/prompts" ] && skill_args+=(--prompt-template "$SKILLS_DIR/prompts")
+[ -n "${GAH_KB_DIR:-}" ] && [ -d "$GAH_KB_DIR/prompts" ] && skill_args+=(--prompt-template "$GAH_KB_DIR/prompts")
 
 exec "$GAH_HOME/bin/gah" --no-skills "${skill_args[@]}"

@@ -42,6 +42,42 @@ if ($args.Count -ge 1 -and $args[0] -eq 'init') {
     exit 0
 }
 
+# --- gah init-kb -----------------------------------------------------------
+# The knowledge base is the other half of the context the concept rests on, and
+# unlike skills it is optional: a deployment without one simply has no kb-*
+# skills. Scaffolded separately for that reason, and because the two are
+# different repositories with different review rules -- skills are procedure,
+# the knowledge base is fact.
+$KbTemplateDir = Join-Path $Here 'templates\kb-repo'
+if ($args.Count -ge 1 -and $args[0] -eq 'init-kb') {
+    if ($args.Count -lt 2) { [Console]::Error.WriteLine('usage: gah.ps1 init-kb <directory>'); exit 2 }
+    $Target = $args[1]
+    if (-not (Test-Path $KbTemplateDir)) { [Console]::Error.WriteLine("gah: template missing at $KbTemplateDir"); exit 1 }
+    if ((Test-Path $Target) -and (Get-ChildItem -Force $Target | Measure-Object).Count -gt 0) {
+        [Console]::Error.WriteLine("gah: $Target exists and is not empty - refusing to overwrite"); exit 1
+    }
+    New-Item -ItemType Directory -Force -Path $Target | Out-Null
+    Copy-Item -Recurse -Force (Join-Path $KbTemplateDir '*') $Target
+    $Full = (Resolve-Path $Target).Path
+    Write-Host ""
+    Write-Host "Created a knowledge base in $Full"
+    Write-Host ""
+    Write-Host "  articles/   what your organization knows, one Markdown file each"
+    Write-Host "  skills/     kb-search, kb-article, kb-propose, kb-curate"
+    Write-Host "  bin/        the scripts those skills call (.ps1 and .sh)"
+    Write-Host ""
+    Write-Host "Next:"
+    Write-Host "  cd $Full; git init; git add .; git commit -m 'Initial knowledge base'"
+    Write-Host ""
+    Write-Host "Then start a session with:"
+    Write-Host "  `$env:GAH_KB_DIR = '$Full'; .\bin\gah.ps1"
+    Write-Host ""
+    Write-Host "Ask it something you already know the answer to. It should tell you that"
+    Write-Host "nothing covers it yet, and offer to record the gap - that is the loop starting."
+    Write-Host ""
+    exit 0
+}
+
 # --- skills are required ---------------------------------------------------
 # GAH exists to run skills; a session with none is a misconfiguration, not a
 # lighter mode. Without this the policy layer loads with nothing to govern and
@@ -69,6 +105,9 @@ if (-not $SkillsConfigured) {
     Write-Host "Then start a session with:"
     Write-Host "  `$env:GAH_SKILLS_DIR = '<directory>\skills'; .\bin\gah.ps1"
     Write-Host ""
+    Write-Host "A knowledge base is optional and scaffolded separately (docs/KB.md):"
+    Write-Host "  .\bin\gah.ps1 init-kb <directory>   then   `$env:GAH_KB_DIR = '<directory>'"
+    Write-Host ""
     Write-Host "Or pass one directly for a single run:  .\bin\gah.ps1 --skill <path>"
     Write-Host ""
     Write-Host "To start a deliberately empty session:"
@@ -82,6 +121,22 @@ if ($env:GAH_SKILLS_DIR -and (Test-Path $env:GAH_SKILLS_DIR)) {
     # Prompt templates: the repo's prompts\ (sibling of skills\). See bin/gah.
     $PromptsDir = Join-Path (Split-Path -Parent $env:GAH_SKILLS_DIR) 'prompts'
     if (Test-Path $PromptsDir) { $SkillArgs += @('--prompt-template', $PromptsDir) }
+}
+
+# The knowledge base (optional, docs/KB.md) carries its own skills and prompts,
+# so a deployment that has one gets the kb-* skills and a deployment that does
+# not is unaffected. Its skills load AFTER the organisation's: where both define
+# a name, the organisation's wins, which is the right way round for a set that
+# ships as a scaffold.
+if ($env:GAH_KB_DIR) {
+    $KbSkills = Join-Path $env:GAH_KB_DIR 'skills'
+    if (Test-Path $KbSkills) {
+        $SkillArgs += @('--skill', $KbSkills)
+    } elseif (-not $InfoOnly) {
+        [Console]::Error.WriteLine("gah: GAH_KB_DIR=$($env:GAH_KB_DIR) has no skills\ - knowledge base not loaded")
+    }
+    $KbPrompts = Join-Path $env:GAH_KB_DIR 'prompts'
+    if (Test-Path $KbPrompts) { $SkillArgs += @('--prompt-template', $KbPrompts) }
 }
 
 if (-not (Test-Path $PiCli)) {
