@@ -231,6 +231,16 @@ whether the thing stays trustworthy:
    next person an afternoon. A rule without its reason gets "fixed" by someone
    helpful.
 
+## A note on dates
+
+`updated` is what staleness reporting rests on, so it has to be the real date.
+An agent writing frontmatter by hand has no way to know that unless something
+tells it: the harness supplies the working directory and never the day. GAH's
+policy pack now states the date in the system prompt (`packages/policy-pack`),
+the wrappers fill the field from the system clock, and `kb-status` flags a date
+in the future or one that predates the file it sits in — the signature of a date
+that was guessed rather than read.
+
 ## Verifying it
 
 ```bash

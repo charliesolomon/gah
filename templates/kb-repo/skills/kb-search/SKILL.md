@@ -116,10 +116,14 @@ by both wrappers, but the question itself must be a single argument — a bare
 `--question` with the text elsewhere records a gap called "--question".
 
 Where there is no shell, write or edit the file directly; the format is in
-`articles/README.md`. Slug rule when you write it by hand: the question,
-lowercased, non-alphanumeric runs replaced by hyphens, trimmed to 60
-characters. Match it against existing gap files first, or the same question
-accumulates three stubs and the count means nothing.
+`articles/README.md`. Set `updated` and `last_requested` to **today's date as
+the session gives it to you**, never from memory — a stub dated a year early is
+how the backlog starts lying about when a question was last asked.
+
+Slug rule when you write it by hand: the question, lowercased, non-alphanumeric
+runs replaced by hyphens, trimmed to 60 characters. Match it against existing gap
+files first, or the same question accumulates three stubs and the count means
+nothing.
 
 Then **offer to close it now**, while the person still has the answer in their
 head:

@@ -46,6 +46,29 @@ foreach ($file in Get-KbFiles) {
         $problems += "  ${rel}: no updated date"
     } elseif ($updated -notmatch '^\d{4}-\d{2}-\d{2}$') {
         $problems += "  ${rel}: updated '$updated' is not YYYY-MM-DD"
+    } else {
+        $age = Get-KbAgeDays $updated
+        if ($null -ne $age -and $age -lt 0) {
+            $problems += "  ${rel}: updated '$updated' is in the future"
+        } elseif ($null -ne $age) {
+            # A date long before the file existed was not verified then -- it was
+            # guessed, which is what a model does when nothing tells it today's
+            # date. The article then reports as stale the day it is written.
+            # Verified-then-written is days, so allow a season.
+            # The shipped example carries an invented date on purpose and is
+            # already reported separately; it would trip this on every fresh
+            # knowledge base.
+            $added = ''
+            if ([string]$front['tags'] -notmatch 'example') {
+                $added = (& git -C $root log --diff-filter=A --format=%ad --date=short -1 -- $rel 2>$null | Select-Object -Last 1)
+            }
+            if ($added) {
+                $addedAge = Get-KbAgeDays ("$added".Trim())
+                if ($null -ne $addedAge -and ($age - $addedAge) -gt 90) {
+                    $problems += "  ${rel}: updated '$updated' predates the file by $($age - $addedAge) days — was the date guessed rather than taken from the system?"
+                }
+            }
+        }
     }
 
     if ($status -eq 'gap') {

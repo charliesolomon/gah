@@ -51,7 +51,28 @@ while IFS= read -r f; do
 		problems="$problems  $rel: no updated date\n"
 	else
 		case "$updated" in
-			[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]) ;;
+			[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9])
+				age="$(kb_age_days "$updated")"
+				if [ -n "$age" ] && [ "$age" -lt 0 ] 2>/dev/null; then
+					problems="$problems  $rel: updated '$updated' is in the future\n"
+				elif [ -n "$age" ]; then
+					# A date long before the file existed was not verified then --
+					# it was guessed, which is what a model does when nothing tells
+					# it today's date. The article then reports as stale the day it
+					# is written. Verified-then-written is days, so allow a season.
+					# The shipped example carries an invented date on purpose and is
+					# already reported separately; it would trip this on every
+					# fresh knowledge base.
+					case "$(kb_field "$f" tags)" in *example*) added="" ;; *)
+					added="$(git -C "$root" log --diff-filter=A --format=%ad --date=short -1 -- "$rel" 2>/dev/null | tail -n1)" ;; esac
+					if [ -n "$added" ]; then
+						added_age="$(kb_age_days "$added")"
+						if [ -n "$added_age" ] && [ $((age - added_age)) -gt 90 ] 2>/dev/null; then
+							problems="$problems  $rel: updated '$updated' predates the file by $((age - added_age)) days — was the date guessed rather than taken from the system?\n"
+						fi
+					fi
+				fi
+				;;
 			*) problems="$problems  $rel: updated '$updated' is not YYYY-MM-DD\n" ;;
 		esac
 	fi

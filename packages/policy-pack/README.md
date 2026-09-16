@@ -7,7 +7,7 @@ The GAH policy layer, packaged as a [pi-package](https://github.com/earendil-wor
 | Path | Purpose |
 |------|---------|
 | `extensions/policy.ts` | Tool allowlist, audit logging, protected-path guard, secret files, usage lines |
-| `extensions/branding.ts` | System-prompt header, footer/banner customization |
+| `extensions/branding.ts` | System-prompt header, footer/banner customization, today's date (`lib/today.ts`) |
 | `extensions/providers.ts` | Approved inference endpoints from `providers.json` |
 | `extensions/skills-freshness.ts` | Skills behind in-session, what changed at startup, `/skills-changelog`, `/skills-seen reset` (#91) |
 | `extensions/lib/last-model.ts` | The last model picked becomes the next session's default (#77) |
@@ -46,6 +46,21 @@ gah aggregates nothing; the report is the deployment's business. For Bedrock the
 authoritative cost is the CloudWatch invocation log; the `turn` line attributes
 it, and covers providers without server-side logging. `cost` is what the
 provider reported, in the provider's units.
+
+## Today's date
+
+The harness tells the model its working directory, its tools and its skills, and
+never what day it is. A model asked to record a date therefore has nothing but
+its training prior, and writes one that is months or years stale — seen in a
+knowledge base article stamped over a year early, which then read as overdue for
+review the day it was written. Nothing downstream catches that: a wrong date is
+a plausible date.
+
+`branding.ts` appends one line (`lib/today.ts`) giving the local date and
+weekday, and saying not to infer it from memory. Appended rather than templated
+into `SYSTEM.md`, so a deployment shipping its own system prompt still gets it.
+Local time, not UTC, so the model agrees with the `date` and `Get-Date` its own
+wrapper scripts call.
 
 ## Skills freshness
 

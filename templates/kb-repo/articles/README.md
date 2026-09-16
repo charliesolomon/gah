@@ -38,7 +38,7 @@ tags: [network, wireless, north-site]      # optional, lowercase
 | `title` | what the agent cites, and what a person scans |
 | `description` | one sentence; this is what search matches on and what the agent reads first when deciding whether to open the file |
 | `status` | `current` = believed true. `draft` = written, not yet checked by anyone. `gap` = a question somebody asked that nothing here answers |
-| `updated` | the day someone last *verified* the facts, not the day the file changed. Staleness reporting depends on this being honest |
+| `updated` | the day someone last *verified* the facts, not the day the file changed. Staleness reporting depends on this being honest — and on it being **today's real date**, which an agent must take from its session rather than from memory, or the newest articles report as the stalest |
 | `tags` | optional grouping. Keep them few and reuse them |
 
 Gap stubs carry two more, both maintained by the tooling:

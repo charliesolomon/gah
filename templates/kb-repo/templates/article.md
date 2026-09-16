@@ -2,7 +2,7 @@
 title: <What this article is about, as a noun phrase>
 description: <One sentence. This is what search matches and what the agent reads first.>
 status: draft
-updated: <YYYY-MM-DD>
+updated: <YYYY-MM-DD — today's real date; an agent takes this from the session, never from memory>
 tags: []
 ---
 

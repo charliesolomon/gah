@@ -195,6 +195,25 @@ check "a change to bin/ is NOT swept into an article proposal" \
 git -C "$KB" checkout -q -- bin 2>/dev/null
 
 echo
+echo "-- a date the model guessed rather than read --"
+# Nothing in the harness told a model the date until now, so one wrote an
+# article stamped a year early; the article then reported as overdue for review
+# the day it was written. The prompt now carries the date, and this catches the
+# residue.
+printf -- '---\ntitle: Guessed date\ndescription: An article whose date was invented.\nstatus: current\nupdated: 2025-01-02\ntags: []\n---\nbody\n' >"$KB/articles/guessed-date.md"
+printf -- '---\ntitle: Future date\ndescription: An article dated ahead of today.\nstatus: current\nupdated: 2099-01-01\ntags: []\n---\nbody\n' >"$KB/articles/future-date.md"
+git -C "$KB" add -A >/dev/null 2>&1 && git -C "$KB" commit -qm "dates under test" >/dev/null 2>&1
+out="$("$KB/bin/kb-status.sh" 2>&1)"
+check "a date long before the file existed is flagged as guessed" \
+	"$(printf '%s' "$out" | grep -q "guessed-date.md: updated '2025-01-02' predates the file" && echo 1 || echo 0)"
+check "a date in the future is flagged" \
+	"$(printf '%s' "$out" | grep -q "future-date.md: updated '2099-01-01' is in the future" && echo 1 || echo 0)"
+check "the shipped example is not flagged for its invented date" \
+	"$(printf '%s' "$out" | grep -q 'example-article.md: updated' && echo 0 || echo 1)"
+git -C "$KB" rm -q "articles/guessed-date.md" "articles/future-date.md" >/dev/null 2>&1
+git -C "$KB" commit -qm "remove the date fixtures" >/dev/null 2>&1
+
+echo
 echo "-- bringing the copy up to date after a merge --"
 # The last mile: until somebody pulls, the author is still searching the stale
 # copy they just improved, and so is every later session on that machine.

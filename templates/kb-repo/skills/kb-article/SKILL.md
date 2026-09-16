@@ -55,6 +55,14 @@ that people get wrong:
   If you are writing from what someone just told you, that is today. If you are
   tidying the prose of a two-year-old article, it is not.
 
+  **Take today's date from the session, never from memory.** The system prompt
+  states it. A model that fills this field from its own sense of the date writes
+  one that is months or years early, and the article then reads as overdue for
+  review the day it was written — which is how a knowledge base starts flagging
+  its newest content as its most stale. Where a shell is available, the wrappers
+  fill the field for you and `date +%F` / `Get-Date -Format 'yyyy-MM-dd'` settle
+  it; where one is not, use the date the session gave you.
+
 ## What to write
 
 **Lead with the answer.** The first two sentences should satisfy the person who

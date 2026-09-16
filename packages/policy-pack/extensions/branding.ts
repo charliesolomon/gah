@@ -12,6 +12,11 @@
  * /skill:<name> by hand. We therefore re-append that catalogue here, from the
  * skills pi already resolved and handed us on the event.
  *
+ * The date is appended here too (lib/today.ts). The harness supplies the working
+ * directory and never the day, so a model asked to record one falls back on its
+ * training prior; it is appended rather than templated into SYSTEM.md so that a
+ * deployment shipping its own SYSTEM.md still gets it.
+ *
  * Branding strings that need to live inside the binary itself (e.g. the
  * `pi` executable name) are handled by patches/0001-branding.patch instead.
  */
@@ -20,6 +25,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { formatSkillsForPrompt, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { todayLine } from "./lib/today.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SYSTEM_MD_PATH = join(HERE, "..", "SYSTEM.md");
@@ -55,7 +61,7 @@ export default function (pi: ExtensionAPI) {
 					"info",
 				);
 			}
-			return { systemPrompt: systemMd + skillsBlock };
+			return { systemPrompt: `${systemMd}\n\n${todayLine()}${skillsBlock}` };
 		} catch (err) {
 			process.stderr.write(`[gah-branding] failed to load SYSTEM.md: ${(err as Error).message}\n`);
 			return undefined;
