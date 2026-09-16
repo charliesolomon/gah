@@ -8,17 +8,63 @@
 $ErrorActionPreference = "Stop"
 
 $Here = Split-Path -Parent $PSScriptRoot
+
+# A wrapper or alias may hand the arguments over as one nested array -- that is
+# what `& gah.ps1 $args` does, as against `@args` -- and then $args[0] is an
+# array, not the subcommand. Flatten once, and use this everywhere below, so
+# `gah init-kb <dir>` behaves the same however the person wired up their alias.
+$GahArgs = @()
+foreach ($a in $args) {
+    if ($null -ne $a -and $a -isnot [string] -and $a -is [System.Collections.IEnumerable]) { foreach ($b in $a) { $GahArgs += $b } }
+    else { $GahArgs += $a }
+}
 $PiCli = Join-Path $Here "vendor\pi\packages\coding-agent\dist\cli.js"
 $PolicyDir = Join-Path $Here "packages\policy-pack\extensions"
+
+# The subcommand is not necessarily the first argument. A wrapper commonly
+# injects flags ahead of the person's own arguments --
+#   function gah { & '<path>\bin\gah.ps1' --skill '<dir>' @args }
+# -- so `gah init-kb <dir>` arrives as `--skill <dir> init-kb <dir>`. Find the
+# first bare `init`/`init-kb` token instead, ignoring one that is the value of a
+# preceding flag (`--skill init-kb` names a directory, not a subcommand).
+$SubCommand = ''
+$SubTarget  = ''
+for ($i = 0; $i -lt $GahArgs.Count; $i++) {
+    $tok = [string]$GahArgs[$i]
+    if (@('init', 'init-kb') -notcontains $tok) { continue }
+    if ($i -gt 0 -and ([string]$GahArgs[$i - 1]).StartsWith('-')) { continue }
+    $SubCommand = $tok
+    if ($i + 1 -lt $GahArgs.Count) { $SubTarget = [string]$GahArgs[$i + 1] }
+    break
+}
+
+# One shape cannot be recovered: a wrapper that joins its arguments into a
+# single string (`& gah.ps1 "$args"`), which arrives as "init-kb C:\path" in one
+# argument. Detect the exact shape -- a subcommand word, then one token with no
+# spaces -- and say what is wrong, rather than sending those words to the model
+# as a question. A genuine prompt beginning with the word "init" has more than
+# one word after it and is not caught.
+if ($GahArgs.Count -eq 1 -and $GahArgs[0] -is [string] -and $GahArgs[0] -match '^(init|init-kb)\s+(\S+)$') {
+    [Console]::Error.WriteLine(@"
+gah: received '$($GahArgs[0])' as a single argument, so '$($Matches[1])' could not
+be read as a subcommand. The wrapper or alias calling this script is joining its
+arguments into one string. Use the splat form instead:
+
+  function gah { & "<path>\bin\gah.ps1" @args }     # not: `$args, and not: "`$args"
+
+Or call the script directly:  .\bin\gah.ps1 $($Matches[1]) $($Matches[2])
+"@)
+    exit 2
+}
 
 # --- gah init --------------------------------------------------------------
 # Handled before anything else: a new deployment scaffolds its skills repo
 # first, and should not need a built PI to do it. Also breaks the circularity of
 # a launcher that refuses to start without skills.
 $TemplateDir = Join-Path $Here 'templates\skills-repo'
-if ($args.Count -ge 1 -and $args[0] -eq 'init') {
-    if ($args.Count -lt 2) { [Console]::Error.WriteLine('usage: gah.ps1 init <directory>'); exit 2 }
-    $Target = $args[1]
+if ($SubCommand -eq 'init') {
+    if (-not $SubTarget) { [Console]::Error.WriteLine('usage: gah.ps1 init <directory>'); exit 2 }
+    $Target = $SubTarget
     if (-not (Test-Path $TemplateDir)) { [Console]::Error.WriteLine("gah: template missing at $TemplateDir"); exit 1 }
     if ((Test-Path $Target) -and (Get-ChildItem -Force $Target | Measure-Object).Count -gt 0) {
         [Console]::Error.WriteLine("gah: $Target exists and is not empty - refusing to overwrite"); exit 1
@@ -49,9 +95,9 @@ if ($args.Count -ge 1 -and $args[0] -eq 'init') {
 # different repositories with different review rules -- skills are procedure,
 # the knowledge base is fact.
 $KbTemplateDir = Join-Path $Here 'templates\kb-repo'
-if ($args.Count -ge 1 -and $args[0] -eq 'init-kb') {
-    if ($args.Count -lt 2) { [Console]::Error.WriteLine('usage: gah.ps1 init-kb <directory>'); exit 2 }
-    $Target = $args[1]
+if ($SubCommand -eq 'init-kb') {
+    if (-not $SubTarget) { [Console]::Error.WriteLine('usage: gah.ps1 init-kb <directory>'); exit 2 }
+    $Target = $SubTarget
     if (-not (Test-Path $KbTemplateDir)) { [Console]::Error.WriteLine("gah: template missing at $KbTemplateDir"); exit 1 }
     if ((Test-Path $Target) -and (Get-ChildItem -Force $Target | Measure-Object).Count -gt 0) {
         [Console]::Error.WriteLine("gah: $Target exists and is not empty - refusing to overwrite"); exit 1
@@ -92,7 +138,7 @@ if ($args -contains '--skill') { $SkillsConfigured = $true }
 # also skip the setup steps below. Computed at script scope on purpose: inside
 # a Where-Object scriptblock, $args is the scriptblock's own (empty) list.
 $InfoOnly = $false
-foreach ($flag in @('--help', '-h', '--version', '-v')) { if ($args -contains $flag) { $InfoOnly = $true } }
+foreach ($flag in @('--help', '-h', '--version', '-v')) { if ($GahArgs -contains $flag) { $InfoOnly = $true } }
 if ($InfoOnly) { $SkillsConfigured = $true }
 if ($env:GAH_ALLOW_NO_SKILLS) { $SkillsConfigured = $true }
 if ($env:GAH_SKILLS_DIR -and (Test-Path $env:GAH_SKILLS_DIR)) { $SkillsConfigured = $true }
@@ -220,7 +266,7 @@ try {
         --extension (Join-Path $PolicyDir "branding.ts") `
         --extension (Join-Path $PolicyDir "providers.ts") `
         --extension (Join-Path $PolicyDir "skills-freshness.ts") `
-        @args
+        @GahArgs
     $ExitCode = $LASTEXITCODE
 } finally {
     foreach ($name in $Restore.Keys) {

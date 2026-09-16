@@ -14,12 +14,33 @@ POLICY_DIR="$HERE/packages/policy-pack/extensions"
 TEMPLATE_DIR="$HERE/templates/skills-repo"
 KB_TEMPLATE_DIR="$HERE/templates/kb-repo"
 
+# --- Subcommands -----------------------------------------------------------
+# The subcommand is not necessarily the first argument: a wrapper commonly
+# injects flags ahead of the person's own arguments --
+#   gah() { ~/gah/bin/gah --skill ~/skills "$@"; }
+# -- so `gah init-kb <dir>` arrives as `--skill <dir> init-kb <dir>`. Find the
+# first bare init/init-kb token instead, ignoring one that is the value of a
+# preceding flag (`--skill init-kb` names a directory, not a subcommand).
+subcommand=""
+subtarget=""
+prev=""
+for arg in "$@"; do
+  case "$arg" in
+    init|init-kb)
+      case "$prev" in -*) prev="$arg"; continue ;; esac
+      subcommand="$arg"
+      ;;
+  esac
+  if [ -n "$subcommand" ] && [ "$arg" != "$subcommand" ]; then subtarget="$arg"; break; fi
+  prev="$arg"
+done
+
 # --- gah init --------------------------------------------------------------
 # Handled before the build check on purpose: a new deployment scaffolds its
 # skills repo first, and should not need a built PI to do it. Also breaks the
 # circularity of a launcher that refuses to start without skills.
-if [ "${1:-}" = "init" ]; then
-  target="${2:-}"
+if [ "$subcommand" = "init" ]; then
+  target="$subtarget"
   [ -n "$target" ] || { echo "usage: gah init <directory>" >&2; exit 2; }
   [ -d "$TEMPLATE_DIR" ] || { echo "gah: template missing at $TEMPLATE_DIR" >&2; exit 1; }
   if [ -e "$target" ] && [ -n "$(ls -A "$target" 2>/dev/null)" ]; then
@@ -53,8 +74,8 @@ fi
 # skills. Scaffolded separately for that reason, and because the two are
 # different repositories with different review rules -- skills are procedure,
 # the knowledge base is fact.
-if [ "${1:-}" = "init-kb" ]; then
-  target="${2:-}"
+if [ "$subcommand" = "init-kb" ]; then
+  target="$subtarget"
   [ -n "$target" ] || { echo "usage: gah init-kb <directory>" >&2; exit 2; }
   [ -d "$KB_TEMPLATE_DIR" ] || { echo "gah: template missing at $KB_TEMPLATE_DIR" >&2; exit 1; }
   if [ -e "$target" ] && [ -n "$(ls -A "$target" 2>/dev/null)" ]; then

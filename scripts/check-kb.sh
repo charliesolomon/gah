@@ -196,6 +196,12 @@ check "a GAH_KB_DIR with no skills/ is reported rather than ignored" \
 	"$(printf '%s' "$out" | grep -q 'knowledge base not loaded' && echo 1 || echo 0)"
 
 echo
+echo "-- a wrapper that injects flags before the subcommand (bash) --"
+rm -rf "$WORK/kb-flags"
+./bin/gah --skill "$WORK/nowhere" --prompt-template "$WORK/nowhere" init-kb "$WORK/kb-flags" >/dev/null 2>&1
+check "bin/gah finds the subcommand after injected flags" "$([ -d "$WORK/kb-flags/articles" ] && echo 1 || echo 0)"
+
+echo
 echo "-- no secrets, no organisation, in the shipped scaffold --"
 # The scaffold must be organisation-neutral (#20) and must not teach by example
 # that credentials belong in a knowledge base.
@@ -266,6 +272,38 @@ if command -v pwsh >/dev/null 2>&1; then
 	printf 'A second fact.\n' >>"$PS_KB/articles/network/gym-switch.md"
 	KB_PUBLISH=direct pwsh -NoProfile -File "$PS_KB/bin/kb-propose.ps1" -Message "Add a second fact" >/dev/null 2>&1
 	check_eq "kb-propose.ps1 honours KB_PUBLISH=direct" "2" "$(git -C "$WORK/ps-origin.git" rev-list --count main)"
+
+	# However a person wired up their `gah` alias, a subcommand must behave.
+	# Three shapes exist in the wild and the difference is invisible until it
+	# bites: @args (correct), $args (one nested array), "$args" (one string).
+	# The 'flags' form is the one that actually bit: a wrapper that injects
+	# --skill/--prompt-template ahead of the person's arguments, so the
+	# subcommand is not argument one.
+	cat >"$WORK/alias.ps1" <<'PSEOF'
+$script = $args[0]; $form = $args[1]; $rest = @($args[2..($args.Count-1)])
+switch ($form) {
+  'splat'  { & $script @rest }
+  'bare'   { & $script $rest }
+  'joined' { & $script "$rest" }
+  'flags'  { & $script --skill 'C:\nowhere\skills' --prompt-template 'C:\nowhere\prompts' @rest }
+}
+PSEOF
+	for form in splat bare flags; do
+		rm -rf "$WORK/kb-$form"
+		pwsh -NoProfile -File "$WORK/alias.ps1" "$REPO_ROOT/bin/gah.ps1" "$form" init-kb "$WORK/kb-$form" >/dev/null 2>&1
+		check "an alias using the $form form still scaffolds" "$([ -d "$WORK/kb-$form/articles" ] && echo 1 || echo 0)"
+	done
+	out="$(pwsh -NoProfile -File "$WORK/alias.ps1" "$REPO_ROOT/bin/gah.ps1" joined init-kb "$WORK/kb-joined" 2>&1)"
+	check "an alias that joins its arguments is diagnosed, not sent to the model" \
+		"$(printf '%s' "$out" | grep -q 'as a single argument' && echo 1 || echo 0)"
+	check "and the diagnosis names the splat form as the fix" \
+		"$(printf '%s' "$out" | grep -qF '@args' && echo 1 || echo 0)"
+	argv="$(PATH="$WORK/fakebin:$PATH" GAH_ALLOW_NO_SKILLS=1 pwsh -NoProfile -File "$REPO_ROOT/bin/gah.ps1" "init a new thing for me" 2>/dev/null)"
+	check "a genuine prompt beginning with 'init' still reaches the agent" \
+		"$(printf '%s' "$argv" | grep -qF 'init a new thing for me' && echo 1 || echo 0)"
+	argv="$(PATH="$WORK/fakebin:$PATH" GAH_ALLOW_NO_SKILLS=1 pwsh -NoProfile -File "$REPO_ROOT/bin/gah.ps1" --skill init-kb 2>/dev/null)"
+	check "a flag whose value happens to be 'init-kb' is not read as a subcommand" \
+		"$(printf '%s' "$argv" | grep -qF -- '--skill' && echo 1 || echo 0)"
 
 	# The third launcher: the packaged one an end user actually runs. It fetches
 	# skills as a read-only archive, so a knowledge base reaches it only as a
