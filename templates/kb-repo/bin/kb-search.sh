@@ -12,6 +12,9 @@
 set -uo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/_kb-common.sh"
 
+IFS=$'\n' read -r -d '' -a KB_ARGV < <(kb_normalize_args "$@" && printf '\0')
+set -- "${KB_ARGV[@]}"
+
 query=""; want_tag=""; want_status=""; limit=10
 while [ $# -gt 0 ]; do
 	case "$1" in

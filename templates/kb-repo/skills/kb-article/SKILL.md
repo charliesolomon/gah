@@ -21,14 +21,24 @@ Search `articles/` first, every time. Three outcomes:
 | What you find | What to do |
 |---|---|
 | An article on the subject | **Update it.** A second article on the same subject is how a knowledge base starts to contradict itself |
-| A gap stub (`status: gap`) | **Answer it in place**, then move the file out of `articles/gaps/` into the area it belongs to |
+| A gap stub (`status: gap`) | **Answer it in place**, then move the file out of `articles/gaps/` into the area it belongs to — or write the article where it belongs and delete the stub. Either way the stub must not survive, or it keeps answering searches with "nobody has written this down" |
 | Nothing | Create a new article |
 
 ## Creating one
 
-Copy `templates/article.md`, or where a shell is available run
-`bin/kb-new.sh --title "..." --area <area>` (`bin\kb-new.ps1` on Windows), which
-writes the header for you and refuses to clobber an existing file.
+Copy `templates/article.md`, or where a shell is available run the wrapper,
+which writes the header for you and refuses to clobber an existing file:
+
+```bash
+bin/kb-new.sh --title "Wireless at the North site" --area network --tags network,wireless
+```
+
+```powershell
+.\bin\kb-new.ps1 -Title "Wireless at the North site" -Area network -Tags network,wireless
+```
+
+Both flag spellings work in both wrappers; the title must be one quoted
+argument.
 
 The frontmatter contract, in full, is in `articles/README.md`. The three fields
 that people get wrong:
@@ -36,9 +46,11 @@ that people get wrong:
 - **`description`** — one sentence, and it is what search matches on. "Access
   points, firmware and the two standing exceptions" earns its place; "Wireless
   documentation" does not.
-- **`status`** — `draft` until somebody who knows has looked at it. Be honest
-  here; a `current` article that nobody checked is exactly the thing that
-  poisons trust.
+- **`status`** — `current` when the facts came from someone who knows and has
+  just told you; `draft` when you assembled them yourself from a session, a
+  ticket or an inference, and nobody has confirmed them. Be honest here: a
+  `current` article that nobody checked is exactly the thing that poisons
+  trust.
 - **`updated`** — the date the *facts* were verified, not the date you typed.
   If you are writing from what someone just told you, that is today. If you are
   tidying the prose of a two-year-old article, it is not.

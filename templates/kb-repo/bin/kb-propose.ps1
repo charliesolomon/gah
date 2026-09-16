@@ -15,19 +15,20 @@
 #
 # The commit is made with whatever git identity the person running the session
 # has, so a change is attributable to them and not to a shared robot account.
-[CmdletBinding()]
-param(
-    [Parameter(Mandatory = $true)][string]$Message,
-    [string]$Branch = '',
-    [switch]$Direct,
-    [switch]$Propose
-)
+param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Argv)
 $ErrorActionPreference = 'Continue'
 . (Join-Path $PSScriptRoot '_kb-common.ps1')
 
+$Opt = ConvertFrom-KbArgv $Argv @('message', 'm', 'branch', 'b') @('direct', 'propose')
+$Message = Get-KbFirst $Opt['message'] $Opt['m'] $Opt['_']
+$Branch = Get-KbFirst $Opt['branch'] $Opt['b']
+$Usage = 'Usage: kb-propose.ps1 -Message "<what changed and why, in one line>"'
+if (-not $Message) { Stop-Kb "a message is required: say what changed and why, in one line.`n  $Usage" }
+Assert-KbText $Message 'the message' $Usage
+
 $root = Get-KbRoot
-$goDirect = $Direct -or ($env:KB_PUBLISH -eq 'direct')
-if ($Propose) { $goDirect = $false }
+$goDirect = $Opt['direct'] -or ($env:KB_PUBLISH -eq 'direct')
+if ($Opt['propose']) { $goDirect = $false }
 
 function Invoke-Git {
     # Captures stdout and stderr together: git says useful things on stderr,

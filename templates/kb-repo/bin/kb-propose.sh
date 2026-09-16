@@ -19,6 +19,9 @@
 set -uo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/_kb-common.sh"
 
+IFS=$'\n' read -r -d '' -a KB_ARGV < <(kb_normalize_args "$@" && printf '\0')
+set -- "${KB_ARGV[@]}"
+
 message=""; branch=""; direct=0
 [ "${KB_PUBLISH:-}" = "direct" ] && direct=1
 while [ $# -gt 0 ]; do
@@ -31,7 +34,10 @@ while [ $# -gt 0 ]; do
 		*) kb_die "unknown argument: $1" ;;
 	esac
 done
-[ -n "$message" ] || kb_die "--message is required: say what changed and why, in one line"
+usage='Usage: kb-propose.sh --message "<what changed and why, in one line>"'
+[ -n "$message" ] || kb_die "a message is required: say what changed and why, in one line.
+  $usage"
+kb_assert_text "$message" "the message" "$usage"
 
 root="$(kb_root)"
 git -C "$root" rev-parse --git-dir >/dev/null 2>&1 || kb_die "$root is not a git repository. Run: git -C $root init"

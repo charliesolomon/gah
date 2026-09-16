@@ -36,6 +36,62 @@ function Get-KbSlug([string]$Text) {
 
 function Get-KbToday { return (Get-Date).ToString('yyyy-MM-dd') }
 
+<#
+Every kb-*.ps1 hands its arguments to this rather than to PowerShell's own
+parameter binding, for two reasons that both bite in practice.
+
+Windows PowerShell 5.1 and PowerShell 7 disagree about `--name`: 7 matches it to
+-Name, 5.1 takes it as a positional value. The same call then writes an article
+titled "--title" on one machine and the right thing on another, and the file is
+wrong rather than the command failing.
+
+And an agent reading the .sh twin's usage will type GNU style whichever shell it
+is in. A tool that accepts only one convention produces a plausible-looking
+article from a mistyped flag, which is worse than refusing.
+
+Accepts `-Name value`, `--name value`, `--name=value` and bare positional words,
+case-insensitively. Anything unrecognised lands in `_` so a typo is visible.
+#>
+function ConvertFrom-KbArgv {
+    param([string[]]$Argv, [string[]]$Names, [string[]]$Switches = @())
+    $out = @{ '_' = @() }
+    foreach ($n in $Names) { $out[$n] = '' }
+    foreach ($s in $Switches) { $out[$s] = $false }
+    $i = 0
+    while ($i -lt $Argv.Count) {
+        $tok = [string]$Argv[$i]
+        if ($tok -match '^--?([A-Za-z][A-Za-z0-9-]*)(=(.*))?$') {
+            $name = $Matches[1].ToLowerInvariant()
+            $hasInline = $Matches[2]
+            $inline = $Matches[3]
+            if ($Switches -contains $name) { $out[$name] = $true; $i++; continue }
+            if ($Names -contains $name) {
+                if ($hasInline) { $out[$name] = $inline; $i++ }
+                elseif ($i + 1 -lt $Argv.Count) { $out[$name] = [string]$Argv[$i + 1]; $i += 2 }
+                else { $i++ }
+                continue
+            }
+            $out['_'] += $tok; $i++; continue
+        }
+        $out['_'] += $tok; $i++
+    }
+    return $out
+}
+
+# First non-empty of the given values; '' when all are empty.
+function Get-KbFirst {
+    foreach ($v in $args) { if ($v -is [array]) { $v = ($v -join ' ') }; if ("$v".Trim()) { return "$v".Trim() } }
+    return ''
+}
+
+# A title, question or message that begins with a dash is a mistyped flag, not
+# text. Refusing beats writing an article called "--title".
+function Assert-KbText([string]$Value, [string]$What, [string]$Usage) {
+    if ($Value -like '-*') {
+        Stop-Kb "$What looks like a flag, not text: '$Value'`n  $Usage"
+    }
+}
+
 # Frontmatter as a hashtable, plus the body. Values may be quoted or bare;
 # lists are returned as written, because nothing here needs to parse them.
 function Get-KbArticle([string]$Path) {

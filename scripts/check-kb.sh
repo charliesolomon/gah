@@ -93,6 +93,26 @@ check "a recorded gap is findable by the next person to ask" \
 check "and it is shown with its request count" "$(printf '%s' "$out" | grep -q 'requests: 2' && echo 1 || echo 0)"
 
 echo
+echo "-- both flag conventions, because an agent will type either --"
+# The .ps1 usage read in a bash session, and the .sh usage read in PowerShell.
+# Before this was handled, `--question` on Windows PowerShell 5.1 recorded a gap
+# titled "--question" with the real question as its tags: a plausible-looking
+# file that answers nothing and never matches the same question twice.
+"$KB/bin/kb-gap.sh" -Question "Which switch serves the gym?" >/dev/null 2>&1
+check_eq "the bash twin accepts -Question and folds it onto the same stub" "requests: 3" \
+	"$(grep '^requests:' "$KB/$gap_path")"
+"$KB/bin/kb-gap.sh" "which switch serves the gym" >/dev/null 2>&1
+check_eq "and a bare question with no flag at all" "requests: 4" "$(grep '^requests:' "$KB/$gap_path")"
+check_eq "still exactly one stub" "1" "$(find "$KB/articles/gaps" -name '*.md' | wc -l | tr -d ' ')"
+out="$("$KB/bin/kb-gap.sh" --question --oops 2>&1)"; rc=$?
+check_eq "a flag where the question should be is refused, not written" "2" "$rc"
+check "and the refusal shows the usage" "$(printf '%s' "$out" | grep -q 'Usage: kb-gap.sh' && echo 1 || echo 0)"
+"$KB/bin/kb-new.sh" --title --oops >/dev/null 2>&1
+check_eq "the same guard on kb-new.sh" "2" "$?"
+"$KB/bin/kb-propose.sh" --message --oops >/dev/null 2>&1
+check_eq "and on kb-propose.sh" "2" "$?"
+
+echo
 echo "-- writing an article --"
 new_path="$("$KB/bin/kb-new.sh" --title "Gym switch" --area network --tags network,switching 2>/dev/null)"
 check_eq "kb-new prints the path it wrote" "articles/network/gym-switch.md" "$new_path"
@@ -110,7 +130,7 @@ echo
 echo "-- status is the backlog --"
 out="$("$KB/bin/kb-status.sh" 2>&1)"
 check "status counts the articles" "$(printf '%s' "$out" | grep -qE '[0-9]+ articles' && echo 1 || echo 0)"
-check "status lists the gap with its count" "$(printf '%s' "$out" | grep -q '2x  Which switch serves the gym' && echo 1 || echo 0)"
+check "status lists the gap with its count" "$(printf '%s' "$out" | grep -q '4x  Which switch serves the gym' && echo 1 || echo 0)"
 check "status flags the missing description" "$(printf '%s' "$out" | grep -q 'no description' && echo 1 || echo 0)"
 check "status nags about the example article" "$(printf '%s' "$out" | grep -qi 'example article' && echo 1 || echo 0)"
 check "status reports the stale example" "$(printf '%s' "$out" | grep -qi 'not verified in over' && echo 1 || echo 0)"
@@ -239,8 +259,22 @@ if command -v pwsh >/dev/null 2>&1; then
 	check_eq "kb-gap.ps1 records the same slug as its twin" "articles/gaps/which-switch-serves-the-gym.md" "$g"
 	pwsh -NoProfile -File "$PS_KB/bin/kb-gap.ps1" -Question "which switch serves the gym" >/dev/null 2>&1
 	check_eq "kb-gap.ps1 bumps rather than duplicating" "requests: 2" "$(grep '^requests:' "$PS_KB/$g")"
+	# GNU style on PowerShell: 7 binds --question to -Question, 5.1 does not, so
+	# the same call wrote a gap titled "--question" on the target machine only.
+	pwsh -NoProfile -File "$PS_KB/bin/kb-gap.ps1" --question "which switch serves the gym?" >/dev/null 2>&1
+	check_eq "kb-gap.ps1 accepts --question too, onto the same stub" "requests: 3" "$(grep '^requests:' "$PS_KB/$g")"
+	pwsh -NoProfile -File "$PS_KB/bin/kb-gap.ps1" "which switch serves the gym" >/dev/null 2>&1
+	check_eq "and a bare question with no flag" "requests: 4" "$(grep '^requests:' "$PS_KB/$g")"
+	check_eq "still exactly one stub" "1" "$(find "$PS_KB/articles/gaps" -name '*.md' | wc -l | tr -d ' ')"
+	out="$(pwsh -NoProfile -File "$PS_KB/bin/kb-gap.ps1" --question --oops 2>&1)"; rc=$?
+	check_eq "kb-gap.ps1 refuses a flag where the question should be" "2" "$rc"
+	check "and shows the PowerShell usage" "$(printf '%s' "$out" | grep -q 'kb-gap.ps1 -Question' && echo 1 || echo 0)"
+	p2="$(pwsh -NoProfile -File "$PS_KB/bin/kb-new.ps1" --title "Addressing plan" --area network 2>/dev/null | tr -d '\r')"
+	check_eq "kb-new.ps1 accepts GNU-style flags" "articles/network/addressing-plan.md" "$p2"
+	pwsh -NoProfile -File "$PS_KB/bin/kb-status.ps1" --stale-days 9999 >/dev/null 2>&1
+	check_eq "kb-status.ps1 accepts --stale-days" "0" "$?"
 	out="$(pwsh -NoProfile -File "$PS_KB/bin/kb-status.ps1" 2>&1)"
-	check "kb-status.ps1 reports the backlog" "$(printf '%s' "$out" | grep -q '2x  Which switch serves the gym' && echo 1 || echo 0)"
+	check "kb-status.ps1 reports the backlog" "$(printf '%s' "$out" | grep -q '4x  Which switch serves the gym' && echo 1 || echo 0)"
 
 	# Both twins must rank the same way, or an answer depends on which platform
 	# the person happens to be on.

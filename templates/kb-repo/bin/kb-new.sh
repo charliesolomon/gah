@@ -14,6 +14,9 @@
 set -uo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/_kb-common.sh"
 
+IFS=$'\n' read -r -d '' -a KB_ARGV < <(kb_normalize_args "$@" && printf '\0')
+set -- "${KB_ARGV[@]}"
+
 title=""; area=""; tags=""; path=""; status="draft"; force=0
 while [ $# -gt 0 ]; do
 	case "$1" in
@@ -27,7 +30,10 @@ while [ $# -gt 0 ]; do
 		*) kb_die "unknown argument: $1" ;;
 	esac
 done
-[ -n "$title" ] || kb_die "--title is required"
+usage='Usage: kb-new.sh --title "<article title>" [--area <area>] [--tags a,b]'
+[ -n "$title" ] || kb_die "a title is required.
+  $usage"
+kb_assert_text "$title" "the title" "$usage"
 case "$status" in current|draft|gap) ;; *) kb_die "--status must be current, draft or gap" ;; esac
 
 root="$(kb_root)"

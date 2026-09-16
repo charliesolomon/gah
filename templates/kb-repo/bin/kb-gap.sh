@@ -14,6 +14,10 @@
 set -uo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/_kb-common.sh"
 
+# Fold -Question/-Tags into --question/--tags before parsing (see _kb-common.sh).
+IFS=$'\n' read -r -d '' -a KB_ARGV < <(kb_normalize_args "$@" && printf '\0')
+set -- "${KB_ARGV[@]}"
+
 question=""; tags=""
 while [ $# -gt 0 ]; do
 	case "$1" in
@@ -24,7 +28,10 @@ while [ $# -gt 0 ]; do
 	esac
 done
 question="$(printf '%s' "$question" | sed -e 's/^ *//' -e 's/ *$//')"
-[ -n "$question" ] || kb_die "--question is required"
+usage='Usage: kb-gap.sh --question "<the question nobody could answer>" [--tags a,b]'
+[ -n "$question" ] || kb_die "a question is required.
+  $usage"
+kb_assert_text "$question" "the question" "$usage"
 
 root="$(kb_root)"
 slug="$(kb_slug "$question")"

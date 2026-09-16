@@ -10,17 +10,18 @@
 # Writing the article itself is the agent's job, or yours. This only guarantees
 # that every article starts with a valid header, because a missing `updated` is
 # invisible until the staleness report quietly stops mentioning the file.
-[CmdletBinding()]
-param(
-    [Parameter(Mandatory = $true)][string]$Title,
-    [string]$Area = '',
-    [string]$Tags = '',
-    [string]$Path = '',
-    [ValidateSet('current', 'draft', 'gap')][string]$Status = 'draft',
-    [switch]$Force
-)
+param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Argv)
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot '_kb-common.ps1')
+
+$Opt = ConvertFrom-KbArgv $Argv @('title', 'area', 'tags', 'path', 'status') @('force')
+$Title = Get-KbFirst $Opt['title'] $Opt['_']
+$Area = $Opt['area']; $Tags = $Opt['tags']; $Path = $Opt['path']; $Force = $Opt['force']
+$Status = if ($Opt['status']) { $Opt['status'] } else { 'draft' }
+$Usage = 'Usage: kb-new.ps1 -Title "<article title>" [-Area <area>] [-Tags a,b]'
+if (-not $Title) { Stop-Kb "a title is required.`n  $Usage" }
+Assert-KbText $Title 'the title' $Usage
+if (@('current', 'draft', 'gap') -notcontains $Status) { Stop-Kb "-Status must be current, draft or gap" }
 
 $root = Get-KbRoot
 $relative = $Path

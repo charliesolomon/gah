@@ -9,13 +9,15 @@
 # The gap list is the backlog. It is ordered by how often people actually
 # needed the thing, which is the only prioritisation that has ever survived
 # contact with a support queue.
-[CmdletBinding()]
-param(
-    [int]$StaleDays = 180,
-    [switch]$Quiet
-)
+param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Argv)
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot '_kb-common.ps1')
+
+$Opt = ConvertFrom-KbArgv $Argv @('stale-days', 'staledays') @('quiet', 'q')
+$StaleDays = 180
+$staleRaw = Get-KbFirst $Opt['stale-days'] $Opt['staledays']
+if ($staleRaw) { $parsedStale = 0; if ([int]::TryParse($staleRaw, [ref]$parsedStale) -and $parsedStale -ge 0) { $StaleDays = $parsedStale } }
+$Quiet = $Opt['quiet'] -or $Opt['q']
 
 $root = Get-KbRoot
 $counts = @{ current = 0; draft = 0; gap = 0; other = 0 }

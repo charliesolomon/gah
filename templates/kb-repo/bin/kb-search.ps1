@@ -8,20 +8,19 @@
 # in the body, and an article matching every word outweighs one matching some.
 #
 # Exit 0 with matches, 1 with none (so a caller can branch on "nothing known").
-[CmdletBinding()]
-param(
-    # Position 0 as well as ValueFromRemainingArguments: without the explicit
-    # position a single quoted argument (the way a skill calls this) binds to
-    # nothing at all and the script reports an empty query.
-    [Parameter(Position = 0, ValueFromRemainingArguments = $true)][string[]]$Query,
-    [string]$Tag = '',
-    [string]$Status = '',
-    [int]$Limit = 10
-)
+param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Argv)
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot '_kb-common.ps1')
 
-$queryText = ($Query -join ' ').Trim()
+# Parsed here rather than by PowerShell, so --tag and -Tag behave the same on
+# Windows PowerShell 5.1 and PowerShell 7 alike (see ConvertFrom-KbArgv).
+$Opt = ConvertFrom-KbArgv $Argv @('tag', 'status', 'limit', 'query', 'q')
+$Tag = $Opt['tag']
+$Status = $Opt['status']
+$Limit = 10
+if ($Opt['limit']) { $parsedLimit = 0; if ([int]::TryParse($Opt['limit'], [ref]$parsedLimit) -and $parsedLimit -gt 0) { $Limit = $parsedLimit } }
+
+$queryText = (Get-KbFirst $Opt['query'] $Opt['q'] $Opt['_']).Trim()
 if (-not $queryText) { Stop-Kb 'nothing to search for. Usage: kb-search.ps1 "<question or keywords>"' }
 
 # Words worth scoring. Two-letter words and the connectives people type into

@@ -28,6 +28,31 @@ kb_slug() {
 
 kb_today() { date +%Y-%m-%d; }
 
+# An agent that has read the .ps1 twin's usage will type -Question here, and an
+# agent that read this one will type --question over there. Both conventions are
+# accepted everywhere: a mistyped flag that is silently taken as text produces a
+# plausible-looking article, which is worse than an error. Single-dash long
+# names are folded to the double-dash form before parsing, case-insensitively.
+kb_normalize_args() {
+	local a
+	for a in "$@"; do
+		case "$a" in
+			--*) printf '%s\n' "$a" ;;
+			-[A-Za-z][A-Za-z]*) printf -- '--%s\n' "$(printf '%s' "${a#-}" | tr '[:upper:]' '[:lower:]')" ;;
+			*) printf '%s\n' "$a" ;;
+		esac
+	done
+}
+
+# A title, question or message that begins with a dash is a mistyped flag, not
+# text. Refusing beats writing an article called "--title".
+kb_assert_text() {
+	case "$1" in
+		-*) kb_die "$2 looks like a flag, not text: '$1'
+  $3" ;;
+	esac
+}
+
 # One frontmatter field of one article. Values may be quoted or bare; lists are
 # returned as written. Empty when absent -- callers decide whether that matters.
 kb_field() {

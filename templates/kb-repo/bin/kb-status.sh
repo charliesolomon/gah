@@ -13,6 +13,9 @@
 set -uo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/_kb-common.sh"
 
+IFS=$'\n' read -r -d '' -a KB_ARGV < <(kb_normalize_args "$@" && printf '\0')
+set -- "${KB_ARGV[@]}"
+
 stale_days=180; quiet=0
 while [ $# -gt 0 ]; do
 	case "$1" in

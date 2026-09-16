@@ -10,13 +10,16 @@
 #
 # A gap is an ordinary article, so the next person asking the same question
 # finds it in search and learns that the team knows it is missing.
-[CmdletBinding()]
-param(
-    [Parameter(Mandatory = $true)][string]$Question,
-    [string]$Tags = ''
-)
+param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Argv)
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot '_kb-common.ps1')
+
+$Opt = ConvertFrom-KbArgv $Argv @('question', 'q', 'tags')
+$Question = Get-KbFirst $Opt['question'] $Opt['q'] $Opt['_']
+$Tags = $Opt['tags']
+$Usage = 'Usage: kb-gap.ps1 -Question "<the question nobody could answer>" [-Tags a,b]'
+if (-not $Question) { Stop-Kb "a question is required.`n  $Usage" }
+Assert-KbText $Question 'the question' $Usage
 
 $root = Get-KbRoot
 $slug = Get-KbSlug $Question
