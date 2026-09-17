@@ -96,6 +96,18 @@ check "it can review existing skills, not only write new ones" \
 	"$(grep -qi 'reviewing skills that already exist' "$SA" && echo 1 || echo 0)"
 check "the review half is reachable from the description" \
 	"$(awk '/^description: /{print; exit}' "$SA" | grep -qi 'review\|assess\|audit' && echo 1 || echo 0)"
+# The four below came from running the review procedure against this repo's own
+# skills. Each caught something the other checks missed, so each is pinned here.
+check "the review checks that paths are anchored, not bare" \
+	"$(grep -qi 'anchored to it' "$SA" && echo 1 || echo 0)"
+check "it checks the no-shell fallback does the same job as the wrapper" \
+	"$(grep -qi 'degraded path' "$SA" && echo 1 || echo 0)"
+check "it follows handovers between skills, not just collisions" \
+	"$(grep -qi 'follow every skill a skill names' "$SA" && echo 1 || echo 0)"
+check "it says the checking order is not the reporting order" \
+	"$(grep -qi "not a finding's severity" "$SA" && echo 1 || echo 0)"
+check "it allows one finding to span the whole set" \
+	"$(grep -qi 'span the whole set' "$SA" && echo 1 || echo 0)"
 
 echo
 echo "-- update-skills: what it refreshes --"

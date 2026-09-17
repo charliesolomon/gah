@@ -210,7 +210,10 @@ the deployment does not grant is broken in a way that never shows up as an error
    article. Mostly a phrasing means it wants to be a prompt template.
 3. **Facts that will drift.** Counts, rosters, inventories, versions, names,
    contact routes. For each: can it be derived, or looked up in the knowledge
-   base? Name the specific line.
+   base? Name the specific line. In a set that is already careful you will find
+   few *wrong* facts and several **right ones living in two places**, one of
+   them code — a threshold, a naming rule, a field list restated from a README.
+   Those are the finding: they agree today and diverge silently.
 4. **Does it consult the knowledge base where it should?** A skill that needs
    organizational context and states it inline will be wrong within months.
 5. **Does it say what happens when a fact is missing?** Guessing is the failure
@@ -218,21 +221,52 @@ the deployment does not grant is broken in a way that never shows up as an error
 6. **Is `allowed-tools` honest?** It should describe what the skill actually
    uses. Flag a skill that names tools it never touches, or touches tools it
    never names — and remember it documents intent rather than enforcing it, so
-   never report it as the reason a skill is "safe".
+   never report it as the reason a skill is "safe". This check finds the most
+   and usually matters the least: it is documentation debt unless the skill
+   ships somewhere that enforces the header. Do not let the count carry it to
+   the top of your report.
 7. **Anything secret or machine-specific in the body.** Credentials, tokens, a
-   path under one person's home directory.
-8. **Collisions.** Two skills whose descriptions would match the same request:
-   neither gets chosen reliably. Say which should win and what the other's
-   description should say instead.
+   path under one person's home directory. Grep for it before you start rather
+   than weighing it here: it almost never fires, and it is the one you would
+   most regret missing.
+8. **Collisions, and handovers.** Two skills whose descriptions would match the
+   same request: neither gets chosen reliably. Say which should win and what the
+   other's description should say instead. Then follow every skill a skill names:
+   does it exist, does it accept the handover, and is there a door it should
+   offer and does not? A skill that sends people to exactly one place sends them
+   to the wrong one whenever the other place was right.
 9. **Does it record why, and what not to do?** A procedure with no reasons gets
    "simplified" back into a bug.
 10. **Altitude.** A skill that restates a tool's help text adds nothing; a skill
     that runs to many screens is usually two skills, or one skill and an article.
+11. **Does it work where it actually runs?** Two questions the rest of this list
+    misses, and the source of the worst bugs, because both fail silently.
+    **Anchoring:** does the skill name the thing it operates on, and is every
+    path in the body anchored to it? A bare `data/` resolves against whatever
+    directory the person launched from, which is rarely the one meant, and a
+    search of a directory that is not there returns nothing rather than an
+    error — so the skill reports "nothing found" for something that is
+    documented. **The degraded path:** where a skill splits into "if a shell is
+    available" and "otherwise", check that the fallback does the same job. A
+    wrapper script usually resolves its own location; the hand-written fallback
+    has nothing to resolve it. If the deployment's default stage is the one
+    without a shell, the fallback *is* the main path, and it is the half nobody
+    tests.
 
 ## How to report it
 
 **Lead with the single change that would make the most difference**, and say
 why. A list of twelve findings gets skimmed; one change gets made.
+
+**A check's position is not a finding's severity.** The list above is the order
+to *look*, not the order to report. Rank what you found: first anything that
+makes a skill give a confidently wrong answer, then anything that blocks work,
+then documentation debt. The cheap checks fire most often, so counting findings
+will always point you at the wrong headline.
+
+**One finding may span the whole set.** If the same defect sits in four skills it
+is one finding about the set, not four-twelfths of your budget — state it once,
+above the per-skill groups, and list where it lands.
 
 **Group by skill, and quote the line you mean.** "The description is weak" is
 not actionable. "`description: Ticket utilities` would not match *what closed
