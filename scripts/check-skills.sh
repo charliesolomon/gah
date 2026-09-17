@@ -227,6 +227,23 @@ check_eq "the packaged launcher refuses exactly that set" "$BASH_LIST" "$PKG_LIS
 # Every name the launchers handle needs wording in the renderer, or it ships
 # under the generic fallback, which is a regression the fallback exists to
 # survive rather than to normalise.
+# A file one patch CREATES must not be touched by another. apply-patches.sh
+# decides a patch is already applied by reverse-checking it, and a whole-file
+# creation only reverse-applies when the content matches byte for byte. So a
+# second patch editing that file makes BOTH unrecognisable, and every clean
+# checkout reports them broken -- which is what happened when the help change
+# was first written as 0003 on top of the gah-help.ts that 0002 creates.
+# 0002's own header has said so since it was written; this is that rule, checked.
+for patch in patches/[0-9]*.patch; do
+	created="$(grep -A1 '^--- /dev/null' "$patch" | grep -oP '^\+\+\+ b/\K.*' || true)"
+	[ -n "$created" ] || continue
+	for f in $created; do
+		others="$(grep -l "^+++ b/$f\$" patches/[0-9]*.patch | grep -v "^$patch\$" || true)"
+		check "$(basename "$patch") alone owns $(basename "$f")" \
+			"$([ -z "$others" ] && echo 1 || echo 0)"
+	done
+done
+
 HELP_SRC="vendor/pi/packages/coding-agent/src/cli/gah-help.ts"
 for name in $BASH_LIST; do
 	check "--help has wording for $name" \

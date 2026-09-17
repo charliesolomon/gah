@@ -1,6 +1,6 @@
-From 54b7c7b470914ba621536f39d8535929805646f3 Mon Sep 17 00:00:00 2001
+From 7e30ee29fe1884d320e01f1e9a1bbe3cb27e4fe5 Mon Sep 17 00:00:00 2001
 From: csolomon <charliesolomon@gmail.com>
-Date: Tue, 8 Sep 2026 06:57:29 -0700
+Date: Thu, 17 Sep 2026 10:24:00 -0700
 Subject: [PATCH] branded-cli: GAH_* environment names, and a --help page that
  describes this session
 
@@ -78,15 +78,36 @@ Re-authored 2026-09-08 (#45, #52: sync to v0.85.1): cli.ts is now three
 lines around setupCli(); the gah-env import keeps its place as the first
 import. Upstream moved the experimental process roles to a source-only
 entrypoint in 0.85.1, so no dispatcher hoist is needed here.
+
+Re-authored 2026-09-17 (#100): the Usage block lists the scaffolding
+subcommands the launcher publishes in GAH_SCAFFOLD_COMMANDS rather than a
+hardcoded `init`. Folded in here rather than added as 0003 for the reason
+this patch already gives: gah-help.ts is created by this patch, so a
+later patch editing it stops `git apply --reverse --check` recognising
+this one as already applied, and apply-patches.sh then reports both as
+broken on every clean checkout. Tried it; that is exactly what CI said.
+
+Why it was needed: the launcher handles the subcommand and never passes
+the token on, so nothing in this process could notice when init-kb,
+update-kb and update-skills were added to the launchers, and nothing
+failed while the page fell three behind. The page also advertised `init`
+in packaged deployments, where the launcher refuses every scaffolding
+subcommand because the templates they copy are not shipped there.
+
+Names come from the launcher and wording from a table in the renderer, so
+a subcommand this file has never heard of still appears under a generic
+description. scripts/check-skills.sh asserts the launchers agree on the
+list, that every name has wording, and that the launchers which cannot
+reach a subcommand clear the variable rather than leaving it unset.
 ---
  packages/coding-agent/src/cli.ts            |   2 +
  packages/coding-agent/src/cli/args.ts       |  15 +-
- packages/coding-agent/src/cli/gah-help.ts   | 170 ++++++++++++++++++++
- packages/coding-agent/src/core/gah-env.ts   |  70 ++++++++
+ packages/coding-agent/src/cli/gah-help.ts   | 216 ++++++++++++++++++++
+ packages/coding-agent/src/core/gah-env.ts   |  70 +++++++
  packages/coding-agent/src/rpc-entry.ts      |   2 +
- packages/coding-agent/test/gah-env.test.ts  |  36 +++++
- packages/coding-agent/test/gah-help.test.ts |  64 ++++++++
- 7 files changed, 354 insertions(+), 5 deletions(-)
+ packages/coding-agent/test/gah-env.test.ts  |  36 ++++
+ packages/coding-agent/test/gah-help.test.ts | 105 ++++++++++
+ 7 files changed, 441 insertions(+), 5 deletions(-)
  create mode 100644 vendor/pi/packages/coding-agent/src/cli/gah-help.ts
  create mode 100644 vendor/pi/packages/coding-agent/src/core/gah-env.ts
  create mode 100644 vendor/pi/packages/coding-agent/test/gah-env.test.ts
@@ -152,10 +173,10 @@ index 8ad5da63e..76c02f523 100644
    read       - Read file contents
 diff --git a/packages/coding-agent/src/cli/gah-help.ts b/packages/coding-agent/src/cli/gah-help.ts
 new file mode 100644
-index 000000000..31e88e5c7
+index 000000000..36c231ed7
 --- /dev/null
 +++ b/packages/coding-agent/src/cli/gah-help.ts
-@@ -0,0 +1,170 @@
+@@ -0,0 +1,216 @@
 +/**
 + * GAH: the --help page.
 + *
@@ -210,6 +231,50 @@ index 000000000..31e88e5c7
 +	return items.length > 0 ? items.join(", ") : whenEmpty;
 +}
 +
++/**
++ * The scaffolding subcommands, described.
++ *
++ * These are handled by the launcher, not by this process: it intercepts the
++ * token before exec and never passes it on. So the CLI cannot discover them,
++ * and listing them here unconditionally is how the page went stale three times
++ * -- init-kb, update-kb and update-skills were each added to the launchers
++ * without anyone editing this file, while `init` was advertised even in
++ * packaged deployments, where the launcher refuses it because the templates it
++ * copies are not shipped there.
++ *
++ * So the launcher publishes what it handles, in GAH_SCAFFOLD_COMMANDS, and this
++ * renders exactly that. A launcher that scaffolds nothing sets nothing and the
++ * section disappears, which is the honest page for an installed package.
++ *
++ * The names come from the launcher and the wording from here, so a subcommand
++ * added to a launcher appears immediately, at worst under the generic
++ * description below. scripts/check-skills.sh fails if one ships that way.
++ */
++const SCAFFOLD_DESCRIPTIONS: Record<string, string> = {
++	init: "Create your organisation's skills repository (once)",
++	"init-kb": "Create a knowledge base repository (optional)",
++	"update-kb": "Refresh a knowledge base's scripts and skills, leaving articles alone",
++	"update-skills": "Refresh the starter skills gah maintains, leaving your own alone",
++};
++
++/** Usage lines for whatever the launcher said it handles, in its order. */
++function scaffoldUsage(app: string, value: string | undefined): string {
++	const names = (value ?? "")
++		.split(/[,\s]+/)
++		.map((s) => s.trim())
++		.filter(Boolean);
++	const seen = new Set<string>();
++	return names
++		.filter((name) => (seen.has(name) ? false : (seen.add(name), true)))
++		.map((name) =>
++			row(
++				`${app} ${name} <directory>`,
++				SCAFFOLD_DESCRIPTIONS[name] ?? "Scaffolding subcommand handled by the launcher",
++			),
++		)
++		.join("\n");
++}
++
 +/** Render the page. Pure: everything it reports comes from `options`. */
 +export function renderGahHelp(options: GahHelpOptions = {}): string {
 +	const env = options.env ?? process.env;
@@ -235,6 +300,9 @@ index 000000000..31e88e5c7
 +	const skills = env.GAH_SKILLS_DIR ? env.GAH_SKILLS_DIR : "none configured";
 +	const providers = existsSync(providersFile) ? providersFile : `${providersFile} (absent)`;
 +
++	const scaffoldLines = scaffoldUsage(app, env.GAH_SCAFFOLD_COMMANDS);
++	const scaffold = scaffoldLines ? `${scaffoldLines}\n` : "";
++
 +	const extensionFlags = options.extensionFlags ?? [];
 +	const extensionSection =
 +		extensionFlags.length > 0
@@ -252,8 +320,7 @@ index 000000000..31e88e5c7
 +
 +${chalk.bold("Usage:")}
 +  ${app} [options] [--] [@files...] [message...]
-+  ${app} init <directory>        Create your organisation's skills repository (once)
-+  ${app} auth check              Report whether the configured provider is ready
++${scaffold}${row(`${app} auth check`, "Report whether the configured provider is ready")}
 +
 +${chalk.bold("This session")} (from the environment the launcher set):
 +${row("Tools", tools)}
@@ -457,10 +524,10 @@ index 000000000..41c9bfb72
 +});
 diff --git a/packages/coding-agent/test/gah-help.test.ts b/packages/coding-agent/test/gah-help.test.ts
 new file mode 100644
-index 000000000..ba5a095a8
+index 000000000..c90e8e50c
 --- /dev/null
 +++ b/packages/coding-agent/test/gah-help.test.ts
-@@ -0,0 +1,64 @@
+@@ -0,0 +1,105 @@
 +/**
 + * GAH: the --help page (0003-gah-help). Pure renderer tests on a private env.
 + */
@@ -503,6 +570,47 @@ index 000000000..ba5a095a8
 +			expect(page).not.toContain(flag);
 +		}
 +		expect(page).toContain("--help --verbose");
++	});
++
++	// The launcher handles these and never passes them on, so the page can only
++	// know them if the launcher says so. Listing them unconditionally is how it
++	// went stale three times, and how a packaged deployment came to advertise an
++	// `init` its own launcher refuses.
++	it("lists the scaffolding subcommands the launcher says it handles", () => {
++		const page = renderGahHelp({
++			env: { ...base, GAH_SCAFFOLD_COMMANDS: "init init-kb update-kb update-skills" },
++			home: "/home/u",
++		});
++		expect(page).toContain("gah init <directory>");
++		expect(page).toContain("gah init-kb <directory>");
++		expect(page).toContain("gah update-kb <directory>");
++		expect(page).toContain("gah update-skills <directory>");
++		expect(page).toContain("Refresh the starter skills gah maintains");
++		expect(page).toContain("gah auth check");
++	});
++
++	it("lists none of them when the launcher scaffolds nothing", () => {
++		const page = renderGahHelp({ env: base, home: "/home/u" });
++		for (const name of ["init <directory>", "init-kb", "update-kb", "update-skills"]) {
++			expect(page).not.toContain(name);
++		}
++		// The page is still usable: auth check works in every deployment.
++		expect(page).toContain("gah auth check");
++	});
++
++	it("accepts a comma-separated list, ignores repeats, and keeps the launcher's order", () => {
++		const page = renderGahHelp({
++			env: { ...base, GAH_SCAFFOLD_COMMANDS: "update-skills, init, init" },
++			home: "/home/u",
++		});
++		expect(page.indexOf("gah update-skills")).toBeLessThan(page.indexOf("gah init <directory>"));
++		expect(page.match(/gah init <directory>/g)).toHaveLength(1);
++	});
++
++	it("still lists a subcommand it has no wording for, rather than hiding it", () => {
++		const page = renderGahHelp({ env: { ...base, GAH_SCAFFOLD_COMMANDS: "init-future" }, home: "/home/u" });
++		expect(page).toContain("gah init-future <directory>");
++		expect(page).toContain("handled by the launcher");
 +	});
 +
 +	it("describes deny-all and unrestricted network states plainly", () => {
