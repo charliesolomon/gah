@@ -92,6 +92,8 @@ check "it names the policy allowlist as what actually stops a call" \
 	"$(grep -qi 'allowlist' "$SA" && echo 1 || echo 0)"
 check "it keeps the description guidance, which is what gets a skill chosen" \
 	"$(grep -qi 'request someone would make' "$SA" && echo 1 || echo 0)"
+check "it says its check order is a working order, not a severity order" \
+	"$(grep -qi 'working order, not a severity order' "$SA" && echo 1 || echo 0)"
 check "it can review existing skills, not only write new ones" \
 	"$(grep -qi 'reviewing skills that already exist' "$SA" && echo 1 || echo 0)"
 check "the review half is reachable from the description" \

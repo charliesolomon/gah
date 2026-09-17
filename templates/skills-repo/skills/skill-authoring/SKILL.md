@@ -200,12 +200,19 @@ judged from its name.
 allowed, and whether a knowledge base is loaded. A skill that depends on a tool
 the deployment does not grant is broken in a way that never shows up as an error.
 
-## What to check, in the order that matters
+## What to check
+
+A working order, not a severity order. The early checks need only the skill's
+own text, so they cost nothing and clear the ground; the late ones need the
+whole set and the deployment, which you will not have until you have read both.
+Rank what you find afterwards — see the reporting rules below.
 
 1. **Would it ever be chosen?** Read the description as the agent sees it: as a
    request someone might make. If it reads like a file summary, or names the
-   skill rather than the need, it is invisible however good the body is. This is
-   first because nothing else matters if the answer is no.
+   skill rather than the need, it is invisible however good the body is. Nothing
+   else about the skill matters if the answer is no. It is also the check most
+   likely to pass on a set written by someone who read the first half of this
+   file, so do not read an easy pass here as a healthy set.
 2. **Is it a skill at all?** Mostly facts means it wants to be a knowledge base
    article. Mostly a phrasing means it wants to be a prompt template.
 3. **Facts that will drift.** Counts, rosters, inventories, versions, names,
