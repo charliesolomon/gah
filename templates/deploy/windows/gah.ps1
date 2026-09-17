@@ -29,11 +29,21 @@ foreach ($a in $args) {
 # first bare init/init-kb/update-kb/update-skills token instead, ignoring one
 # that is the value of a
 # preceding flag (`--skill init-kb` names a directory, not a subcommand).
+#
+# Recognised here only so they can be refused: the templates they copy are not
+# shipped in a package. Deliberately NOT published as GAH_SCAFFOLD_COMMANDS --
+# that variable tells --help what this launcher can do, and the honest answer
+# here is nothing. Cleared rather than left alone, so a value inherited from a
+# checkout in the same shell cannot make this package's help advertise commands
+# it refuses. Keep this list in step with bin/gah; check-skills.sh asserts it.
+$ScaffoldCommands = @('init', 'init-kb', 'update-kb', 'update-skills')
+$env:GAH_SCAFFOLD_COMMANDS = ''
+
 $SubCommand = ''
 $SubTarget  = ''
 for ($i = 0; $i -lt $GahArgs.Count; $i++) {
     $tok = [string]$GahArgs[$i]
-    if (@('init', 'init-kb', 'update-kb', 'update-skills') -notcontains $tok) { continue }
+    if ($ScaffoldCommands -notcontains $tok) { continue }
     if ($i -gt 0 -and ([string]$GahArgs[$i - 1]).StartsWith('-')) { continue }
     $SubCommand = $tok
     if ($i + 1 -lt $GahArgs.Count) { $SubTarget = [string]$GahArgs[$i + 1] }
@@ -46,7 +56,7 @@ for ($i = 0; $i -lt $GahArgs.Count; $i++) {
 # spaces -- and say what is wrong, rather than sending those words to the model
 # as a question. A genuine prompt beginning with the word "init" has more than
 # one word after it and is not caught.
-if ($GahArgs.Count -eq 1 -and $GahArgs[0] -is [string] -and $GahArgs[0] -match '^(init|init-kb|update-kb|update-skills)\s+(\S+)$') {
+if ($GahArgs.Count -eq 1 -and $GahArgs[0] -is [string] -and $GahArgs[0] -match ('^(' + ($ScaffoldCommands -join '|') + ')\s+(\S+)$')) {
     [Console]::Error.WriteLine(@"
 gah: received '$($GahArgs[0])' as a single argument, so '$($Matches[1])' could not
 be read as a subcommand. The wrapper or alias calling this script is joining its

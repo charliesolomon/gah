@@ -45,6 +45,13 @@ skills_scaffold_id() {
 SKILLS_MANAGED="skills/onboarding skills/skill-authoring setup"
 
 # --- Subcommands -----------------------------------------------------------
+# One list, used three ways: to recognise the token, to tell --help what this
+# launcher can do (GAH_SCAFFOLD_COMMANDS, below), and by the packaged launcher
+# to refuse the lot. It was three separate lists until the help page fell three
+# subcommands behind without anyone noticing.
+GAH_SCAFFOLD_COMMANDS="init init-kb update-kb update-skills"
+export GAH_SCAFFOLD_COMMANDS
+
 # The subcommand is not necessarily the first argument: a wrapper commonly
 # injects flags ahead of the person's own arguments --
 #   gah() { ~/gah/bin/gah --skill ~/skills "$@"; }
@@ -55,12 +62,12 @@ subcommand=""
 subtarget=""
 prev=""
 for arg in "$@"; do
-  case "$arg" in
-    init|init-kb|update-kb|update-skills)
-      case "$prev" in -*) prev="$arg"; continue ;; esac
-      subcommand="$arg"
-      ;;
-  esac
+  for known in $GAH_SCAFFOLD_COMMANDS; do
+    [ "$arg" = "$known" ] || continue
+    case "$prev" in -*) break ;; esac
+    subcommand="$arg"
+    break
+  done
   if [ -n "$subcommand" ] && [ "$arg" != "$subcommand" ]; then subtarget="$arg"; break; fi
   prev="$arg"
 done

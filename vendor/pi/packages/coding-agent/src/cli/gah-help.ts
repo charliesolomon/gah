@@ -52,6 +52,50 @@ function describeList(value: string | undefined, whenEmpty: string): string {
 	return items.length > 0 ? items.join(", ") : whenEmpty;
 }
 
+/**
+ * The scaffolding subcommands, described.
+ *
+ * These are handled by the launcher, not by this process: it intercepts the
+ * token before exec and never passes it on. So the CLI cannot discover them,
+ * and listing them here unconditionally is how the page went stale three times
+ * -- init-kb, update-kb and update-skills were each added to the launchers
+ * without anyone editing this file, while `init` was advertised even in
+ * packaged deployments, where the launcher refuses it because the templates it
+ * copies are not shipped there.
+ *
+ * So the launcher publishes what it handles, in GAH_SCAFFOLD_COMMANDS, and this
+ * renders exactly that. A launcher that scaffolds nothing sets nothing and the
+ * section disappears, which is the honest page for an installed package.
+ *
+ * The names come from the launcher and the wording from here, so a subcommand
+ * added to a launcher appears immediately, at worst under the generic
+ * description below. scripts/check-skills.sh fails if one ships that way.
+ */
+const SCAFFOLD_DESCRIPTIONS: Record<string, string> = {
+	init: "Create your organisation's skills repository (once)",
+	"init-kb": "Create a knowledge base repository (optional)",
+	"update-kb": "Refresh a knowledge base's scripts and skills, leaving articles alone",
+	"update-skills": "Refresh the starter skills gah maintains, leaving your own alone",
+};
+
+/** Usage lines for whatever the launcher said it handles, in its order. */
+function scaffoldUsage(app: string, value: string | undefined): string {
+	const names = (value ?? "")
+		.split(/[,\s]+/)
+		.map((s) => s.trim())
+		.filter(Boolean);
+	const seen = new Set<string>();
+	return names
+		.filter((name) => (seen.has(name) ? false : (seen.add(name), true)))
+		.map((name) =>
+			row(
+				`${app} ${name} <directory>`,
+				SCAFFOLD_DESCRIPTIONS[name] ?? "Scaffolding subcommand handled by the launcher",
+			),
+		)
+		.join("\n");
+}
+
 /** Render the page. Pure: everything it reports comes from `options`. */
 export function renderGahHelp(options: GahHelpOptions = {}): string {
 	const env = options.env ?? process.env;
@@ -77,6 +121,9 @@ export function renderGahHelp(options: GahHelpOptions = {}): string {
 	const skills = env.GAH_SKILLS_DIR ? env.GAH_SKILLS_DIR : "none configured";
 	const providers = existsSync(providersFile) ? providersFile : `${providersFile} (absent)`;
 
+	const scaffoldLines = scaffoldUsage(app, env.GAH_SCAFFOLD_COMMANDS);
+	const scaffold = scaffoldLines ? `${scaffoldLines}\n` : "";
+
 	const extensionFlags = options.extensionFlags ?? [];
 	const extensionSection =
 		extensionFlags.length > 0
@@ -94,8 +141,7 @@ export function renderGahHelp(options: GahHelpOptions = {}): string {
 
 ${chalk.bold("Usage:")}
   ${app} [options] [--] [@files...] [message...]
-  ${app} init <directory>        Create your organisation's skills repository (once)
-  ${app} auth check              Report whether the configured provider is ready
+${scaffold}${row(`${app} auth check`, "Report whether the configured provider is ready")}
 
 ${chalk.bold("This session")} (from the environment the launcher set):
 ${row("Tools", tools)}
