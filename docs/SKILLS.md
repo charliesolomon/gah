@@ -47,6 +47,25 @@ context/
 
 `gah init` refuses to write into a directory that already has anything in it.
 
+### Taking an update to the starter skills
+
+`onboarding` and `skill-authoring` are gah's guidance rather than yours —
+`skill-authoring` tells your people how to write the next skill, and `onboarding`
+answers "what can I do with this?" from the loaded set — so they improve
+upstream. `gah update-skills <directory>` refreshes those two and the setup
+steps, and touches nothing else: your skills, your prompts, your README and your
+`context/` are yours from the moment you ran `init`.
+
+```bash
+./bin/gah update-skills ../my-org-skills    # PowerShell: .\bin\gah.ps1 update-skills ..\my-org-skills
+```
+
+It wants a clean tree, so `git diff` afterwards shows exactly what changed and
+`git checkout` puts it back, and it will not resurrect a starter skill you
+deleted — that was a decision. A session says when the starters are behind, so
+you do not have to remember to check; a repository that has removed both is
+never nagged.
+
 ### Why those two starter skills
 
 The `onboarding` skill derives its answer from the skills actually loaded rather

@@ -319,4 +319,10 @@ fi
 [ -d "$SKILLS_DIR/prompts" ] && skill_args+=(--prompt-template "$SKILLS_DIR/prompts")
 [ -n "${GAH_KB_DIR:-}" ] && [ -d "$GAH_KB_DIR/prompts" ] && skill_args+=(--prompt-template "$GAH_KB_DIR/prompts")
 
+# bin/gah publishes the scaffolding subcommands it handles so --help can list
+# them. None is reachable from here: this is a login shell that starts a session
+# with the arguments below and never forwards the user's own. Clearing it keeps
+# the help page honest for the people who only ever arrive this way.
+export GAH_SCAFFOLD_COMMANDS=""
+
 exec "$GAH_HOME/bin/gah" --no-skills "${skill_args[@]}"

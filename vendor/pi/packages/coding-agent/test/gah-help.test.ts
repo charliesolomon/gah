@@ -42,6 +42,47 @@ describe("GAH help page", () => {
 		expect(page).toContain("--help --verbose");
 	});
 
+	// The launcher handles these and never passes them on, so the page can only
+	// know them if the launcher says so. Listing them unconditionally is how it
+	// went stale three times, and how a packaged deployment came to advertise an
+	// `init` its own launcher refuses.
+	it("lists the scaffolding subcommands the launcher says it handles", () => {
+		const page = renderGahHelp({
+			env: { ...base, GAH_SCAFFOLD_COMMANDS: "init init-kb update-kb update-skills" },
+			home: "/home/u",
+		});
+		expect(page).toContain("gah init <directory>");
+		expect(page).toContain("gah init-kb <directory>");
+		expect(page).toContain("gah update-kb <directory>");
+		expect(page).toContain("gah update-skills <directory>");
+		expect(page).toContain("Refresh the starter skills gah maintains");
+		expect(page).toContain("gah auth check");
+	});
+
+	it("lists none of them when the launcher scaffolds nothing", () => {
+		const page = renderGahHelp({ env: base, home: "/home/u" });
+		for (const name of ["init <directory>", "init-kb", "update-kb", "update-skills"]) {
+			expect(page).not.toContain(name);
+		}
+		// The page is still usable: auth check works in every deployment.
+		expect(page).toContain("gah auth check");
+	});
+
+	it("accepts a comma-separated list, ignores repeats, and keeps the launcher's order", () => {
+		const page = renderGahHelp({
+			env: { ...base, GAH_SCAFFOLD_COMMANDS: "update-skills, init, init" },
+			home: "/home/u",
+		});
+		expect(page.indexOf("gah update-skills")).toBeLessThan(page.indexOf("gah init <directory>"));
+		expect(page.match(/gah init <directory>/g)).toHaveLength(1);
+	});
+
+	it("still lists a subcommand it has no wording for, rather than hiding it", () => {
+		const page = renderGahHelp({ env: { ...base, GAH_SCAFFOLD_COMMANDS: "init-future" }, home: "/home/u" });
+		expect(page).toContain("gah init-future <directory>");
+		expect(page).toContain("handled by the launcher");
+	});
+
 	it("describes deny-all and unrestricted network states plainly", () => {
 		expect(renderGahHelp({ env: { ...base, GAH_ALLOWED_HOSTS: "" }, home: "/home/u" })).toContain("none (deny all)");
 		expect(renderGahHelp({ env: { ...base, GAH_ALLOWED_HOSTS: "*" }, home: "/home/u" })).toContain("any (no restriction)");

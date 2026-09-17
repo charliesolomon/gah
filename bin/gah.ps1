@@ -25,13 +25,21 @@ $PolicyDir = Join-Path $Here "packages\policy-pack\extensions"
 # injects flags ahead of the person's own arguments --
 #   function gah { & '<path>\bin\gah.ps1' --skill '<dir>' @args }
 # -- so `gah init-kb <dir>` arrives as `--skill <dir> init-kb <dir>`. Find the
-# first bare `init`/`init-kb`/`update-kb` token instead, ignoring one that is the
-# value of a preceding flag (`--skill init-kb` names a directory, not one).
+# first bare init/init-kb/update-kb/update-skills token instead, ignoring one
+# that is the value of a preceding flag (`--skill init-kb` names a directory,
+# not a subcommand).
+#
+# One list, used twice: to recognise the token, and to tell --help what this
+# launcher can do. It was two lists until the help page fell three subcommands
+# behind without anyone noticing.
+$ScaffoldCommands = @('init', 'init-kb', 'update-kb', 'update-skills')
+$env:GAH_SCAFFOLD_COMMANDS = $ScaffoldCommands -join ' '
+
 $SubCommand = ''
 $SubTarget  = ''
 for ($i = 0; $i -lt $GahArgs.Count; $i++) {
     $tok = [string]$GahArgs[$i]
-    if (@('init', 'init-kb', 'update-kb') -notcontains $tok) { continue }
+    if ($ScaffoldCommands -notcontains $tok) { continue }
     if ($i -gt 0 -and ([string]$GahArgs[$i - 1]).StartsWith('-')) { continue }
     $SubCommand = $tok
     if ($i + 1 -lt $GahArgs.Count) { $SubTarget = [string]$GahArgs[$i + 1] }
@@ -44,7 +52,7 @@ for ($i = 0; $i -lt $GahArgs.Count; $i++) {
 # spaces -- and say what is wrong, rather than sending those words to the model
 # as a question. A genuine prompt beginning with the word "init" has more than
 # one word after it and is not caught.
-if ($GahArgs.Count -eq 1 -and $GahArgs[0] -is [string] -and $GahArgs[0] -match '^(init|init-kb)\s+(\S+)$') {
+if ($GahArgs.Count -eq 1 -and $GahArgs[0] -is [string] -and $GahArgs[0] -match ('^(' + ($ScaffoldCommands -join '|') + ')\s+(\S+)$')) {
     [Console]::Error.WriteLine(@"
 gah: received '$($GahArgs[0])' as a single argument, so '$($Matches[1])' could not
 be read as a subcommand. The wrapper or alias calling this script is joining its
@@ -62,6 +70,27 @@ Or call the script directly:  .\bin\gah.ps1 $($Matches[1]) $($Matches[2])
 # first, and should not need a built PI to do it. Also breaks the circularity of
 # a launcher that refuses to start without skills.
 $TemplateDir = Join-Path $Here 'templates\skills-repo'
+
+# The same, for the skills scaffold, plus the narrow set of files gah maintains
+# inside a skills repository. Everything else there is the organisation's from
+# the moment it runs `gah init`.
+function Get-SkillsScaffoldId {
+    try {
+        $id = "$(& git -C $Here rev-parse --short 'HEAD:templates/skills-repo' 2>$null | Select-Object -First 1)".Trim()
+        if ($id -match '^[0-9a-f]{4,}$') { return $id }
+    } catch { }
+    return ''
+}
+$SkillsManaged = @('skills/onboarding', 'skills/skill-authoring', 'setup')
+
+# Reads a "scaffold <id>" marker, written by init/init-kb and updated by the
+# update-* subcommands. Shared by the skills and knowledge-base scaffolds.
+function Read-ScaffoldMarker([string]$Path) {
+    if (-not (Test-Path $Path)) { return '' }
+    $line = (Get-Content -Raw $Path).Trim()
+    if ($line -match '^scaffold\s+(\S+)$') { return $Matches[1] }
+    return ''
+}
 if ($SubCommand -eq 'init') {
     if (-not $SubTarget) { [Console]::Error.WriteLine('usage: gah.ps1 init <directory>'); exit 2 }
     $Target = $SubTarget
@@ -71,6 +100,7 @@ if ($SubCommand -eq 'init') {
     }
     New-Item -ItemType Directory -Force -Path $Target | Out-Null
     Copy-Item -Recurse -Force (Join-Path $TemplateDir '*') $Target
+    Set-Content -LiteralPath (Join-Path $Target '.skills-scaffold') -Value ("scaffold " + (Get-SkillsScaffoldId))
     $Full = (Resolve-Path $Target).Path
     Write-Host ""
     Write-Host "Created a skills repository in $Full"
@@ -84,6 +114,97 @@ if ($SubCommand -eq 'init') {
     Write-Host ""
     Write-Host "Then start a session with:"
     Write-Host "  `$env:GAH_SKILLS_DIR = '$Full\skills'; .\bin\gah.ps1"
+    Write-Host ""
+    exit 0
+}
+
+# --- gah update-skills -----------------------------------------------------
+# A skills repository is the organisation's, not gah's -- with two exceptions.
+# skill-authoring is gah's guidance on how to write the next skill, and
+# onboarding answers "what can I do with this?" from the loaded set; both
+# improve upstream, and until now an improvement reached only deployments
+# created after it. The setup steps are mechanism and travel with them.
+# Everything else is untouched: a tool that rewrites an organisation's own
+# skills is a tool nobody runs twice.
+if ($SubCommand -eq 'update-skills') {
+    if (-not $SubTarget) { [Console]::Error.WriteLine('usage: gah.ps1 update-skills <directory>'); exit 2 }
+    $Target = $SubTarget.TrimEnd('\', '/')
+    if (-not (Test-Path $TemplateDir)) { [Console]::Error.WriteLine("gah: template missing at $TemplateDir"); exit 1 }
+    # Accept either the repository or its skills\ directory, since
+    # GAH_SKILLS_DIR points at the latter and that is what people have to hand.
+    if ((Split-Path -Leaf $Target) -eq 'skills') { $Target = Split-Path -Parent $Target }
+    if (-not (Test-Path (Join-Path $Target 'skills'))) {
+        [Console]::Error.WriteLine("gah: $Target does not look like a skills repository (no skills\).")
+        [Console]::Error.WriteLine("  To create one:  .\bin\gah.ps1 init $Target")
+        exit 1
+    }
+    $Force = $GahArgs -contains '--force'
+    $markerPath = Join-Path $Target '.skills-scaffold'
+    $wantId = Get-SkillsScaffoldId
+    $haveId = Read-ScaffoldMarker $markerPath
+    if (-not $Force -and $wantId -and $haveId -eq $wantId) {
+        Write-Host "The starter skills in $Target are already current ($wantId)."
+        Write-Host "  To write the shipped files over local edits anyway:  .\bin\gah.ps1 update-skills $Target --force"
+        exit 0
+    }
+
+    $IsGit = $false
+    & git -C $Target rev-parse --git-dir *> $null
+    if ($LASTEXITCODE -eq 0) { $IsGit = $true }
+    if ($IsGit -and -not $Force) {
+        $dirty = (& git -C $Target status --porcelain 2>$null | Out-String).Trim()
+        if ($dirty) {
+            [Console]::Error.WriteLine("gah: $Target has uncommitted changes.")
+            [Console]::Error.WriteLine('  Commit or stash them first, so the update shows up cleanly in git diff.')
+            [Console]::Error.WriteLine('  Or pass --force to write over them anyway.')
+            exit 3
+        }
+    }
+    if (-not $IsGit) { [Console]::Error.WriteLine("gah: $Target is not a git repository, so there is no undo. Continuing.") }
+
+    $refreshed = @(); $skipped = @()
+    foreach ($rel in $SkillsManaged) {
+        $src = Join-Path $TemplateDir ($rel -replace '/', [System.IO.Path]::DirectorySeparatorChar)
+        if (-not (Test-Path $src)) { continue }
+        $dest = Join-Path $Target ($rel -replace '/', [System.IO.Path]::DirectorySeparatorChar)
+        if (-not (Test-Path $dest) -and $IsGit) {
+            $addedOnce = (& git -C $Target log --diff-filter=A --format=%H -1 -- $rel 2>$null | Out-String).Trim()
+            if ($addedOnce) {
+                # It was here and was deleted. Putting it back would undo a decision.
+                $skipped += "  $rel (removed here - left out)"
+                continue
+            }
+        }
+        if (Test-Path $src -PathType Container) {
+            New-Item -ItemType Directory -Force -Path $dest | Out-Null
+            Copy-Item -Recurse -Force (Join-Path $src '*') $dest
+        } else {
+            New-Item -ItemType Directory -Force -Path (Split-Path -Parent $dest) | Out-Null
+            Copy-Item -Force $src $dest
+        }
+        $refreshed += "  $rel"
+    }
+    Set-Content -LiteralPath $markerPath -Value ("scaffold " + $wantId)
+
+    Write-Host ""
+    Write-Host "Updated the starter skills in $Target"
+    Write-Host ("  was: " + $(if ($haveId) { $haveId } else { 'unknown' }))
+    Write-Host ("  now: " + $(if ($wantId) { $wantId } else { 'unknown' }))
+    Write-Host ""
+    if ($refreshed.Count) { Write-Host "Refreshed:"; foreach ($l in $refreshed) { Write-Host $l } }
+    if ($skipped.Count) { Write-Host "Left alone:"; foreach ($l in $skipped) { Write-Host $l } }
+    if ($IsGit) {
+        $changed = (& git -C $Target status --porcelain 2>$null | Out-String).Trim()
+        if ($changed) {
+            Write-Host ""
+            Write-Host "Changed:"
+            foreach ($line in ($changed -split "`n")) { if ($line.Trim()) { Write-Host ("  " + $line.Trim()) } }
+            Write-Host ""
+            Write-Host "Review with:  git -C $Target diff"
+        }
+    }
+    Write-Host ""
+    Write-Host "Your own skills, prompts and context were not touched."
     Write-Host ""
     exit 0
 }
@@ -117,12 +238,7 @@ function Get-KbScaffoldId {
     } catch { }
     return ''
 }
-function Read-KbScaffoldId([string]$Path) {
-    if (-not (Test-Path $Path)) { return '' }
-    $line = (Get-Content -Raw $Path).Trim()
-    if ($line -match '^scaffold\s+(\S+)$') { return $Matches[1] }
-    return ''
-}
+
 if ($SubCommand -eq 'init-kb') {
     if (-not $SubTarget) { [Console]::Error.WriteLine('usage: gah.ps1 init-kb <directory>'); exit 2 }
     $Target = $SubTarget
@@ -175,7 +291,7 @@ if ($SubCommand -eq 'update-kb') {
     # rule below, because a no-op is harmless and refusing one is baffling when
     # the uncommitted changes in question are the ones a previous run just made.
     $wantId = Get-KbScaffoldId
-    $haveId = Read-KbScaffoldId (Join-Path $Target '.kb-scaffold')
+    $haveId = Read-ScaffoldMarker (Join-Path $Target '.kb-scaffold')
     if (-not $Force -and $wantId -and $haveId -eq $wantId) {
         Write-Host "The knowledge base tooling in $Target is already current ($wantId)."
         Write-Host "  To write the shipped files over local edits anyway:  .\bin\gah.ps1 update-kb $Target --force"
@@ -197,7 +313,7 @@ if ($SubCommand -eq 'update-kb') {
     if (-not $IsGit) { [Console]::Error.WriteLine("gah: $Target is not a git repository, so there is no undo. Continuing.") }
 
     $markerPath = Join-Path $Target '.kb-scaffold'
-    $was = Read-KbScaffoldId $markerPath
+    $was = Read-ScaffoldMarker $markerPath
     if (-not $was) { $was = 'unknown' }
     # Only the tooling. articles\ is the organisation's, and README.md and
     # .gitignore are theirs to have edited; extra files of their own in these
@@ -268,6 +384,9 @@ if (-not $SkillsConfigured) {
     Write-Host "Refresh an existing one's scripts and skills, leaving its articles alone:"
     Write-Host "  .\bin\gah.ps1 update-kb <directory>"
     Write-Host ""
+    Write-Host "Refresh the starter skills gah maintains, leaving your own alone:"
+    Write-Host "  .\bin\gah.ps1 update-skills <directory>"
+    Write-Host ""
     Write-Host "Or pass one directly for a single run:  .\bin\gah.ps1 --skill <path>"
     Write-Host ""
     Write-Host "To start a deliberately empty session:"
@@ -281,6 +400,24 @@ if ($env:GAH_SKILLS_DIR -and (Test-Path $env:GAH_SKILLS_DIR)) {
     # Prompt templates: the repo's prompts\ (sibling of skills\). See bin/gah.
     $PromptsDir = Join-Path (Split-Path -Parent $env:GAH_SKILLS_DIR) 'prompts'
     if (Test-Path $PromptsDir) { $SkillArgs += @('--prompt-template', $PromptsDir) }
+}
+
+# Say when the starter skills gah maintains are older than this build. Silent
+# when the repository has none of them (a deployment that removed both has
+# decided) or when this is not a checkout.
+if ($env:GAH_SKILLS_DIR -and -not $InfoOnly -and (Test-Path $TemplateDir)) {
+    $skillsRoot = Split-Path -Parent $env:GAH_SKILLS_DIR
+    $skWant = Get-SkillsScaffoldId
+    $skHave = Read-ScaffoldMarker (Join-Path $skillsRoot '.skills-scaffold')
+    $skPresent = $false
+    foreach ($rel in $SkillsManaged) {
+        if (Test-Path (Join-Path $skillsRoot ($rel -replace '/', [System.IO.Path]::DirectorySeparatorChar))) { $skPresent = $true }
+    }
+    if ($skWant -and $skPresent -and $skHave -ne $skWant) {
+        $at = if ($skHave) { "at $skHave, " } else { '' }
+        [Console]::Error.WriteLine("gah: the starter skills in $skillsRoot are ${at}behind this checkout ($skWant)")
+        [Console]::Error.WriteLine("     refresh them with:  .\bin\gah.ps1 update-skills $skillsRoot")
+    }
 }
 
 # The knowledge base (optional, docs/KB.md) carries its own skills and prompts,
@@ -302,7 +439,7 @@ if ($env:GAH_KB_DIR) {
     # which is a failure nobody notices without being told.
     if (-not $InfoOnly -and (Test-Path $KbTemplateDir)) {
         $want = Get-KbScaffoldId
-        $have = Read-KbScaffoldId (Join-Path $env:GAH_KB_DIR '.kb-scaffold')
+        $have = Read-ScaffoldMarker (Join-Path $env:GAH_KB_DIR '.kb-scaffold')
         # Silent when this is not a checkout (nothing to compare, and no way to
         # update from here anyway).
         if ($want -and $have -ne $want) {

@@ -92,6 +92,14 @@ jobs:
         # runner, so this is the only place they are exercised).
         run: ./scripts/check-kb.sh
 
+      - name: Skills scaffold and its update path
+        # `gah init` hands an organization a repository it then owns, and
+        # `update-skills` refreshes only the two skills that stay ours. The line
+        # between the two is the whole design, so most of this asserts what the
+        # update does not touch. Also guards skill-authoring's content: it is
+        # what every deployment reads before writing its third skill.
+        run: ./scripts/check-skills.sh
+
       - name: Prompted tool calling
         # Tool use through a gateway that refuses native tool calls (issue #42).
         run: make check-prompted

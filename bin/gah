@@ -29,23 +29,45 @@ kb_scaffold_id() {
   git -C "$HERE" rev-parse --short "HEAD:templates/kb-repo" 2>/dev/null || true
 }
 
+# The same, for the skills scaffold. Only two of the files gah ships there are
+# ever refreshed -- see `gah update-skills` -- but the marker covers the whole
+# template, so a change to any of it prompts a look.
+skills_scaffold_id() {
+  git -C "$HERE" rev-parse --short "HEAD:templates/skills-repo" 2>/dev/null || true
+}
+
+# What `gah update-skills` maintains. Everything else in a skills repository is
+# the organisation's from the moment it runs `gah init`: its own skills, its
+# prompts, its README. These two starter skills are gah's guidance rather than
+# theirs -- skill-authoring tells them how to write the next skill, and
+# onboarding derives its answer from the loaded set -- and the setup steps are
+# mechanism. That is the whole line, and it is drawn narrowly on purpose.
+SKILLS_MANAGED="skills/onboarding skills/skill-authoring setup"
+
 # --- Subcommands -----------------------------------------------------------
+# One list, used three ways: to recognise the token, to tell --help what this
+# launcher can do (GAH_SCAFFOLD_COMMANDS, below), and by the packaged launcher
+# to refuse the lot. It was three separate lists until the help page fell three
+# subcommands behind without anyone noticing.
+GAH_SCAFFOLD_COMMANDS="init init-kb update-kb update-skills"
+export GAH_SCAFFOLD_COMMANDS
+
 # The subcommand is not necessarily the first argument: a wrapper commonly
 # injects flags ahead of the person's own arguments --
 #   gah() { ~/gah/bin/gah --skill ~/skills "$@"; }
 # -- so `gah init-kb <dir>` arrives as `--skill <dir> init-kb <dir>`. Find the
-# first bare init/init-kb/update-kb token instead, ignoring one that is the
-# value of a preceding flag (`--skill init-kb` names a directory, not one).
+# first bare subcommand token instead, ignoring one that is the value of a
+# preceding flag (`--skill init-kb` names a directory, not a subcommand).
 subcommand=""
 subtarget=""
 prev=""
 for arg in "$@"; do
-  case "$arg" in
-    init|init-kb|update-kb)
-      case "$prev" in -*) prev="$arg"; continue ;; esac
-      subcommand="$arg"
-      ;;
-  esac
+  for known in $GAH_SCAFFOLD_COMMANDS; do
+    [ "$arg" = "$known" ] || continue
+    case "$prev" in -*) break ;; esac
+    subcommand="$arg"
+    break
+  done
   if [ -n "$subcommand" ] && [ "$arg" != "$subcommand" ]; then subtarget="$arg"; break; fi
   prev="$arg"
 done
@@ -65,6 +87,7 @@ if [ "$subcommand" = "init" ]; then
   mkdir -p "$target"
   cp -R "$TEMPLATE_DIR/." "$target/"
   chmod +x "$target"/setup/*.sh 2>/dev/null || true
+  printf 'scaffold %s\n' "$(skills_scaffold_id)" >"$target/.skills-scaffold"
   cat <<EOF
 
 Created a skills repository in $target
@@ -201,6 +224,95 @@ if [ "$subcommand" = "update-kb" ]; then
   exit 0
 fi
 
+# --- gah update-skills -----------------------------------------------------
+# A skills repository is the organisation's, not gah's -- with two exceptions.
+# `skill-authoring` is gah's guidance on how to write the next skill, and
+# `onboarding` answers "what can I do with this?" from the loaded set; both
+# improve upstream, and until now an improvement reached only deployments
+# created after it. The setup steps are mechanism and travel with them.
+#
+# Everything else -- their skills, their prompts, their README, their context --
+# is untouched. The line is drawn narrowly on purpose: a tool that rewrites an
+# organisation's own skills is a tool nobody runs twice.
+if [ "$subcommand" = "update-skills" ]; then
+  target="$subtarget"
+  [ -n "$target" ] || { echo "usage: gah update-skills <directory>" >&2; exit 2; }
+  [ -d "$TEMPLATE_DIR" ] || { echo "gah: template missing at $TEMPLATE_DIR" >&2; exit 1; }
+  # Accept either the repository or its skills/ directory, since GAH_SKILLS_DIR
+  # points at the latter and that is what people have in their hands.
+  case "$target" in */skills|*/skills/) target="$(dirname "${target%/}")" ;; esac
+  if [ ! -d "$target/skills" ]; then
+    echo "gah: $target does not look like a skills repository (no skills/)." >&2
+    echo "  To create one:  gah init $target" >&2
+    exit 1
+  fi
+  force=0
+  case " $* " in *" --force "*) force=1 ;; esac
+
+  want_id="$(skills_scaffold_id)"
+  have_id="$(sed -n 's/^scaffold //p' "$target/.skills-scaffold" 2>/dev/null || true)"
+  if [ "$force" -eq 0 ] && [ -n "$want_id" ] && [ "$have_id" = "$want_id" ]; then
+    echo "The starter skills in $target are already current ($want_id)."
+    echo "  To write the shipped files over local edits anyway:  gah update-skills $target --force"
+    exit 0
+  fi
+
+  is_git=0
+  git -C "$target" rev-parse --git-dir >/dev/null 2>&1 && is_git=1
+  if [ "$is_git" -eq 1 ] && [ "$force" -eq 0 ] && [ -n "$(git -C "$target" status --porcelain 2>/dev/null)" ]; then
+    echo "gah: $target has uncommitted changes." >&2
+    echo "  Commit or stash them first, so the update shows up cleanly in git diff." >&2
+    echo "  Or pass --force to write over them anyway." >&2
+    exit 3
+  fi
+  [ "$is_git" -eq 0 ] && echo "gah: $target is not a git repository, so there is no undo. Continuing." >&2
+
+  refreshed=""
+  skipped=""
+  for rel in $SKILLS_MANAGED; do
+    [ -e "$TEMPLATE_DIR/$rel" ] || continue
+    if [ -e "$target/$rel" ]; then
+      :
+    elif [ "$is_git" -eq 1 ] && [ -n "$(git -C "$target" log --diff-filter=A --format=%H -1 -- "$rel" 2>/dev/null)" ]; then
+      # It was here and was deleted. Putting it back would undo a decision.
+      skipped="$skipped  $rel (removed here — left out)\n"
+      continue
+    fi
+    if [ -d "$TEMPLATE_DIR/$rel" ]; then
+      mkdir -p "$target/$rel"
+      cp -R "$TEMPLATE_DIR/$rel/." "$target/$rel/"
+    else
+      mkdir -p "$(dirname "$target/$rel")"
+      cp "$TEMPLATE_DIR/$rel" "$target/$rel"
+    fi
+    refreshed="$refreshed  $rel\n"
+  done
+  chmod +x "$target"/setup/*.sh 2>/dev/null || true
+  printf 'scaffold %s\n' "$want_id" >"$target/.skills-scaffold"
+
+  echo ""
+  echo "Updated the starter skills in $target"
+  echo "  was: ${have_id:-unknown}"
+  echo "  now: ${want_id:-unknown}"
+  echo ""
+  [ -n "$refreshed" ] && { echo "Refreshed:"; printf "%b" "$refreshed"; }
+  [ -n "$skipped" ] && { echo "Left alone:"; printf "%b" "$skipped"; }
+  if [ "$is_git" -eq 1 ]; then
+    changed="$(git -C "$target" status --porcelain 2>/dev/null)"
+    if [ -n "$changed" ]; then
+      echo ""
+      echo "Changed:"
+      printf '%s\n' "$changed" | sed 's/^/  /'
+      echo ""
+      echo "Review with:  git -C $target diff"
+    fi
+  fi
+  echo ""
+  echo "Your own skills, prompts and context were not touched."
+  echo ""
+  exit 0
+fi
+
 # --- skills are required ---------------------------------------------------
 # GAH exists to run skills; a session with none is a misconfiguration, not a
 # lighter mode. Without this the policy layer loads with nothing to govern and
@@ -237,6 +349,10 @@ A knowledge base is optional and scaffolded separately (docs/KB.md):
 Refresh an existing one's scripts and skills, leaving its articles alone:
 
   gah update-kb <directory>
+
+Refresh the starter skills gah maintains, leaving your own alone:
+
+  gah update-skills <directory>
 
 Or pass one directly for a single run:  gah --skill <path>
 
@@ -307,6 +423,21 @@ skill_args=()
 # person's own ~/.gah/agent/prompts/ still loads alongside them.
 if [ -n "${GAH_SKILLS_DIR:-}" ] && [ -d "$(dirname "$GAH_SKILLS_DIR")/prompts" ]; then
   skill_args+=(--prompt-template "$(dirname "$GAH_SKILLS_DIR")/prompts")
+fi
+
+# Say when the starter skills gah maintains are older than this build. Silent
+# when the repository has none of them (a deployment that removed both has
+# decided, and does not need telling again) or when this is not a checkout.
+if [ -n "${GAH_SKILLS_DIR:-}" ] && [ "$info_only" -eq 0 ] && [ -d "$TEMPLATE_DIR" ]; then
+  skills_root="$(dirname "$GAH_SKILLS_DIR")"
+  sk_want="$(skills_scaffold_id)"
+  sk_have="$(sed -n 's/^scaffold //p' "$skills_root/.skills-scaffold" 2>/dev/null || true)"
+  sk_present=0
+  for rel in $SKILLS_MANAGED; do [ -e "$skills_root/$rel" ] && sk_present=1; done
+  if [ -n "$sk_want" ] && [ "$sk_present" -eq 1 ] && [ "$sk_have" != "$sk_want" ]; then
+    echo "gah: the starter skills in $skills_root are ${sk_have:+at $sk_have, }behind this checkout ($sk_want)" >&2
+    echo "     refresh them with:  gah update-skills $skills_root" >&2
+  fi
 fi
 
 # The knowledge base (optional, docs/KB.md) carries its own skills and prompts,
