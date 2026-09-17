@@ -212,6 +212,54 @@ out="$(PATH="$WORK/fakebin:$PATH" GAH_SKILLS_DIR="$NONE/skills" GAH_SKIP_SETUP=1
 check "a repository that kept none of the starters is never nagged" \
 	"$(printf '%s' "$out" | grep -q 'behind this checkout' && echo 0 || echo 1)"
 
+echo
+echo "-- --help lists what the launcher can actually do --"
+# This page fell three subcommands behind because the launcher handles the token
+# and never passes it on, so nothing in the CLI could notice. One list now feeds
+# both, and these assertions are what keep it that way.
+BASH_LIST="$(sed -n 's/^GAH_SCAFFOLD_COMMANDS="\(.*\)"$/\1/p' bin/gah | head -1)"
+PS_LIST="$(sed -n "s/^\$ScaffoldCommands = @(\(.*\))$/\1/p" bin/gah.ps1 | head -1 | tr -d "' " | tr ',' ' ')"
+PKG_LIST="$(sed -n "s/^\$ScaffoldCommands = @(\(.*\))$/\1/p" templates/deploy/windows/gah.ps1 | head -1 | tr -d "' " | tr ',' ' ')"
+check "bin/gah publishes a subcommand list" "$([ -n "$BASH_LIST" ] && echo 1 || echo 0)"
+check_eq "bin/gah.ps1 handles the same subcommands" "$BASH_LIST" "$PS_LIST"
+check_eq "the packaged launcher refuses exactly that set" "$BASH_LIST" "$PKG_LIST"
+
+# Every name the launchers handle needs wording in the renderer, or it ships
+# under the generic fallback, which is a regression the fallback exists to
+# survive rather than to normalise.
+HELP_SRC="vendor/pi/packages/coding-agent/src/cli/gah-help.ts"
+for name in $BASH_LIST; do
+	check "--help has wording for $name" \
+		"$(grep -qE "^\s+\"?${name}\"?: \"" "$HELP_SRC" && echo 1 || echo 0)"
+done
+
+# The launchers that cannot reach a subcommand must clear the variable, not
+# merely leave it unset: a value inherited from a checkout in the same shell
+# would otherwise make their help advertise commands they refuse.
+check "the packaged launcher clears the list rather than publishing one" \
+	"$(grep -q "GAH_SCAFFOLD_COMMANDS = ''" templates/deploy/windows/gah.ps1 && echo 1 || echo 0)"
+check "the shared-host launcher clears it too, having fixed arguments" \
+	"$(grep -q 'export GAH_SCAFFOLD_COMMANDS=""' deploy/host/gah-launch && echo 1 || echo 0)"
+
+# End to end through the built CLI, if there is one: a checkout offers them all,
+# and the same binary with the variable cleared offers none.
+if [ -f vendor/pi/packages/coding-agent/dist/cli.js ]; then
+	# Through the launcher, not around it: what is being tested is that bin/gah
+	# hands the CLI its list, so calling the CLI directly would prove nothing.
+	help_out="$(GAH_SKILLS_DIR="$SK/skills" GAH_SKIP_SETUP=1 ./bin/gah --help </dev/null 2>&1)"
+	for name in $BASH_LIST; do
+		check "a checkout's --help offers $name" \
+			"$(printf '%s' "$help_out" | grep -q "gah $name <directory>" && echo 1 || echo 0)"
+	done
+	bare_out="$(GAH_SCAFFOLD_COMMANDS= node vendor/pi/packages/coding-agent/dist/cli.js --no-extensions --help </dev/null 2>&1)"
+	check "a package's --help offers none of them" \
+		"$(printf '%s' "$bare_out" | grep -qE 'gah (init|update-kb|update-skills|init-kb) <directory>' && echo 0 || echo 1)"
+	check "and still offers auth check, which works everywhere" \
+		"$(printf '%s' "$bare_out" | grep -q 'gah auth check' && echo 1 || echo 0)"
+else
+	echo "  (no built CLI — skipping the rendered --help assertions)"
+fi
+
 if command -v pwsh >/dev/null 2>&1; then
 	echo
 	echo "-- PowerShell twin (pwsh present) --"
