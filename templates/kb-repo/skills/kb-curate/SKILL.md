@@ -12,8 +12,30 @@ next hour spent on documentation is spent on the thing that costs the team most.
 
 No shell is needed. Where one is available,
 `bin/kb-status.sh` (or `bin\kb-status.ps1`) produces all of this in one pass;
-otherwise read the frontmatter of the files under `articles/` and work it out —
+otherwise read the frontmatter of the files under the root's `articles/` —
 there will not be many.
+
+## Where these paths are
+
+Everything this file names -- `articles/`, `templates/`, `bin/` -- is relative
+to the **knowledge base root**, which is **two directories above the folder this
+file is in**. You were given this file's absolute location, and it sits at
+`<root>/skills/kb-curate/SKILL.md`, so the root is that folder's grandparent.
+Resolve every path against it before you read, search or write.
+
+Two wrong roots to avoid. Not the session's working directory: nothing changes
+directory for you, and it is usually some other repository entirely. Not this
+skill's own folder either, which is the default assumption and is wrong by two
+levels -- there is no `articles/` next to this file.
+
+Getting it wrong is silent. Searching a directory that does not exist returns no
+matches rather than an error, so you would tell someone nobody has written this
+down while the article sits there, and record a gap that pushes a phantom to the
+top of the backlog `kb-curate` orders by count. If you cannot work out the root,
+say so and stop; do not search the current directory and hope.
+
+Where a shell is available `$GAH_KB_DIR` (or `$KB_DIR`) holds the same path, and
+the scripts under `bin/` resolve it for themselves.
 
 ## The backlog is the gap list
 

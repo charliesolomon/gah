@@ -14,9 +14,31 @@ minute rather than an afternoon.
 You need no shell for any of this. Articles are ordinary Markdown files; create
 and edit them directly.
 
+## Where these paths are
+
+Everything this file names -- `articles/`, `templates/`, `bin/` -- is relative
+to the **knowledge base root**, which is **two directories above the folder this
+file is in**. You were given this file's absolute location, and it sits at
+`<root>/skills/kb-article/SKILL.md`, so the root is that folder's grandparent.
+Resolve every path against it before you read, search or write.
+
+Two wrong roots to avoid. Not the session's working directory: nothing changes
+directory for you, and it is usually some other repository entirely. Not this
+skill's own folder either, which is the default assumption and is wrong by two
+levels -- there is no `articles/` next to this file.
+
+Getting it wrong is silent. Searching a directory that does not exist returns no
+matches rather than an error, so you would tell someone nobody has written this
+down while the article sits there, and record a gap that pushes a phantom to the
+top of the backlog `kb-curate` orders by count. If you cannot work out the root,
+say so and stop; do not search the current directory and hope.
+
+Where a shell is available `$GAH_KB_DIR` (or `$KB_DIR`) holds the same path, and
+the scripts under `bin/` resolve it for themselves.
+
 ## Before writing: look for the article that already exists
 
-Search `articles/` first, every time. Three outcomes:
+Search the root's `articles/` first, every time, resolved as above. Three outcomes:
 
 | What you find | What to do |
 |---|---|
@@ -26,7 +48,7 @@ Search `articles/` first, every time. Three outcomes:
 
 ## Creating one
 
-Copy `templates/article.md`, or where a shell is available run the wrapper,
+Copy `templates/article.md` from the root, or where a shell is available run the wrapper,
 which writes the header for you and refuses to clobber an existing file:
 
 ```bash
