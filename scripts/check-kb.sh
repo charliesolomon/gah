@@ -411,6 +411,46 @@ ctrl="$(grep -rlP '[\x00-\x08\x0b\x0c\x0e-\x1f]' templates/kb-repo templates/dep
 check "no stray control characters in shipped text" "$([ -z "$ctrl" ] && echo 1 || echo 0)"
 [ -n "$ctrl" ] && printf '%s\n' "$ctrl" | sed 's/^/    /'
 
+echo
+echo "-- the no-shell path knows where the knowledge base is --"
+# The read and draft stages run with no shell, so the wrapper scripts -- which
+# resolve the root themselves -- never execute, and the skill's own words are
+# the only thing pointing at articles/. The harness tells the model to resolve a
+# skill's relative paths against THAT SKILL'S directory, which is <root>/skills/
+# <name>/, two levels below the root: a bare `articles/` lands somewhere that
+# does not exist, a search of it returns no matches rather than an error, and
+# the skill reports a documented fact as a gap. Nothing fails loudly, so these
+# assertions are the only thing standing between that bug and a deployment.
+for name in kb-search kb-article kb-curate; do
+	sk="$KB/skills/$name/SKILL.md"
+	check "$name says where the root is" \
+		"$(grep -qi 'two directories above' "$sk" && echo 1 || echo 0)"
+	check "$name warns off the session's working directory" \
+		"$(grep -qi "session's working directory" "$sk" && echo 1 || echo 0)"
+	check "$name warns off its own folder, the default wrong answer" \
+		"$(grep -qi "skill's own folder" "$sk" && echo 1 || echo 0)"
+	check "$name says the failure is silent, not an error" \
+		"$(grep -qi 'returns no\|silent' "$sk" && echo 1 || echo 0)"
+	# It must not rely on an environment variable it cannot read: with no shell
+	# there is no way to expand $GAH_KB_DIR, so that can be a footnote, never
+	# the instruction.
+	first_root="$(grep -n 'two directories above\|GAH_KB_DIR' "$sk" | head -1)"
+	check "$name resolves by path, not by an env var it cannot expand" \
+		"$(printf '%s' "$first_root" | grep -q 'two directories above' && echo 1 || echo 0)"
+done
+
+# The layout the instruction describes has to be the real one, or the advice is
+# confidently wrong: SKILL.md at <root>/skills/<name>/, articles at <root>/.
+for name in kb-search kb-article kb-curate; do
+	root_from_skill="$(cd "$KB/skills/$name" && cd ../.. && pwd)"
+	check_eq "$name: two levels up really is the root" "$(cd "$KB" && pwd)" "$root_from_skill"
+done
+check "and the root really holds articles/" "$([ -d "$KB/articles" ] && echo 1 || echo 0)"
+# The wrong root the harness would otherwise pick must genuinely be empty, or
+# the bug would be self-correcting and these tests would be theatre.
+check "while the skill's own folder holds no articles/, which is why it fails silently" \
+	"$([ -d "$KB/skills/kb-search/articles" ] && echo 0 || echo 1)"
+
 if command -v pwsh >/dev/null 2>&1; then
 	echo
 	echo "-- PowerShell twins (pwsh present) --"

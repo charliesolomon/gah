@@ -6,9 +6,32 @@ allowed-tools: Read, Grep, Glob, Write, Edit
 
 # Answering from the knowledge base
 
-The knowledge base is at `$GAH_KB_DIR` (or `$KB_DIR`), articles under
-`articles/`. It holds what **this organization** knows: its sites, equipment,
-conventions, and the exceptions that only its own staff can explain.
+The knowledge base holds what **this organization** knows: its sites,
+equipment, conventions, and the exceptions that only its own staff can
+explain. Articles live under `articles/` at its root -- see below for where
+that is, because getting it wrong is the one mistake this skill cannot detect.
+
+## Where these paths are
+
+Everything this file names -- `articles/`, `templates/`, `bin/` -- is relative
+to the **knowledge base root**, which is **two directories above the folder this
+file is in**. You were given this file's absolute location, and it sits at
+`<root>/skills/kb-search/SKILL.md`, so the root is that folder's grandparent.
+Resolve every path against it before you read, search or write.
+
+Two wrong roots to avoid. Not the session's working directory: nothing changes
+directory for you, and it is usually some other repository entirely. Not this
+skill's own folder either, which is the default assumption and is wrong by two
+levels -- there is no `articles/` next to this file.
+
+Getting it wrong is silent. Searching a directory that does not exist returns no
+matches rather than an error, so you would tell someone nobody has written this
+down while the article sits there, and record a gap that pushes a phantom to the
+top of the backlog `kb-curate` orders by count. If you cannot work out the root,
+say so and stop; do not search the current directory and hope.
+
+Where a shell is available `$GAH_KB_DIR` (or `$KB_DIR`) holds the same path, and
+the scripts under `bin/` resolve it for themselves.
 
 ## First: is this a question for the knowledge base at all?
 
@@ -42,7 +65,8 @@ thresholds:
 
 ## How to answer
 
-**1. Search.** Use `grep` and `find` over `articles/`: the frontmatter `title`,
+**1. Search.** Use `grep` and `find` over the root's `articles/`, resolved as
+above: the frontmatter `title`,
 `description` and `tags` first, then the body. Search for the words the person
 used *and* the obvious synonyms — someone asking about "wifi at the north
 campus" needs the article titled "Wireless at the North site".
@@ -107,7 +131,7 @@ motivated to fix it.
 
 ### It is clearly organizational — record the gap
 
-Write a stub under `articles/gaps/<slug>.md` with `status: gap`, or increment
+Write a stub under the root's `articles/gaps/<slug>.md` with `status: gap`, or increment
 `requests` and update `last_requested` if a stub for that question already
 exists. Where a shell is available, the wrapper does both and handles the slug
 and the counter:
