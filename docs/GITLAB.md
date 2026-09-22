@@ -49,7 +49,7 @@ Both are ordinary GitLab projects. Nothing in them is built by GitLab.
 
 Two version numbers, deliberately independent:
 
-- **gah's version** is upstream's, `0.85.1` for a build from the v0.85.1 sync,
+- **gah's version** is upstream's: the pi release the build was synced to (`.sync-state` names it),
   plus the gah commit it was built from. Both are recorded in the package's
   `VERSION` file and in `deploy.json`. This repository does not cut release
   tags of its own; a package is built from a commit on `main`.

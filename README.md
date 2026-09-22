@@ -83,8 +83,8 @@ part make actually earns — REF validation, the patch series, git hooks, policy
 bundling:
 
 ```bash
-make sync-init REF=v0.85.1   # first-time vendor + install + build
-make sync REF=v0.85.0        # pull upstream, re-apply patches, rebuild
+make sync-init REF=<tag>     # first-time vendor + install + build (the current pin is in .sync-state)
+make sync REF=<tag>          # pull upstream, re-apply patches, rebuild
 make patches                 # re-apply patches/
 make install-hooks           # one-time per clone
 make                         # see all targets

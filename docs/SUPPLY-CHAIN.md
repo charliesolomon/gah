@@ -33,12 +33,15 @@ page does not list.
 ## Install time
 
 `npm install` is the one step that runs third-party code on the machine before
-anything is built, through packages' install scripts. Upstream's tree has five
-(as of v0.84.4, unchanged at v0.85.1): `canvas` (downloads a prebuilt binary from GitHub releases, or
+anything is built, through packages' install scripts. Upstream's tree has seven
+(as of v0.87.1; five at v0.84.4 and v0.85.1): `canvas` (downloads a prebuilt binary from GitHub releases, or
 compiles from source), `esbuild` (validates a binary that already arrives as an
-optional package), `protobufjs` (generates helper files), `ssh2` (builds an
-optional native addon, via an example extension that is never shipped) and a
-no-op in `@google/genai`. None is needed to build or run gah — verified by a
+optional package), `protobufjs` (generates helper files), `ssh2` and, beneath
+it, `cpu-features` (both build optional native addons, via an example extension
+that is never shipped), a no-op in `@google/genai`, and `autoevals` (a guard that
+refuses to install with anything but pnpm when it is the root project, which it
+never is here; a dependency of the evals workspace, never shipped). None is
+needed to build or run gah — verified at each sync, most recently v0.87.1, by a
 fresh clone with `npm ci --ignore-scripts`, a full build, and the tool-surface
 check — so every documented install and every CI job passes `--ignore-scripts`.
 The two deprecation notices npm prints (`prebuild-install`, `node-domexception`)
