@@ -5,8 +5,11 @@
  * adds a small banner to the startup output identifying this as a GAH build.
  *
  * IMPORTANT: `before_agent_start` returning `systemPrompt` REPLACES the
- * assembled prompt wholesale (agent-session.ts: `state.systemPrompt = result
- * .systemPrompt`). Pi appends the <available_skills> catalogue to the prompt it
+ * assembled prompt wholesale. Since pi 0.87 that is done by projection rather
+ * than assignment (agent-session.ts, _installAgentForcedPromptProjection: the
+ * transcript keeps its structured system messages and the request is rendered
+ * with the forced text as its single head), but the effect on what the model
+ * sees is the same. Pi appends the <available_skills> catalogue to the prompt it
  * builds, so returning SYSTEM.md alone silently discards it and the model is
  * never told which skills exist -- they become reachable only if the user types
  * /skill:<name> by hand. We therefore re-append that catalogue here, from the

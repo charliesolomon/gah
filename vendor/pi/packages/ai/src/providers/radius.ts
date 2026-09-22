@@ -25,7 +25,9 @@ export function radiusProvider(options: RadiusProviderOptions = {}): Provider<"p
 	const gateway = normalizeRadiusGatewayUrl(options.gateway ?? DEFAULT_RADIUS_GATEWAY);
 	const baselineModels: Model<"pi-messages">[] =
 		gateway === normalizeRadiusGatewayUrl(DEFAULT_RADIUS_GATEWAY)
-			? Object.values(RADIUS_MODELS).map((model) => ({ ...model, provider: id }))
+			// GAH (0030-offline-model-data): the catalogue may be seeded empty, and
+			// an empty ModelCatalog types its values as unspreadable. Same shape either way.
+			? (Object.values(RADIUS_MODELS) as Model<"pi-messages">[]).map((model) => ({ ...model, provider: id }))
 			: [];
 	let dynamicModels = getRadiusModels(id, undefined);
 	const streams = piMessagesApi();

@@ -32,7 +32,12 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { type AssistantMessageEventStream, getApiProvider } from "@earendil-works/pi-ai";
+import {
+	type AssistantMessageEventStream,
+	getApiProvider,
+	getCurrentSystemPrompt,
+	getCurrentTools,
+} from "@earendil-works/pi-ai";
 import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { rememberModel, settingsPath } from "./lib/last-model.ts";
@@ -256,6 +261,9 @@ export default function (pi: ExtensionAPI) {
 							// Same async-iteration + result() contract; the class itself is
 							// type-only through the extension alias of pi-ai's root entry.
 							return promptedStream(base, model, context, options, {
+								// pi >= 0.86 hands a transcript; the rewrite reads prompt and
+								// tools out of it with pi-ai's own readers (lib/prompted-tools.ts).
+								transcript: { getCurrentSystemPrompt, getCurrentTools },
 								placement: promptPlacementFor(entry, model.id),
 								debug: PROMPTED_DEBUG_PATH ? promptedDebug : undefined,
 							}) as unknown as AssistantMessageEventStream;
