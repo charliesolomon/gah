@@ -134,7 +134,11 @@ for (const { name, from, only } of externals) {
 	const m = buildScript.match(/allowedExternalPackages\s*=\s*new Set\(\[([\s\S]*?)\]\)/);
 	if (!m) fail("cannot find allowedExternalPackages in vendor/pi/scripts/build-coding-agent-bundle.mjs — update the drift guard in scripts/package-windows.mjs");
 	// Their callers fall back to JavaScript when the module is absent (upstream's comment).
-	const optional = new Set(["bufferutil", "utf-8-validate", "supports-color"]);
+	// kerberos (pi >= 0.86): optional native proxy authentication; upstream says its
+	// caller reports an install hint when absent. A native module cannot be carried
+	// from an --ignore-scripts install anyway. A deployment behind a Negotiate proxy
+	// would need it installed on the machine; none does today.
+	const optional = new Set(["bufferutil", "utf-8-validate", "supports-color", "kerberos"]);
 	const carried = new Set(externals.map((e) => e.name));
 	const missing = new Set();
 	for (const [, spec] of m[1].matchAll(/"([^"]+)"/g)) {
