@@ -1,6 +1,6 @@
-From f360eafb4ac214d2e1e29b07fc0858ce32611219 Mon Sep 17 00:00:00 2001
+From e23faeacbd503d37b960736ff39ee74dbc5b2f27 Mon Sep 17 00:00:00 2001
 From: csolomon <charliesolomon@gmail.com>
-Date: Wed, 2 Sep 2026 13:08:12 -0700
+Date: Tue, 22 Sep 2026 15:47:19 -0700
 Subject: [PATCH] no-session-share: /share is off unless the deployment allows
  it
 
@@ -18,11 +18,15 @@ appends to the same audit log the policy pack writes; best effort.
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_011it956DeV4unyWw5VyvkDD
+
+Re-authored 2026-09-22 (sync to v0.87.1): the /share handler moved into
+handleShareCommand(); the guard now sits at the top of that method. The
+slash-command entry and gah-audit.ts are unchanged.
 ---
  packages/coding-agent/src/core/gah-audit.ts   | 21 +++++++++++++++++++
  .../coding-agent/src/core/slash-commands.ts   |  3 ++-
- .../src/modes/interactive/interactive-mode.ts | 11 ++++++++++
- 3 files changed, 34 insertions(+), 1 deletion(-)
+ .../src/modes/interactive/interactive-mode.ts | 10 +++++++++
+ 3 files changed, 33 insertions(+), 1 deletion(-)
  create mode 100644 vendor/pi/packages/coding-agent/src/core/gah-audit.ts
 
 diff --git a/packages/coding-agent/src/core/gah-audit.ts b/packages/coding-agent/src/core/gah-audit.ts
@@ -53,7 +57,7 @@ index 000000000..df29425df
 +	}
 +}
 diff --git a/packages/coding-agent/src/core/slash-commands.ts b/packages/coding-agent/src/core/slash-commands.ts
-index 13326d2da..034645fa6 100644
+index 934de40a6..a4ad3ed55 100644
 --- a/packages/coding-agent/src/core/slash-commands.ts
 +++ b/packages/coding-agent/src/core/slash-commands.ts
 @@ -24,7 +24,8 @@ export const BUILTIN_SLASH_COMMANDS: ReadonlyArray<BuiltinSlashCommand> = [
@@ -63,38 +67,37 @@ index 13326d2da..034645fa6 100644
 -	{ name: "share", description: "Share session as a secret GitHub gist" },
 +	// GAH: hidden unless the deployment allows it (see interactive-mode.ts /share).
 +	...(process.env.GAH_ALLOW_SHARE === "1" ? [{ name: "share", description: "Share session as a secret GitHub gist" }] : []),
+ 	{ name: "bug", description: "Report a bug to the Pi developers", argumentHint: "<description>" },
  	{ name: "copy", description: "Copy last agent message to clipboard" },
  	{ name: "name", description: "Set session display name" },
- 	{ name: "session", description: "Show session info and stats" },
 diff --git a/packages/coding-agent/src/modes/interactive/interactive-mode.ts b/packages/coding-agent/src/modes/interactive/interactive-mode.ts
-index 6649ceafe..2f0448d9e 100644
+index 43e159bf7..fd02f5cd2 100644
 --- a/packages/coding-agent/src/modes/interactive/interactive-mode.ts
 +++ b/packages/coding-agent/src/modes/interactive/interactive-mode.ts
-@@ -81,6 +81,7 @@ import type {
- 	WorkingIndicatorOptions,
- } from "../../core/extensions/index.ts";
- import { FooterDataProvider, type ReadonlyFooterDataProvider } from "../../core/footer-data-provider.ts";
+@@ -173,6 +173,7 @@ import { UserMessageSelectorComponent } from "./components/user-message-selector
+ import { editInExternalEditor } from "./external-editor.ts";
+ import { refreshModelCatalogs } from "./model-catalog-refresh.ts";
+ import { getModelSearchText } from "./model-search.ts";
 +import { gahAudit } from "../../core/gah-audit.ts";
- import { configureHttpDispatcher, formatHttpIdleTimeoutMs } from "../../core/http-dispatcher.ts";
- import { type AppKeybinding, KeybindingsManager } from "../../core/keybindings.ts";
- import { createCompactionSummaryMessage } from "../../core/messages.ts";
-@@ -3014,6 +3015,16 @@ export class InteractiveMode {
- 				return;
- 			}
- 			if (text === "/share") {
-+				// GAH: /share uploads the transcript to a GitHub gist through the gh
-+				// CLI -- a child process the egress allowlist (0011) cannot see, and a
-+				// transcript on a governed host is the organisation's data. Off unless
-+				// the deployment sets GAH_ALLOW_SHARE=1.
-+				if (process.env.GAH_ALLOW_SHARE !== "1") {
-+					gahAudit({ kind: "blocked", reason: "share_disabled", command: "/share" });
-+					this.showError("/share is disabled by GAH policy: session transcripts stay on this machine.");
-+					this.editor.setText("");
-+					return;
-+				}
- 				await this.handleShareCommand();
- 				this.editor.setText("");
- 				return;
+ import { shareSession } from "./session-share.ts";
+ import {
+ 	getAvailableThemes,
+@@ -6351,6 +6352,15 @@ export class InteractiveMode {
+ 	}
+ 
+ 	private async handleShareCommand(): Promise<void> {
++		// GAH: /share uploads the transcript to a GitHub gist through the gh
++		// CLI -- a child process the egress allowlist (0011) cannot see, and a
++		// transcript on a governed host is the organisation's data. Off unless
++		// the deployment sets GAH_ALLOW_SHARE=1.
++		if (process.env.GAH_ALLOW_SHARE !== "1") {
++			gahAudit({ kind: "blocked", reason: "share_disabled", command: "/share" });
++			this.showError("/share is disabled by GAH policy: session transcripts stay on this machine.");
++			return;
++		}
+ 		await shareSession({
+ 			session: this.session,
+ 			ui: this.ui,
 -- 
 2.43.0
 

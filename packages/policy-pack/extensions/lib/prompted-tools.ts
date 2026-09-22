@@ -44,6 +44,7 @@ import type {
 	Tool,
 	ToolCall,
 	ToolResultMessage,
+	TranscriptContext,
 } from "@earendil-works/pi-ai";
 
 export type ToolMode = "native" | "prompted";
@@ -164,6 +165,62 @@ export interface RewriteOptions {
 	 * accumulates in the session.
 	 */
 	placement?: PromptPlacement;
+}
+
+/**
+// --- The transcript boundary (pi >= 0.86) ------------------------------------
+//
+// Since 0.86.0 a custom stream receives a TranscriptContext: only `messages`,
+// with the system prompt and the tool declarations carried *inside* it as
+// system messages, and no `systemPrompt` or `tools` field at all. The rewrite
+// below still thinks in the older shape -- prompt, messages, tools -- because
+// that is the shape it is reasoning about (what to fold into text), so the
+// boundary converts in and out. Reading `context.tools` off a transcript
+// returns nothing, and a rewrite that sees no tools passes native tools
+// straight through to the gateway that strips them (#42, the bug this file
+// exists to fix), so the conversion is not optional.
+
+/**
+ * pi-ai's transcript readers, injected rather than imported: this file is
+ * unit-tested by direct import, where the pi-ai alias does not resolve, and
+ * the rewrite itself never needs them. providers.ts supplies the real ones.
+ */
+export interface TranscriptReaders {
+	getCurrentSystemPrompt(messages: readonly { role: string }[]): string;
+	getCurrentTools(messages: readonly { role: string }[]): Tool[];
+}
+
+/** What the rewrite needs, derived from either shape. Old-shape inputs (tests) pass through. */
+export function contextFromTranscript(input: TranscriptContext | Context, readers?: TranscriptReaders): Context {
+	if ("systemPrompt" in input || "tools" in input) return input as Context;
+	if (!readers) {
+		// Loud on purpose. Silently reading no tools off a transcript is the
+		// exact regression the conversion exists to prevent.
+		throw new Error("promptedStream: a transcript context needs transcript readers (pi >= 0.86)");
+	}
+	const messages = input.messages as Message[];
+	const systemPrompt = readers.getCurrentSystemPrompt(messages);
+	const tools = readers.getCurrentTools(messages);
+	return {
+		...(systemPrompt ? { systemPrompt } : {}),
+		messages: messages.filter((m) => m.role !== "system"),
+		...(tools.length > 0 ? { tools } : {}),
+	};
+}
+
+/**
+ * The rewritten request as a transcript. One leading system message carries the
+ * prompt with the protocol folded in, and declares NO tools: the adapter derives
+ * its `tools` field from the transcript's system messages, so an empty
+ * declaration is how "no tools on the wire" is said now. With user placement
+ * there is no system message at all, exactly as before.
+ */
+export function transcriptFromContext(ctx: Context): TranscriptContext {
+	const head: Message[] =
+		ctx.systemPrompt !== undefined
+			? [{ role: "system", content: ctx.systemPrompt, timestamp: ctx.messages[0]?.timestamp ?? Date.now() }]
+			: [];
+	return { messages: [...head, ...ctx.messages] } as unknown as TranscriptContext;
 }
 
 /**
@@ -457,7 +514,7 @@ export class PromptedEventStream implements AsyncIterable<AssistantMessageEvent>
 export interface BaseStreams {
 	streamSimple(
 		model: Model<string>,
-		context: Context,
+		context: TranscriptContext,
 		options?: SimpleStreamOptions,
 	): AsyncIterable<AssistantMessageEvent>;
 }
@@ -486,6 +543,8 @@ export interface PromptedDebugEntry {
 }
 
 export interface PromptedStreamOptions extends RewriteOptions {
+	/** pi-ai's transcript readers; required when `input` is a TranscriptContext. */
+	transcript?: TranscriptReaders;
 	/** Receives one entry per request; providers.ts appends it to $GAH_PROMPTED_DEBUG. */
 	debug?: (entry: PromptedDebugEntry) => void;
 }
@@ -498,11 +557,12 @@ export interface PromptedStreamOptions extends RewriteOptions {
 export function promptedStream(
 	base: BaseStreams,
 	model: Model<string>,
-	context: Context,
+	input: TranscriptContext | Context,
 	options?: SimpleStreamOptions,
 	promptedOptions: PromptedStreamOptions = {},
 ): PromptedEventStream {
 	const out = new PromptedEventStream();
+	const context = contextFromTranscript(input, promptedOptions.transcript);
 	const tools = context.tools ?? [];
 	const parser = new ToolBlockParser(tools);
 	const placement = promptedOptions.placement ?? "system";
@@ -622,7 +682,7 @@ export function promptedStream(
 
 	(async () => {
 		try {
-			const inner = base.streamSimple(model, rewritten, options);
+			const inner = base.streamSimple(model, transcriptFromContext(rewritten), options);
 			for await (const event of inner) {
 				switch (event.type) {
 					case "start":

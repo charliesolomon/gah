@@ -1,6 +1,6 @@
-From a6ce66440e71f5b2bc5a3b548719145b9f8190f5 Mon Sep 17 00:00:00 2001
+From 00ceb90ad0d0b1f0c15ef2f832d113a8dd891b75 Mon Sep 17 00:00:00 2001
 From: csolomon <charliesolomon@gmail.com>
-Date: Mon, 14 Sep 2026 08:01:32 -0700
+Date: Tue, 22 Sep 2026 15:47:47 -0700
 Subject: [PATCH] deps: vitest 4.1.9 -> 4.1.11 (GHSA-82fw-gwwq-j7x9, #93)
 
 Why a patch: this is a change to upstream's dependency manifests and
@@ -28,25 +28,29 @@ coding-agent suites, `make smoke` passes.
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01BGfxFj8Q1RT85fHaUGpoet
+
+Re-authored 2026-09-22 (sync to v0.87.1): upstream still pins 4.1.9; the
+lockfile context moved. Same nine registry entries, now eleven manifests.
 ---
- package-lock.json                             | 124 +++++++++---------
+ package-lock.json                             | 126 +++++++++---------
  packages/agent/package.json                   |   4 +-
  packages/ai/package.json                      |   2 +-
  packages/chord/package.json                   |   2 +-
  packages/client/package.json                  |   2 +-
  packages/coding-agent/package.json            |   2 +-
+ packages/durable/package.json                 |   2 +-
  packages/evals/package.json                   |   2 +-
  packages/protocol/package.json                |   2 +-
  packages/server/package.json                  |   2 +-
  .../session-backends/sqlite-node/package.json |   4 +-
  packages/telemetry/package.json               |   2 +-
- 11 files changed, 74 insertions(+), 74 deletions(-)
+ 12 files changed, 76 insertions(+), 76 deletions(-)
 
 diff --git a/package-lock.json b/package-lock.json
-index aad45bdb6..14446fed4 100644
+index a4b5de131..6291267ea 100644
 --- a/package-lock.json
 +++ b/package-lock.json
-@@ -2264,14 +2264,14 @@
+@@ -1973,14 +1973,14 @@
  			}
  		},
  		"node_modules/@vitest/coverage-v8": {
@@ -65,7 +69,7 @@ index aad45bdb6..14446fed4 100644
  				"ast-v8-to-istanbul": "^1.0.0",
  				"istanbul-lib-coverage": "^3.2.2",
  				"istanbul-lib-report": "^3.0.1",
-@@ -2285,8 +2285,8 @@
+@@ -1994,8 +1994,8 @@
  				"url": "https://opencollective.com/vitest"
  			},
  			"peerDependencies": {
@@ -76,7 +80,7 @@ index aad45bdb6..14446fed4 100644
  			},
  			"peerDependenciesMeta": {
  				"@vitest/browser": {
-@@ -2295,16 +2295,16 @@
+@@ -2004,16 +2004,16 @@
  			}
  		},
  		"node_modules/@vitest/expect": {
@@ -98,7 +102,7 @@ index aad45bdb6..14446fed4 100644
  				"chai": "^6.2.2",
  				"tinyrainbow": "^3.1.0"
  			},
-@@ -2313,13 +2313,13 @@
+@@ -2022,13 +2022,13 @@
  			}
  		},
  		"node_modules/@vitest/mocker": {
@@ -116,7 +120,7 @@ index aad45bdb6..14446fed4 100644
  				"estree-walker": "^3.0.3",
  				"magic-string": "^0.30.21"
  			},
-@@ -2340,9 +2340,9 @@
+@@ -2049,9 +2049,9 @@
  			}
  		},
  		"node_modules/@vitest/pretty-format": {
@@ -129,7 +133,7 @@ index aad45bdb6..14446fed4 100644
  			"dev": true,
  			"license": "MIT",
  			"dependencies": {
-@@ -2353,13 +2353,13 @@
+@@ -2062,13 +2062,13 @@
  			}
  		},
  		"node_modules/@vitest/runner": {
@@ -147,7 +151,7 @@ index aad45bdb6..14446fed4 100644
  				"pathe": "^2.0.3"
  			},
  			"funding": {
-@@ -2367,14 +2367,14 @@
+@@ -2076,14 +2076,14 @@
  			}
  		},
  		"node_modules/@vitest/snapshot": {
@@ -167,7 +171,7 @@ index aad45bdb6..14446fed4 100644
  				"magic-string": "^0.30.21",
  				"pathe": "^2.0.3"
  			},
-@@ -2383,9 +2383,9 @@
+@@ -2092,9 +2092,9 @@
  			}
  		},
  		"node_modules/@vitest/spy": {
@@ -180,7 +184,7 @@ index aad45bdb6..14446fed4 100644
  			"dev": true,
  			"license": "MIT",
  			"funding": {
-@@ -2393,13 +2393,13 @@
+@@ -2102,13 +2102,13 @@
  			}
  		},
  		"node_modules/@vitest/utils": {
@@ -198,7 +202,7 @@ index aad45bdb6..14446fed4 100644
  				"convert-source-map": "^2.0.0",
  				"tinyrainbow": "^3.1.0"
  			},
-@@ -5089,19 +5089,19 @@
+@@ -5045,19 +5045,19 @@
  			}
  		},
  		"node_modules/vitest": {
@@ -228,7 +232,7 @@ index aad45bdb6..14446fed4 100644
  				"es-module-lexer": "^2.0.0",
  				"expect-type": "^1.3.0",
  				"magic-string": "^0.30.21",
-@@ -5129,12 +5129,12 @@
+@@ -5085,12 +5085,12 @@
  				"@edge-runtime/vm": "*",
  				"@opentelemetry/api": "^1.9.0",
  				"@types/node": "^20.0.0 || ^22.0.0 || >=24.0.0",
@@ -247,7 +251,7 @@ index aad45bdb6..14446fed4 100644
  				"happy-dom": "*",
  				"jsdom": "*",
  				"vite": "^6.0.0 || ^7.0.0 || ^8.0.0"
-@@ -5342,9 +5342,9 @@
+@@ -5293,9 +5293,9 @@
  			},
  			"devDependencies": {
  				"@types/node": "22.19.19",
@@ -259,7 +263,7 @@ index aad45bdb6..14446fed4 100644
  			},
  			"engines": {
  				"node": ">=22.19.0"
-@@ -5379,7 +5379,7 @@
+@@ -5330,7 +5330,7 @@
  			"devDependencies": {
  				"@types/node": "22.19.19",
  				"canvas": "3.2.3",
@@ -268,7 +272,7 @@ index aad45bdb6..14446fed4 100644
  			},
  			"engines": {
  				"node": ">=22.19.0"
-@@ -5394,7 +5394,7 @@
+@@ -5368,7 +5368,7 @@
  			},
  			"devDependencies": {
  				"shx": "0.4.0",
@@ -277,7 +281,7 @@ index aad45bdb6..14446fed4 100644
  			},
  			"engines": {
  				"node": ">=22.19.0"
-@@ -5410,7 +5410,7 @@
+@@ -5384,7 +5384,7 @@
  			},
  			"devDependencies": {
  				"shx": "0.4.0",
@@ -286,8 +290,8 @@ index aad45bdb6..14446fed4 100644
  			},
  			"engines": {
  				"node": ">=22.19.0"
-@@ -5455,7 +5455,7 @@
- 				"@types/semver": "7.7.1",
+@@ -5430,7 +5430,7 @@
+ 				"marked": "18.0.11",
  				"shx": "0.4.0",
  				"typescript": "5.9.3",
 -				"vitest": "4.1.9"
@@ -295,8 +299,17 @@ index aad45bdb6..14446fed4 100644
  			},
  			"engines": {
  				"node": ">=22.19.0"
-@@ -5552,7 +5552,7 @@
- 				"@types/node": "22.19.19",
+@@ -5525,7 +5525,7 @@
+ 			},
+ 			"devDependencies": {
+ 				"shx": "0.4.0",
+-				"vitest": "4.1.9"
++				"vitest": "4.1.11"
+ 			},
+ 			"engines": {
+ 				"node": ">=22.19.0"
+@@ -5542,7 +5542,7 @@
+ 				"autoevals": "0.3.0",
  				"shx": "0.4.0",
  				"typescript": "5.9.3",
 -				"vitest": "4.1.9",
@@ -304,7 +317,7 @@ index aad45bdb6..14446fed4 100644
  				"vitest-evals": "0.15.0"
  			}
  		},
-@@ -5566,7 +5566,7 @@
+@@ -5556,7 +5556,7 @@
  			},
  			"devDependencies": {
  				"shx": "0.4.0",
@@ -313,7 +326,7 @@ index aad45bdb6..14446fed4 100644
  			},
  			"engines": {
  				"node": ">=22.19.0"
-@@ -5583,7 +5583,7 @@
+@@ -5573,7 +5573,7 @@
  			},
  			"devDependencies": {
  				"shx": "0.4.0",
@@ -322,8 +335,8 @@ index aad45bdb6..14446fed4 100644
  			},
  			"engines": {
  				"node": ">=22.19.0"
-@@ -5598,8 +5598,8 @@
- 				"@earendil-works/pi-ai": "^0.85.1"
+@@ -5588,8 +5588,8 @@
+ 				"@earendil-works/pi-ai": "^0.87.1"
  			},
  			"devDependencies": {
 -				"@vitest/coverage-v8": "4.1.9",
@@ -333,7 +346,7 @@ index aad45bdb6..14446fed4 100644
  			},
  			"engines": {
  				"node": ">=22.19.0"
-@@ -5611,7 +5611,7 @@
+@@ -5601,7 +5601,7 @@
  			"license": "MIT",
  			"devDependencies": {
  				"@types/node": "22.19.19",
@@ -343,10 +356,10 @@ index aad45bdb6..14446fed4 100644
  			"engines": {
  				"node": ">=22.19.0"
 diff --git a/packages/agent/package.json b/packages/agent/package.json
-index f6c3aca85..66d4e9a74 100644
+index b2732d5d9..fc7e1f9b2 100644
 --- a/packages/agent/package.json
 +++ b/packages/agent/package.json
-@@ -82,8 +82,8 @@
+@@ -86,8 +86,8 @@
  	},
  	"devDependencies": {
  		"@types/node": "22.19.19",
@@ -358,7 +371,7 @@ index f6c3aca85..66d4e9a74 100644
  	}
  }
 diff --git a/packages/ai/package.json b/packages/ai/package.json
-index 0ac92225c..436ffb348 100644
+index d3ae3037e..65095a30c 100644
 --- a/packages/ai/package.json
 +++ b/packages/ai/package.json
 @@ -99,6 +99,6 @@
@@ -370,7 +383,7 @@ index 0ac92225c..436ffb348 100644
  	}
  }
 diff --git a/packages/chord/package.json b/packages/chord/package.json
-index a4e3d6c2e..f4478db10 100644
+index 10dd4270f..641e5377f 100644
 --- a/packages/chord/package.json
 +++ b/packages/chord/package.json
 @@ -67,6 +67,6 @@
@@ -382,7 +395,7 @@ index a4e3d6c2e..f4478db10 100644
  	}
  }
 diff --git a/packages/client/package.json b/packages/client/package.json
-index e4670c587..ab72f5070 100644
+index 9104494a9..6ad371e04 100644
 --- a/packages/client/package.json
 +++ b/packages/client/package.json
 @@ -52,6 +52,6 @@
@@ -394,11 +407,11 @@ index e4670c587..ab72f5070 100644
  	}
  }
 diff --git a/packages/coding-agent/package.json b/packages/coding-agent/package.json
-index 082b0a498..ccc4beb50 100644
+index d070a0f5f..8b1309730 100644
 --- a/packages/coding-agent/package.json
 +++ b/packages/coding-agent/package.json
-@@ -91,7 +91,7 @@
- 		"@types/semver": "7.7.1",
+@@ -85,7 +85,7 @@
+ 		"marked": "18.0.11",
  		"shx": "0.4.0",
  		"typescript": "5.9.3",
 -		"vitest": "4.1.9"
@@ -406,11 +419,23 @@ index 082b0a498..ccc4beb50 100644
  	},
  	"keywords": [
  		"coding-agent",
+diff --git a/packages/durable/package.json b/packages/durable/package.json
+index d5573dfb4..08dc3f308 100644
+--- a/packages/durable/package.json
++++ b/packages/durable/package.json
+@@ -64,6 +64,6 @@
+ 	},
+ 	"devDependencies": {
+ 		"shx": "0.4.0",
+-		"vitest": "4.1.9"
++		"vitest": "4.1.11"
+ 	}
+ }
 diff --git a/packages/evals/package.json b/packages/evals/package.json
-index 8bdd05d28..e38d8f799 100644
+index f7056cbc7..69ddcabea 100644
 --- a/packages/evals/package.json
 +++ b/packages/evals/package.json
-@@ -15,6 +15,6 @@
+@@ -19,6 +19,6 @@
  		"shx": "0.4.0",
  		"typescript": "5.9.3",
  		"vitest-evals": "0.15.0",
@@ -419,7 +444,7 @@ index 8bdd05d28..e38d8f799 100644
  	}
  }
 diff --git a/packages/protocol/package.json b/packages/protocol/package.json
-index 65353ec95..b70a5b398 100644
+index 605655f2c..77088eefb 100644
 --- a/packages/protocol/package.json
 +++ b/packages/protocol/package.json
 @@ -44,6 +44,6 @@
@@ -431,7 +456,7 @@ index 65353ec95..b70a5b398 100644
  	}
  }
 diff --git a/packages/server/package.json b/packages/server/package.json
-index 8ecdc6222..8e189d2e7 100644
+index 36cae1657..e561bab06 100644
 --- a/packages/server/package.json
 +++ b/packages/server/package.json
 @@ -53,6 +53,6 @@
@@ -443,11 +468,11 @@ index 8ecdc6222..8e189d2e7 100644
  	}
  }
 diff --git a/packages/session-backends/sqlite-node/package.json b/packages/session-backends/sqlite-node/package.json
-index 2c04adece..e5a851b56 100644
+index dbc91b15e..837fe329e 100644
 --- a/packages/session-backends/sqlite-node/package.json
 +++ b/packages/session-backends/sqlite-node/package.json
 @@ -39,7 +39,7 @@
- 		"@earendil-works/pi-agent-core": "^0.85.1"
+ 		"@earendil-works/pi-agent-core": "^0.87.1"
  	},
  	"devDependencies": {
 -		"@vitest/coverage-v8": "4.1.9",
@@ -457,7 +482,7 @@ index 2c04adece..e5a851b56 100644
  	}
  }
 diff --git a/packages/telemetry/package.json b/packages/telemetry/package.json
-index 7885ae202..b97981fa0 100644
+index 753286462..6ca5608e7 100644
 --- a/packages/telemetry/package.json
 +++ b/packages/telemetry/package.json
 @@ -42,6 +42,6 @@

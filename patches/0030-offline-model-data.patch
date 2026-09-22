@@ -1,6 +1,6 @@
-From cd6ea3c35f47444b714be5643832a055dba5d773 Mon Sep 17 00:00:00 2001
+From 632168a77189cefa259fd0e3703f0bf81d005f8d Mon Sep 17 00:00:00 2001
 From: csolomon <charliesolomon@gmail.com>
-Date: Wed, 2 Sep 2026 09:35:10 -0700
+Date: Tue, 22 Sep 2026 15:47:19 -0700
 Subject: [PATCH] offline-model-data: build without the vendor catalogue fetch
 
 Re-authored 2026-09-02: gah-model-data.ts now writes src/providers/data/
@@ -15,18 +15,25 @@ delete remains in the step.
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_011it956DeV4unyWw5VyvkDD
+
+Re-authored 2026-09-22 (sync to v0.87.1): upstream 0.86 added a Radius
+provider that spreads Object.values() of its catalogue. Seeded empty, that
+catalogue types its values as unspreadable (TS2698) and the ai package
+fails to build. One cast in src/providers/radius.ts, same shape either way.
+It belongs here because the empty seed is what this patch introduces.
 ---
  packages/ai/package.json              |   3 +-
  packages/ai/scripts/gah-model-data.ts | 147 ++++++++++++++++++++++++++
  packages/ai/scripts/model-data.ts     |   3 +-
- 3 files changed, 151 insertions(+), 2 deletions(-)
+ packages/ai/src/providers/radius.ts   |   4 +-
+ 4 files changed, 154 insertions(+), 3 deletions(-)
  create mode 100644 vendor/pi/packages/ai/scripts/gah-model-data.ts
 
 diff --git a/packages/ai/package.json b/packages/ai/package.json
-index b6e7336e4..4aee98ca7 100644
+index d129d2e16..d3ae3037e 100644
 --- a/packages/ai/package.json
 +++ b/packages/ai/package.json
-@@ -54,7 +54,8 @@
+@@ -58,7 +58,8 @@
  		"generate-model-catalog": "node scripts/generate-models.ts --strict --json-only --json-output ../../.artifacts/model-catalog",
  		"generate-image-models": "node scripts/generate-image-models.ts --strict",
  		"check:model-data": "node scripts/check-model-data.ts",
@@ -203,6 +210,21 @@ index f2081817a..5ab736b94 100644
  	return sortedRecord(models);
  }
  
+diff --git a/packages/ai/src/providers/radius.ts b/packages/ai/src/providers/radius.ts
+index 785962560..76f4a15cb 100644
+--- a/packages/ai/src/providers/radius.ts
++++ b/packages/ai/src/providers/radius.ts
+@@ -25,7 +25,9 @@ export function radiusProvider(options: RadiusProviderOptions = {}): Provider<"p
+ 	const gateway = normalizeRadiusGatewayUrl(options.gateway ?? DEFAULT_RADIUS_GATEWAY);
+ 	const baselineModels: Model<"pi-messages">[] =
+ 		gateway === normalizeRadiusGatewayUrl(DEFAULT_RADIUS_GATEWAY)
+-			? Object.values(RADIUS_MODELS).map((model) => ({ ...model, provider: id }))
++			// GAH (0030-offline-model-data): the catalogue may be seeded empty, and
++			// an empty ModelCatalog types its values as unspreadable. Same shape either way.
++			? (Object.values(RADIUS_MODELS) as Model<"pi-messages">[]).map((model) => ({ ...model, provider: id }))
+ 			: [];
+ 	let dynamicModels = getRadiusModels(id, undefined);
+ 	const streams = piMessagesApi();
 -- 
 2.43.0
 

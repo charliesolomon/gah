@@ -380,8 +380,12 @@ test("promptedStream emits a toolCall block and stops with toolUse", async () =>
 			tools,
 		} as any),
 	);
-	assert.equal(capture.context.tools, undefined, "no tools on the wire");
-	assert.match(capture.context.systemPrompt, /## ls/);
+	// pi >= 0.86: the base receives a transcript. "No tools on the wire" is a
+	// leading system message that declares none; the prompt is its content.
+	const head = capture.context.messages[0];
+	assert.equal(head.role, "system");
+	assert.equal(head.toolsAdded, undefined, "no tools on the wire");
+	assert.match(head.content, /## ls/);
 	const types = events.map((e) => e.type);
 	assert.deepEqual(types, [
 		"start",
@@ -422,7 +426,7 @@ test("promptedStream honours placement and reports to the debug sink", async () 
 			},
 		),
 	);
-	assert.equal(capture.context.systemPrompt, undefined, "system prompt moved into the user turn");
+	assert.notEqual(capture.context.messages[0].role, "system", "system prompt moved into the user turn");
 	assert.match(capture.context.messages[0].content[0].text, /^S\n\n# Tool calling/);
 	assert.equal(entries.length, 1);
 	const e = entries[0];
