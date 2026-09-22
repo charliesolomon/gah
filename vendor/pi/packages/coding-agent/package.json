@@ -4,11 +4,10 @@
 	"description": "Coding agent CLI with read, bash, edit, write tools and session management",
 	"type": "module",
 	"piConfig": {
-		"name": "gah",
-		"configDir": ".gah"
+		"configDir": ".pi"
 	},
 	"bin": {
-		"gah": "dist/bundle/cli.js"
+		"pi": "dist/bundle/cli.js"
 	},
 	"main": "./dist/index.js",
 	"types": "./dist/index.d.ts",
@@ -91,7 +90,7 @@
 		"@types/semver": "7.7.1",
 		"shx": "0.4.0",
 		"typescript": "5.9.3",
-		"vitest": "4.1.11"
+		"vitest": "4.1.9"
 	},
 	"keywords": [
 		"coding-agent",
