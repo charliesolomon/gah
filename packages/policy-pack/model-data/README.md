@@ -36,6 +36,17 @@ make refresh-model-data    # hydrates from the vendor APIs, copies seeded provid
 git diff --stat packages/policy-pack/model-data
 ```
 
+The refresh then re-applies GAH's corrections to upstream's catalogue, which
+live in `scripts/model-data-overrides.mjs` rather than in these files, because a
+hand edit here would be undone by the next refresh without anyone noticing.
+There is one today:
+
+| File | Override | Why |
+|---|---|---|
+| `amazon-bedrock.json` | `compat.supportsStrictMode: false` for every model | Bedrock forwards `toolSpec.strict` to model backends that reject it; with it on, every session fails on its first turn (#108). Off is the wire format every pi before 0.86 sent. Re-enable a family only after `make check-live` passes in a deployment configured for one of its models. |
+
+`make test-policy` fails if a committed seed file is missing an override.
+
 Review the diff like any other policy change. A new provider is seeded by
 copying its file from `vendor/pi/packages/ai/src/providers/data/` after that
 hydration; the file name must match a provider shard upstream still has, or
@@ -45,4 +56,4 @@ the build fails and says so.
 
 Each file is the per-provider structure `check:model-data` validates: models
 grouped by API, `{ "<api>": { "<model-id>": { …model } } }`. Do not hand-edit
-model entries; regenerate them.
+model entries; regenerate them, and put any correction in the overrides script.

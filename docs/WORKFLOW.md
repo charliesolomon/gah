@@ -81,8 +81,29 @@ git add -A && git commit -m "sync: vendor v0.80.0, patch series re-applied"
 # 4. Rebuild + smoke; deps may have changed
 cd vendor/pi && npm ci --ignore-scripts && cd ../.. && make build-all && make smoke
 
-# 5. Open a PR; review; merge
+# 5. On a deployment host, after its checkout is on this branch: a real tool
+#    call to each model that host is configured for
+make check-live ENV=/etc/gah/users.d/<user>.conf
+
+# 6. Open a PR; review; merge
 ```
+
+### Step 5 is not optional
+
+Every check CI runs is offline, so none of them can see what a provider does with
+the request we send. The v0.87.1 sync passed all four CI checks and failed every
+Bedrock session on its first turn (#108): pi 0.86 began asking for strict tool
+schemas, our seed data said Bedrock's Claude models support them, and Bedrock
+forwarded the field to a backend that rejects it. `make check-live` drives the
+whole session path and makes the model call a tool, which is the request that
+failed.
+
+It tests what the environment is configured for and nothing broader: it asks
+`bin/gah --list-models` under that environment's own allowlist, approved
+endpoints, egress list and credentials, and never widens any of them. `ENV=`
+reads a host manifest the way `gah-launch` does. It is on demand and never part
+of CI, since it needs the deployment's credentials and costs cents. Record the
+result in the sync PR.
 
 ### Merge the sync PR with a merge commit — never squash
 
