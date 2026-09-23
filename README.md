@@ -53,7 +53,7 @@ from [`packages/policy-pack/model-data/`](packages/policy-pack/model-data/README
 (patch 0030) instead of being fetched from vendor APIs.
 
 ```bash
-cd vendor/pi && npm install --ignore-scripts && npm run build   # upstream's own 9-package chain
+cd vendor/pi && npm ci --ignore-scripts && npm run build   # ci installs the lockfile exactly, never rewrites it
 cd ../..
 node scripts/install-tools.mjs                   # fd + ripgrep, pinned and verified (or: apt install fd-find ripgrep)
 ./bin/gah init ../my-org-skills                  # once per organization

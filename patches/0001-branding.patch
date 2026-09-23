@@ -1,10 +1,10 @@
-From a2663ab5cf76ce954c663bb7c72c8c66ebeb2667 Mon Sep 17 00:00:00 2001
+From 7e611124dddc0921a591f15ce1726c3b33f1be7a Mon Sep 17 00:00:00 2001
 From: csolomon <charliesolomon@gmail.com>
-Date: Wed, 2 Sep 2026 16:16:26 -0700
-Subject: [PATCH] =?UTF-8?q?branding:=20rebrand=20pi=20=E2=86=92=20gah?=
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
+Date: Wed, 23 Sep 2026 11:29:58 -0700
+Subject: [PATCH] =?UTF-8?q?=3D=3FUTF-8=3Fq=3Fbranding:=3D20rebrand=3D20pi?=
+ =?UTF-8?q?=3D20=3DE2=3D86=3D92=3D20gah=3F=3D=20MIME-Version:=201.0=20Cont?=
+ =?UTF-8?q?ent-Type:=20text/plain;=20charset=3DUTF-8=20Content-Transfer-En?=
+ =?UTF-8?q?coding:=208bit?=
 
 Set piConfig.name='gah' and configDir='.gah' in coding-agent
 package.json. PI's APP_NAME cascade picks this up everywhere:
@@ -29,13 +29,34 @@ show as upstream would.
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_011it956DeV4unyWw5VyvkDD
+
+Re-authored 2026-09-23 (#112): the bin rename is also made in
+package-lock.json, whose workspace entry for coding-agent records the bin
+map. Without it `npm install` reconciles the lockfile to the patched
+manifest, rewrites that one line, and leaves vendor/pi dirty, which is
+what made `git pull --ff-only` refuse on the agent host. `npm ci` never
+writes the lockfile, so it was unaffected; `npm install` now is too.
 ---
+ package-lock.json                                      |  2 +-
  packages/coding-agent/package.json                     |  5 +++--
  .../src/modes/interactive/interactive-mode.ts          | 10 ++++++----
- 2 files changed, 9 insertions(+), 6 deletions(-)
+ 3 files changed, 10 insertions(+), 7 deletions(-)
 
+diff --git a/package-lock.json b/package-lock.json
+index a4b5de131..a3dc7f69f 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -5416,7 +5416,7 @@
+ 				"yaml": "2.9.0"
+ 			},
+ 			"bin": {
+-				"pi": "dist/bundle/cli.js"
++				"gah": "dist/bundle/cli.js"
+ 			},
+ 			"devDependencies": {
+ 				"@earendil-works/pi-client": "^0.87.1",
 diff --git a/packages/coding-agent/package.json b/packages/coding-agent/package.json
-index 8aa47351d..ceff2f241 100644
+index 62c01de66..d070a0f5f 100644
 --- a/packages/coding-agent/package.json
 +++ b/packages/coding-agent/package.json
 @@ -4,10 +4,11 @@
@@ -53,10 +74,10 @@ index 8aa47351d..ceff2f241 100644
  	"main": "./dist/index.js",
  	"types": "./dist/index.d.ts",
 diff --git a/packages/coding-agent/src/modes/interactive/interactive-mode.ts b/packages/coding-agent/src/modes/interactive/interactive-mode.ts
-index aee28d448..1c9fe887d 100644
+index 968f74140..43e159bf7 100644
 --- a/packages/coding-agent/src/modes/interactive/interactive-mode.ts
 +++ b/packages/coding-agent/src/modes/interactive/interactive-mode.ts
-@@ -966,6 +966,7 @@ export class InteractiveMode {
+@@ -960,6 +960,7 @@ export class InteractiveMode {
  			// Build startup instructions using keybinding hint helpers
  			const hint = (keybinding: AppKeybinding, description: string) => keyHint(keybinding, description);
  
@@ -64,7 +85,7 @@ index aee28d448..1c9fe887d 100644
  			const expandedInstructions = [
  				hint("app.interrupt", "to interrupt"),
  				hint("app.clear", "to clear"),
-@@ -980,8 +981,9 @@ export class InteractiveMode {
+@@ -974,8 +975,9 @@ export class InteractiveMode {
  				hint("app.thinking.toggle", "to expand thinking"),
  				hint("app.editor.external", "for external editor"),
  				rawKeyHint("/", "for commands"),
@@ -76,7 +97,7 @@ index aee28d448..1c9fe887d 100644
  				hint("app.message.followUp", "to queue follow-up"),
  				hint("app.message.dequeue", "to edit all queued messages"),
  				hint("app.clipboard.pasteImage", "to paste image (with text fallback)"),
-@@ -991,7 +993,7 @@ export class InteractiveMode {
+@@ -985,7 +987,7 @@ export class InteractiveMode {
  				hint("app.interrupt", "interrupt"),
  				rawKeyHint(`${keyText("app.clear")}/${keyText("app.exit")}`, "clear/exit"),
  				rawKeyHint("/", "commands"),
@@ -85,7 +106,7 @@ index aee28d448..1c9fe887d 100644
  				hint("app.tools.expand", "more"),
  			].join(theme.fg("muted", " · "));
  			const compactOnboarding = theme.fg(
-@@ -1000,7 +1002,7 @@ export class InteractiveMode {
+@@ -994,7 +996,7 @@ export class InteractiveMode {
  			);
  			const onboarding = theme.fg(
  				"dim",

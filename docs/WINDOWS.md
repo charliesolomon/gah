@@ -21,7 +21,7 @@ network-caused and neither error message says so.
 
 ## Network requirements
 
-`npm install --ignore-scripts` is the only step that needs the network — the build itself makes
+`npm ci --ignore-scripts` is the only step that needs the network — the build itself makes
 no calls since `0030-offline-model-data` (see below) — and the one install
 failure that remains does not report itself as a network problem.
 
@@ -85,8 +85,8 @@ still reports a fetch, it is an install script, not the catalog.
 
 ### Install scripts are skipped
 
-Always install with `--ignore-scripts`. Five packages in upstream's tree run
-code during `npm install`, and none of it is needed to build or run gah
+Always install with `--ignore-scripts`. Seven packages in upstream's tree run
+code during an npm install, and none of it is needed to build or run gah
 (docs/SUPPLY-CHAIN.md, "Install time"). The one that mattered on Windows was
 `canvas`, a devDependency of `packages/ai` used by a single test-fixture
 script: its install script downloads a prebuilt binary from GitHub releases
@@ -104,9 +104,19 @@ warning about unapproved install scripts.
 ```powershell
 git clone git@github.com:charliesolomon/gah.git
 cd gah\vendor\pi
-npm install --ignore-scripts
+npm ci --ignore-scripts
 npm run build
 ```
+
+**`npm ci`, not `npm install`.** `npm ci` installs exactly what the vendored
+lockfile says and never writes to it. `npm install` may rewrite the lockfile,
+and a dirty `vendor/pi` makes the next `git pull --ff-only` refuse. The same
+command the Makefile and CI use.
+
+One warning is expected and harmless: `EBADENGINE` for `autoevals`, which
+declares that it wants pnpm. It belongs to upstream's evaluation tooling, is
+never built into gah, and its install-time guard is skipped by
+`--ignore-scripts`. (docs/SUPPLY-CHAIN.md lists it with the others.)
 
 `npm run build` is upstream's own build chain — nine packages in dependency
 order (tui, telemetry, ai, agent, session-backends/sqlite-node, protocol,
