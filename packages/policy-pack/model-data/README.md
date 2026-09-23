@@ -43,7 +43,7 @@ There is one today:
 
 | File | Override | Why |
 |---|---|---|
-| `amazon-bedrock.json` | `compat.supportsStrictMode: false` for every model | Bedrock forwards `toolSpec.strict` to model backends that reject it; with it on, every session fails on its first turn (#108). Off is the wire format every pi before 0.86 sent. Re-enable a family only after `make check-live` passes against it. |
+| `amazon-bedrock.json` | `compat.supportsStrictMode: false` for every model | Bedrock forwards `toolSpec.strict` to model backends that reject it; with it on, every session fails on its first turn (#108). Off is the wire format every pi before 0.86 sent. Re-enable a family only after `make check-live` passes in a deployment configured for one of its models. |
 
 `make test-policy` fails if a committed seed file is missing an override.
 

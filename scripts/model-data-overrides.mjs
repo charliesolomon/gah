@@ -31,8 +31,8 @@ const OVERRIDES = [
 		// the other families' claims are unverified. The tools ask for strict with
 		// "prefer", so false means the field is simply omitted, never an error.
 		//
-		// To re-enable a family: prove it with scripts/check-live.sh against that
-		// model, then narrow `match` here.
+		// To re-enable a family: configure one of its models in a deployment,
+		// prove it there with scripts/check-live.sh, then narrow `match` here.
 		file: "amazon-bedrock.json",
 		match: () => true,
 		apply: (model) => {

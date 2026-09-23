@@ -90,8 +90,8 @@ check-prompted: ## Assert tool use works through a gateway with tool calls disab
 check-kb: ## Scaffold a knowledge base and drive the loop end to end (gap -> article -> proposal). No network.
 	./scripts/check-kb.sh
 
-check-live: ## One real tool-bearing request per model through bin/gah (network, credentials, costs cents). Usage: make check-live [MODELS="provider/model ..."]
-	./scripts/check-live.sh $(MODELS)
+check-live: ## On demand, never CI: a real tool call to each model THIS environment is configured for. Usage: make check-live [ENV=/etc/gah/users.d/<user>.conf] [MODELS="provider/model ..."]
+	./scripts/check-live.sh $(if $(ENV),--env "$(ENV)") $(MODELS)
 
 check-skills: ## Scaffold a skills repo, then assert `gah update-skills` refreshes ours and leaves theirs alone. No network.
 	./scripts/check-skills.sh
