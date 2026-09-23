@@ -134,6 +134,22 @@ npm run build:offline                             # full, reuses src/providers/d
 Both are offline. `build:offline` only skips re-seeding `packages/ai`'s model
 data from `packages/policy-pack/model-data/`, which a normal build does anyway.
 
+**After a pull that changes `packages/policy-pack/model-data/`, run the full
+build**, which is the only one that re-seeds:
+
+```powershell
+cd vendor\pi
+npm run build
+```
+
+Neither command above picks the change up: the incremental build does not
+touch `packages/ai` at all, and `build:offline` reuses the old seed. The binary
+then runs with the model data from before the pull, with no warning. That is
+not hypothetical: the fix for #108 was a seed change, and a checkout rebuilt
+with either of those commands keeps sending Bedrock the field it rejects.
+`git log -1 -- packages/policy-pack/model-data` shows when the seed last
+changed.
+
 ## Install fd and ripgrep
 
 The agent's find and grep tools need these two binaries, and GAH does not
