@@ -81,8 +81,22 @@ git add -A && git commit -m "sync: vendor v0.80.0, patch series re-applied"
 # 4. Rebuild + smoke; deps may have changed
 cd vendor/pi && npm ci --ignore-scripts && cd ../.. && make build-all && make smoke
 
-# 5. Open a PR; review; merge
+# 5. One real, tool-bearing request per provider we ship model data for
+AWS_REGION=us-west-1 make check-live
+
+# 6. Open a PR; review; merge
 ```
+
+### Step 5 is not optional
+
+Every check CI runs is offline, so none of them can see what a provider does with
+the request we send. The v0.87.1 sync passed all four CI checks and failed every
+Bedrock session on its first turn (#108): pi 0.86 began asking for strict tool
+schemas, our seed data said Bedrock's Claude models support them, and Bedrock
+forwarded the field to a backend that rejects it. `make check-live` drives the
+whole session path and makes the model call a tool, which is the request that
+failed. It needs real credentials and costs cents, so it runs on a maintainer's
+machine, not in CI. Record the result in the sync PR.
 
 ### Merge the sync PR with a merge commit — never squash
 

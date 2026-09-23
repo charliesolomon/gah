@@ -6,7 +6,7 @@
 PI_DIR := vendor/pi
 
 .DEFAULT_GOAL := help
-.PHONY: help install install-tools install-hooks build build-all build-offline smoke test-policy add-provider probe-endpoint check-tools check-prompted check-kb check-skills package-windows refresh-model-data patches bundle-policy clean-vendor sync sync-init status patch-new patch-export
+.PHONY: help install install-tools install-hooks build build-all build-offline smoke test-policy add-provider probe-endpoint check-tools check-prompted check-kb check-skills check-live package-windows refresh-model-data patches bundle-policy clean-vendor sync sync-init status patch-new patch-export
 
 help: ## Show available targets
 	@awk 'BEGIN { FS = ":.*##"; printf "Usage: make <target> [VAR=value]\n\nTargets:\n" } \
@@ -90,6 +90,9 @@ check-prompted: ## Assert tool use works through a gateway with tool calls disab
 check-kb: ## Scaffold a knowledge base and drive the loop end to end (gap -> article -> proposal). No network.
 	./scripts/check-kb.sh
 
+check-live: ## One real tool-bearing request per model through bin/gah (network, credentials, costs cents). Usage: make check-live [MODELS="provider/model ..."]
+	./scripts/check-live.sh $(MODELS)
+
 check-skills: ## Scaffold a skills repo, then assert `gah update-skills` refreshes ours and leaves theirs alone. No network.
 	./scripts/check-skills.sh
 
@@ -110,6 +113,10 @@ refresh-model-data: ## Re-hydrate the seeded providers from the vendor APIs (net
 	  name=$$(basename $$f); \
 	  cp "$(PI_DIR)/packages/ai/src/providers/data/$$name" "$$f" && echo "✓ refreshed $$name"; \
 	done
+	@# Upstream's catalogue is copied as-is, then GAH's documented corrections are
+	@# re-applied (scripts/model-data-overrides.mjs, #108). Without this step a
+	@# refresh silently undoes them; make test-policy fails if it is ever skipped.
+	node scripts/model-data-overrides.mjs
 	@git diff --stat -- packages/policy-pack/model-data
 	@echo "Review the diff like any policy change, then: make build-all"
 
