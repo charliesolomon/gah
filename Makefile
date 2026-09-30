@@ -79,6 +79,8 @@ smoke: ## Quick smoke test of the built binary
 	  echo "smoke: shipped model data differs from packages/policy-pack/model-data" >&2; \
 	  echo "  shipped: $$shipped" >&2; echo "  seeded:  $$seeded" >&2; exit 1; \
 	fi; echo "model data == seed OK"
+	@# pi 0.99's built-in extensions (MCP, codemode, ...) must stay off.
+	@./scripts/check-no-builtins.sh
 	@echo "smoke: OK"
 
 check-tools: ## Assert the model is offered exactly the policy's tool allowlist (mock endpoint, no keys)
