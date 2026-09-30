@@ -821,8 +821,21 @@ export class InteractiveMode {
 		if (this.settingsManager.getCollapseChangelog()) {
 			const versionMatch = this.changelogMarkdown.match(/##\s+\[?(\d+\.\d+\.\d+)\]?/);
 			const latestVersion = versionMatch ? versionMatch[1] : this.version;
-			const condensedText = `Updated to v${latestVersion}. Use ${theme.bold("/changelog")} to view full changelog.`;
-			this.chatContainer.addChild(new Text(condensedText, 1, 0));
+			// GAH: one line with a link to exactly this version's notes, instead of
+			// upstream's wording. The deployment's own notes come from the policy
+			// pack (whats-new.ts, #117).
+			const notesUrl = `https://github.com/earendil-works/pi/blob/v${latestVersion}/packages/coding-agent/CHANGELOG.md`;
+			const condensedLine = () => {
+				const link = getCapabilities().hyperlinks
+					? hyperlink(theme.fg("accent", notesUrl), notesUrl)
+					: theme.fg("accent", notesUrl);
+				return (
+					theme.fg("muted", `Updated to pi v${latestVersion}. Release notes: `) +
+					link +
+					theme.fg("muted", ` · ${theme.bold("/changelog")} shows them here.`)
+				);
+			};
+			this.chatContainer.addChild(new ThemedText(condensedLine, 1, 0));
 		} else {
 			this.chatContainer.addChild(new ThemedText(() => theme.bold(theme.fg("accent", "What's New")), 1, 0));
 			this.chatContainer.addChild(new Spacer(1));
