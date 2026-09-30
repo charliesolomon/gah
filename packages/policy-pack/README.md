@@ -10,6 +10,7 @@ The GAH policy layer, packaged as a [pi-package](https://github.com/earendil-wor
 | `extensions/branding.ts` | System-prompt header, footer/banner customization, today's date (`lib/today.ts`) |
 | `extensions/providers.ts` | Approved inference endpoints from `providers.json` |
 | `extensions/skills-freshness.ts` | Skills behind in-session, what changed at startup, `/skills-changelog`, `/skills-seen reset` (#91) |
+| `extensions/whats-new.ts` | The deployment's own release notes (`GAH_WHATS_NEW`), shown once at startup; `/whats-new`, `/whats-new-seen reset` (#117) |
 | `extensions/lib/last-model.ts` | The last model picked becomes the next session's default (#77) |
 | `extensions/lib/prompted-tools.ts` | Tool calling as a text protocol, for a provider marked `"tools": "prompted"` (a gateway that refuses native tool calls, #42) |
 | `model-data/` | The only built-in model data a build ships (`model-data/README.md`) |

@@ -1,0 +1,19 @@
+# What's new
+
+Release notes for the people using this host, kept by its administrator.
+Copy to /etc/gah/whats-new.md (root-owned, 0644) to switch them on.
+
+Each `## ` section is one announcement, newest first. At startup a person is
+shown the sections they have not seen yet; someone who has never seen any is
+shown only the newest. Seen is recorded when they send their first prompt.
+/whats-new shows every section. Anything above the first `## ` is ignored.
+
+Write for the person at the keyboard, not for whoever maintains gah: what
+changed for them and what, if anything, they should do differently. Keep a
+section to a few lines; the startup view shows the first dozen. The heading is
+the section's identity, so give each one a date and do not reuse a heading.
+
+## 2026-01-15 — new default model
+
+- New sessions now start on Model B, which is faster on long tickets.
+- Model A is still available: /model to switch.

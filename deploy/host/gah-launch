@@ -58,6 +58,14 @@ set -a
 source "$CONF"
 set +a
 
+# Release notes the administrator keeps for everyone on this host (#117):
+# /etc/gah/whats-new.md, one `## ` section per announcement, newest first. A
+# manifest can point one user elsewhere. The policy pack shows each person the
+# sections they have not seen; upstream's changelog is cut to one line (0003).
+if [ -z "${GAH_WHATS_NEW:-}" ] && [ -f "$CONF_DIR/whats-new.md" ]; then
+	export GAH_WHATS_NEW="$CONF_DIR/whats-new.md"
+fi
+
 : "${SKILLS_REPO:?SKILLS_REPO not set in $CONF}"
 SKILLS_BRANCH="${SKILLS_BRANCH:-main}"
 SKILLS_SUBDIR="${SKILLS_SUBDIR:-skills}"

@@ -1,0 +1,87 @@
+From 754fbc1df25e91b9cca5658ea49159c215126f90 Mon Sep 17 00:00:00 2001
+From: csolomon <charliesolomon@gmail.com>
+Date: Wed, 30 Sep 2026 10:25:04 -0700
+Subject: [PATCH] release-notes-link: upstream's startup changelog is one line
+ with a link
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Why a patch: the changelog is drawn by interactive-mode.ts before any
+extension runs, from upstream's own CHANGELOG.md, and no extension API can
+suppress or replace it (#117).
+
+What: on the first launch after an update, pi prints every changelog
+section since the last version the person saw. For v0.87.1 -> v0.99.1 that
+was several hundred lines, written for people who build on pi: providers a
+deployment never enables, extension APIs, and features GAH switches off
+(MCP, codemode, Sign in with ChatGPT). To someone using a deployment it
+reads as instructions that do not apply to them.
+
+Two hunks:
+
+1. settings-manager.ts: collapseChangelog defaults to true. Upstream's own
+   condensed mode, so the setting and its /settings entry still work; a
+   person who wants the full text turns it off.
+2. interactive-mode.ts: the condensed line reads "Updated to pi v0.99.1.
+   Release notes: <link> · /changelog shows them here." The link is the
+   CHANGELOG.md at that version's tag, so it matches what is installed.
+   Rendered as a hyperlink where the terminal supports one, plain text
+   otherwise.
+
+What a deployment's users should hear instead comes from the policy pack
+(extensions/whats-new.ts): notes the administrator writes.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WHU6GR6xxBMmQZUcB1KhgK
+---
+ .../coding-agent/src/core/settings-manager.ts   |  4 +++-
+ .../src/modes/interactive/interactive-mode.ts   | 17 +++++++++++++++--
+ 2 files changed, 18 insertions(+), 3 deletions(-)
+
+diff --git a/packages/coding-agent/src/core/settings-manager.ts b/packages/coding-agent/src/core/settings-manager.ts
+index aa3eae323..59d0f7ee5 100644
+--- a/packages/coding-agent/src/core/settings-manager.ts
++++ b/packages/coding-agent/src/core/settings-manager.ts
+@@ -1126,7 +1126,9 @@ export class SettingsManager {
+ 	}
+ 
+ 	getCollapseChangelog(): boolean {
+-		return this.settings.collapseChangelog ?? false;
++		// GAH: condensed by default. Upstream's full changelog is written for people
++		// who build on pi; a deployment's users get its own notes (#117).
++		return this.settings.collapseChangelog ?? true;
+ 	}
+ 
+ 	setCollapseChangelog(collapse: boolean): void {
+diff --git a/packages/coding-agent/src/modes/interactive/interactive-mode.ts b/packages/coding-agent/src/modes/interactive/interactive-mode.ts
+index 99e87787c..8b14eb229 100644
+--- a/packages/coding-agent/src/modes/interactive/interactive-mode.ts
++++ b/packages/coding-agent/src/modes/interactive/interactive-mode.ts
+@@ -821,8 +821,21 @@ export class InteractiveMode {
+ 		if (this.settingsManager.getCollapseChangelog()) {
+ 			const versionMatch = this.changelogMarkdown.match(/##\s+\[?(\d+\.\d+\.\d+)\]?/);
+ 			const latestVersion = versionMatch ? versionMatch[1] : this.version;
+-			const condensedText = `Updated to v${latestVersion}. Use ${theme.bold("/changelog")} to view full changelog.`;
+-			this.chatContainer.addChild(new Text(condensedText, 1, 0));
++			// GAH: one line with a link to exactly this version's notes, instead of
++			// upstream's wording. The deployment's own notes come from the policy
++			// pack (whats-new.ts, #117).
++			const notesUrl = `https://github.com/earendil-works/pi/blob/v${latestVersion}/packages/coding-agent/CHANGELOG.md`;
++			const condensedLine = () => {
++				const link = getCapabilities().hyperlinks
++					? hyperlink(theme.fg("accent", notesUrl), notesUrl)
++					: theme.fg("accent", notesUrl);
++				return (
++					theme.fg("muted", `Updated to pi v${latestVersion}. Release notes: `) +
++					link +
++					theme.fg("muted", ` · ${theme.bold("/changelog")} shows them here.`)
++				);
++			};
++			this.chatContainer.addChild(new ThemedText(condensedLine, 1, 0));
+ 		} else {
+ 			this.chatContainer.addChild(new ThemedText(() => theme.bold(theme.fg("accent", "What's New")), 1, 0));
+ 			this.chatContainer.addChild(new Spacer(1));
+-- 
+2.43.0
+
