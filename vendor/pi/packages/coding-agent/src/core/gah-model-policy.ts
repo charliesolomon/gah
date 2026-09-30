@@ -30,7 +30,7 @@
  * defence in depth and a UI-surface control, not the last line.
  */
 
-import type { Api, Model, Provider } from "@earendil-works/pi-ai";
+import type { AnyModel, Api, Model, Provider } from "@earendil-works/pi-ai";
 
 function globToRegExp(glob: string): RegExp {
 	const escaped = glob.replace(/[.*+?^${}()|[\]\\]/g, (c) => (c === "*" ? ".*" : `\\${c}`));
@@ -69,13 +69,23 @@ export function gahAllowsModelsJson(): boolean {
  * dynamic: withRemoteCatalog() merges models fetched from the remote catalog on
  * every call. Apply this OUTERMOST — after withRemoteCatalog — or remotely
  * added models bypass the allowlist. (That overlay did not exist in v0.79.1,
- * where this control previously lived in model-registry.ts.)
+ * where this control previously lived in model-registry.ts.) Since v0.99 a
+ * provider may also list image and classifier models; see below.
  */
 export function gahRestrictProvider(provider: Provider): Provider {
+	const allowed = <TModel extends { id: string }>(models: readonly TModel[]): TModel[] =>
+		models.filter((m) => gahAllowsBuiltInModel(provider.id, m.id));
+	// Both lists are wrapped. getAllModels() carries chat models too -- it is
+	// what getModelsOfType(), getAllModels() and getAllAvailable() read -- so
+	// spreading an unwrapped one through would reopen the whole catalogue.
+	// Chat, image and classifier entries are matched by the same
+	// `provider/model-id` globs: approving a provider's id approves it for
+	// every operation it offers under that id.
+	const getAllModels = provider.getAllModels;
 	return {
 		...provider,
-		getModels: (): readonly Model<Api>[] =>
-			provider.getModels().filter((m) => gahAllowsBuiltInModel(provider.id, m.id)),
+		getModels: (): readonly Model<Api>[] => allowed(provider.getModels()),
+		...(getAllModels ? { getAllModels: (): readonly AnyModel[] => allowed(getAllModels.call(provider)) } : {}),
 	};
 }
 
@@ -88,7 +98,7 @@ export function gahRestrictProvider(provider: Provider): Provider {
  * no network round-trip at menu-render time.
  */
 export function gahProviderHasModels(provider: Provider): boolean {
-	return provider.getModels().length > 0;
+	return (provider.getAllModels?.() ?? provider.getModels()).length > 0;
 }
 
 /**

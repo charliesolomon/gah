@@ -1,6 +1,6 @@
-From 632168a77189cefa259fd0e3703f0bf81d005f8d Mon Sep 17 00:00:00 2001
+From f3d508f479135fb5a27a8168f96c5ae8cb278fb5 Mon Sep 17 00:00:00 2001
 From: csolomon <charliesolomon@gmail.com>
-Date: Tue, 22 Sep 2026 15:47:19 -0700
+Date: Wed, 30 Sep 2026 09:25:49 -0700
 Subject: [PATCH] offline-model-data: build without the vendor catalogue fetch
 
 Re-authored 2026-09-02: gah-model-data.ts now writes src/providers/data/
@@ -21,34 +21,61 @@ provider that spreads Object.values() of its catalogue. Seeded empty, that
 catalogue types its values as unspreadable (TS2698) and the ai package
 fails to build. One cast in src/providers/radius.ts, same shape either way.
 It belongs here because the empty seed is what this patch introduces.
+
+Re-authored 2026-09-30 (sync to v0.99.1): upstream moved generated model
+data to schema 6 (#9948), which keys every entry "<type>:<id>" and
+requires a type on each. A seed copied from an older hydration failed
+the validator with one error per model, and Bedrock's ids made it
+unreadable: the colon in `amazon.nova-pro-v1:0` was taken as the
+separator, so the report said type `amazon.nova-pro-v1`, id `0`, 281
+times. gah-model-data.ts now refuses a seed key with no model type and
+names the fix (`make refresh-model-data`). The build script keeps
+upstream's move from tsgo to tsc; generate-image-models is gone upstream.
+
+The same empty seed breaks four more providers the way it broke Radius:
+cloudflare-workers-ai, opencode, openrouter and vercel-ai-gateway now
+spread their chat and classifier (and, for openrouter, image) catalogues
+into createProvider<Api>() with an explicit API type, and an empty
+catalogue's values type as unknown. One `as never[]` on each models
+array; an empty catalogue holds no models, so the cast asserts nothing
+false. A single fix in model-catalog.ts was tried and rejected: the
+simple providers infer their API type from the chat catalogue, and no
+empty-catalogue type satisfies both kinds.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WHU6GR6xxBMmQZUcB1KhgK
 ---
- packages/ai/package.json              |   3 +-
- packages/ai/scripts/gah-model-data.ts | 147 ++++++++++++++++++++++++++
- packages/ai/scripts/model-data.ts     |   3 +-
- packages/ai/src/providers/radius.ts   |   4 +-
- 4 files changed, 154 insertions(+), 3 deletions(-)
+ packages/ai/package.json                      |   3 +-
+ packages/ai/scripts/gah-model-data.ts         | 165 ++++++++++++++++++
+ packages/ai/scripts/model-data.ts             |   3 +-
+ .../ai/src/providers/cloudflare-workers-ai.ts |   3 +-
+ packages/ai/src/providers/opencode.ts         |   3 +-
+ packages/ai/src/providers/openrouter.ts       |   3 +-
+ packages/ai/src/providers/radius.ts           |   4 +-
+ .../ai/src/providers/vercel-ai-gateway.ts     |   3 +-
+ 8 files changed, 180 insertions(+), 7 deletions(-)
  create mode 100644 vendor/pi/packages/ai/scripts/gah-model-data.ts
 
 diff --git a/packages/ai/package.json b/packages/ai/package.json
-index d129d2e16..d3ae3037e 100644
+index 99e1ca54c..0d9a8cad5 100644
 --- a/packages/ai/package.json
 +++ b/packages/ai/package.json
-@@ -58,7 +58,8 @@
+@@ -57,7 +57,8 @@
+ 		"hydrate-model-data": "node scripts/generate-models.ts --strict --data-only",
  		"generate-model-catalog": "node scripts/generate-models.ts --strict --json-only --json-output ../../.artifacts/model-catalog",
- 		"generate-image-models": "node scripts/generate-image-models.ts --strict",
  		"check:model-data": "node scripts/check-model-data.ts",
 -		"build": "npm run generate-models && npm run build:offline",
 +		"gah:model-data": "node scripts/gah-model-data.ts",
 +		"build": "npm run gah:model-data && npm run build:offline",
- 		"build:offline": "npm run check:model-data && tsgo -p tsconfig.build.json && shx rm -rf dist/providers/data && shx cp -r src/providers/data dist/providers/data",
+ 		"build:offline": "npm run check:model-data && tsc -p tsconfig.build.json && shx rm -rf dist/providers/data && shx cp -r src/providers/data dist/providers/data",
  		"test": "vitest --run",
  		"prepublishOnly": "npm run clean && npm run build"
 diff --git a/packages/ai/scripts/gah-model-data.ts b/packages/ai/scripts/gah-model-data.ts
 new file mode 100644
-index 000000000..1636fc2a2
+index 000000000..b8699bbd0
 --- /dev/null
 +++ b/packages/ai/scripts/gah-model-data.ts
-@@ -0,0 +1,147 @@
+@@ -0,0 +1,165 @@
 +#!/usr/bin/env node
 +
 +/**
@@ -72,6 +99,10 @@ index 000000000..1636fc2a2
 + *     i.e. the GAH checkout that vendors this tree
 + *   - none: every provider ships empty
 + *
++ * Seed files are upstream's generated output for the current schema
++ * (MODEL_DATA_SCHEMA_VERSION); one from an older hydration is refused with a
++ * pointer to `make refresh-model-data` rather than passed to the validator.
++ *
 + * Why a build script and not a policy-pack extension: the data files are
 + * imported by the provider shards at compile time, so they must exist before
 + * tsgo runs. Nothing that loads at runtime can supply them.
@@ -83,6 +114,7 @@ index 000000000..1636fc2a2
 +import {
 +	createModelDataManifest,
 +	MODEL_DATA_MANIFEST_FILE,
++	MODEL_DATA_SCHEMA_VERSION,
 +	type ModelDataStructure,
 +	readModelDataProviderIds,
 +	validateGeneratedModelData,
@@ -106,7 +138,9 @@ index 000000000..1636fc2a2
 +	return typeof value === "object" && value !== null && !Array.isArray(value);
 +}
 +
-+/** Model id → API group, as the manifest's structure hash wants it. */
++const MODEL_TYPES = ["chat", "image", "classifier"];
++
++/** Model key (`<type>:<id>`) → API group, as the manifest's structure hash wants it. */
 +function structureOf(path: string, content: string): Record<string, string> {
 +	let groups: unknown;
 +	try {
@@ -118,9 +152,20 @@ index 000000000..1636fc2a2
 +	const structure: Record<string, string> = {};
 +	for (const [api, models] of Object.entries(groups)) {
 +		if (!isRecord(models)) throw new Error(`${path} API group ${JSON.stringify(api)} must be an object`);
-+		for (const modelId of Object.keys(models)) {
-+			if (modelId in structure) throw new Error(`${path} contains model ${modelId} in more than one API group`);
-+			structure[modelId] = api;
++		for (const modelKey of Object.keys(models)) {
++			// Schema 6 keys every entry `<type>:<id>`. A seed copied from an older
++			// hydration keys by bare id, and the validator then reads the id's own
++			// colons as the separator (`amazon.nova-pro-v1:0` becomes type
++			// `amazon.nova-pro-v1`, id `0`) and reports hundreds of errors that
++			// all mean this one thing.
++			if (!MODEL_TYPES.includes(modelKey.slice(0, modelKey.indexOf(":")))) {
++				throw new Error(
++					`${path} keys ${JSON.stringify(modelKey)} without a model type. The seed predates model data ` +
++						`schema ${MODEL_DATA_SCHEMA_VERSION}, which keys entries "<type>:<id>"; run \`make refresh-model-data\`.`,
++				);
++			}
++			if (modelKey in structure) throw new Error(`${path} contains ${modelKey} in more than one API group`);
++			structure[modelKey] = api;
 +		}
 +	}
 +	return structure;
@@ -197,11 +242,11 @@ index 000000000..1636fc2a2
 +	process.exitCode = 1;
 +}
 diff --git a/packages/ai/scripts/model-data.ts b/packages/ai/scripts/model-data.ts
-index f2081817a..5ab736b94 100644
+index d9c0827fb..db594e163 100644
 --- a/packages/ai/scripts/model-data.ts
 +++ b/packages/ai/scripts/model-data.ts
-@@ -78,7 +78,8 @@ function readProviderStructure(path: string, providerId: string): Record<string,
- 			models.set(modelId, api);
+@@ -82,7 +82,8 @@ function readProviderStructure(path: string, providerId: string): Record<string,
+ 			models.set(modelKey, api);
  		}
  	}
 -	if (models.size === 0) throw new Error(`${path} contains no generated model data`);
@@ -210,6 +255,55 @@ index f2081817a..5ab736b94 100644
  	return sortedRecord(models);
  }
  
+diff --git a/packages/ai/src/providers/cloudflare-workers-ai.ts b/packages/ai/src/providers/cloudflare-workers-ai.ts
+index 4798fa8a3..1faca4245 100644
+--- a/packages/ai/src/providers/cloudflare-workers-ai.ts
++++ b/packages/ai/src/providers/cloudflare-workers-ai.ts
+@@ -13,10 +13,11 @@ export function cloudflareWorkersAIProvider(): Provider<"openai-completions"> {
+ 		id: "cloudflare-workers-ai",
+ 		name: "Cloudflare Workers AI",
+ 		auth: { apiKey: cloudflareWorkersAIAuth() },
++		// GAH (0030-offline-model-data): seeded empty, these catalogues type their values as unknown.
+ 		models: [
+ 			...Object.values(CLOUDFLARE_WORKERS_AI_MODELS),
+ 			...Object.values(CLOUDFLARE_WORKERS_AI_CLASSIFIER_MODELS),
+-		],
++		] as never[],
+ 		api: cloudflareStreams(openAICompletionsApi()),
+ 		classifiers: {
+ 			"cloudflare-workers-ai-system-one": cloudflareClassifier(cloudflareWorkersAISystemOneApi()),
+diff --git a/packages/ai/src/providers/opencode.ts b/packages/ai/src/providers/opencode.ts
+index 7b3aae419..55a05c975 100644
+--- a/packages/ai/src/providers/opencode.ts
++++ b/packages/ai/src/providers/opencode.ts
+@@ -15,7 +15,8 @@ export function opencodeProvider(): Provider<OpenCodeApi> {
+ 		id: "opencode",
+ 		name: "OpenCode Zen",
+ 		auth: { apiKey: envApiKeyAuth("OpenCode API key", ["OPENCODE_API_KEY"]) },
+-		models: [...Object.values(OPENCODE_MODELS), ...Object.values(OPENCODE_CLASSIFIER_MODELS)],
++		// GAH (0030-offline-model-data): seeded empty, these catalogues type their values as unknown.
++		models: [...Object.values(OPENCODE_MODELS), ...Object.values(OPENCODE_CLASSIFIER_MODELS)] as never[],
+ 		api: {
+ 			"anthropic-messages": withOpenCodeSessionHeader(anthropicMessagesApi()),
+ 			"google-generative-ai": withOpenCodeSessionHeader(googleGenerativeAIApi()),
+diff --git a/packages/ai/src/providers/openrouter.ts b/packages/ai/src/providers/openrouter.ts
+index 86efb8d9d..ed91acd39 100644
+--- a/packages/ai/src/providers/openrouter.ts
++++ b/packages/ai/src/providers/openrouter.ts
+@@ -20,11 +20,12 @@ export function openrouterProvider(): Provider<"anthropic-messages" | "openai-co
+ 				load: loadOpenRouterOAuth,
+ 			}),
+ 		},
++		// GAH (0030-offline-model-data): seeded empty, these catalogues type their values as unknown.
+ 		models: [
+ 			...Object.values(OPENROUTER_MODELS),
+ 			...Object.values(OPENROUTER_IMAGE_MODELS),
+ 			...Object.values(OPENROUTER_CLASSIFIER_MODELS),
+-		],
++		] as never[],
+ 		api: {
+ 			"anthropic-messages": anthropicMessagesApi(),
+ 			"openai-completions": openAICompletionsApi(),
 diff --git a/packages/ai/src/providers/radius.ts b/packages/ai/src/providers/radius.ts
 index 785962560..76f4a15cb 100644
 --- a/packages/ai/src/providers/radius.ts
@@ -225,6 +319,20 @@ index 785962560..76f4a15cb 100644
  			: [];
  	let dynamicModels = getRadiusModels(id, undefined);
  	const streams = piMessagesApi();
+diff --git a/packages/ai/src/providers/vercel-ai-gateway.ts b/packages/ai/src/providers/vercel-ai-gateway.ts
+index ec2155793..6e12bcfa9 100644
+--- a/packages/ai/src/providers/vercel-ai-gateway.ts
++++ b/packages/ai/src/providers/vercel-ai-gateway.ts
+@@ -10,7 +10,8 @@ export function vercelAIGatewayProvider(): Provider<"anthropic-messages"> {
+ 		name: "Vercel AI Gateway",
+ 		baseUrl: "https://ai-gateway.vercel.sh",
+ 		auth: { apiKey: envApiKeyAuth("Vercel AI Gateway API key", ["AI_GATEWAY_API_KEY"]) },
+-		models: [...Object.values(VERCEL_AI_GATEWAY_MODELS), ...Object.values(VERCEL_AI_GATEWAY_CLASSIFIER_MODELS)],
++		// GAH (0030-offline-model-data): seeded empty, these catalogues type their values as unknown.
++		models: [...Object.values(VERCEL_AI_GATEWAY_MODELS), ...Object.values(VERCEL_AI_GATEWAY_CLASSIFIER_MODELS)] as never[],
+ 		api: anthropicMessagesApi(),
+ 		// AI Gateway serves TypeSafe's System One protocol at /typesafe/v1/systemone.
+ 		classifiers: { "typesafe-system-one": typesafeSystemOneApi() },
 -- 
 2.43.0
 

@@ -21,6 +21,10 @@
  *     i.e. the GAH checkout that vendors this tree
  *   - none: every provider ships empty
  *
+ * Seed files are upstream's generated output for the current schema
+ * (MODEL_DATA_SCHEMA_VERSION); one from an older hydration is refused with a
+ * pointer to `make refresh-model-data` rather than passed to the validator.
+ *
  * Why a build script and not a policy-pack extension: the data files are
  * imported by the provider shards at compile time, so they must exist before
  * tsgo runs. Nothing that loads at runtime can supply them.
@@ -32,6 +36,7 @@ import { fileURLToPath } from "node:url";
 import {
 	createModelDataManifest,
 	MODEL_DATA_MANIFEST_FILE,
+	MODEL_DATA_SCHEMA_VERSION,
 	type ModelDataStructure,
 	readModelDataProviderIds,
 	validateGeneratedModelData,
@@ -55,7 +60,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-/** Model id → API group, as the manifest's structure hash wants it. */
+const MODEL_TYPES = ["chat", "image", "classifier"];
+
+/** Model key (`<type>:<id>`) → API group, as the manifest's structure hash wants it. */
 function structureOf(path: string, content: string): Record<string, string> {
 	let groups: unknown;
 	try {
@@ -67,9 +74,20 @@ function structureOf(path: string, content: string): Record<string, string> {
 	const structure: Record<string, string> = {};
 	for (const [api, models] of Object.entries(groups)) {
 		if (!isRecord(models)) throw new Error(`${path} API group ${JSON.stringify(api)} must be an object`);
-		for (const modelId of Object.keys(models)) {
-			if (modelId in structure) throw new Error(`${path} contains model ${modelId} in more than one API group`);
-			structure[modelId] = api;
+		for (const modelKey of Object.keys(models)) {
+			// Schema 6 keys every entry `<type>:<id>`. A seed copied from an older
+			// hydration keys by bare id, and the validator then reads the id's own
+			// colons as the separator (`amazon.nova-pro-v1:0` becomes type
+			// `amazon.nova-pro-v1`, id `0`) and reports hundreds of errors that
+			// all mean this one thing.
+			if (!MODEL_TYPES.includes(modelKey.slice(0, modelKey.indexOf(":")))) {
+				throw new Error(
+					`${path} keys ${JSON.stringify(modelKey)} without a model type. The seed predates model data ` +
+						`schema ${MODEL_DATA_SCHEMA_VERSION}, which keys entries "<type>:<id>"; run \`make refresh-model-data\`.`,
+				);
+			}
+			if (modelKey in structure) throw new Error(`${path} contains ${modelKey} in more than one API group`);
+			structure[modelKey] = api;
 		}
 	}
 	return structure;
