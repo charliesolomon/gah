@@ -1,0 +1,214 @@
+<!doctype html>
+<!--
+  index.html — the page half of #119: one file, no build, no framework.
+  Talks to bridge.mjs: GET /events (SSE, every RPC record) and POST /cmd.
+  Everything GAH does (policy, tools, audit, models) happens in the gah child;
+  this only draws the session and sends commands.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>gah</title>
+<style>
+  :root { --bg:#fbfbfa; --fg:#1d1d1b; --muted:#6b6b66; --line:#e3e2dd; --accent:#2f6fb3; --warn:#9a6700; --err:#b3261e; --code:#f1f0ec; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#16171a; --fg:#e7e6e1; --muted:#9b9a94; --line:#2c2d31; --accent:#7fb0e6; --warn:#e0b050; --err:#f28b82; --code:#202226; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 system-ui, sans-serif; display:flex; flex-direction:column; height:100vh; }
+  header, footer { padding:6px 16px; color:var(--muted); font-size:13px; border-bottom:1px solid var(--line); display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+  footer { border-bottom:0; border-top:1px solid var(--line); }
+  header b { color:var(--fg); }
+  #log { flex:1; overflow-y:auto; padding:12px 16px; }
+  .msg { margin:0 0 14px; max-width:980px; }
+  .user { border-left:3px solid var(--accent); padding-left:10px; white-space:pre-wrap; }
+  .assistant p { margin:.3em 0; }
+  .thinking { color:var(--muted); font-style:italic; white-space:pre-wrap; }
+  .notice { border:1px solid var(--line); border-radius:6px; padding:8px 12px; white-space:pre-wrap; }
+  .notice.warning { border-color:var(--warn); } .notice.error { border-color:var(--err); color:var(--err); }
+  details.tool { border:1px solid var(--line); border-radius:6px; padding:4px 10px; font-size:13px; }
+  details.tool summary { cursor:pointer; color:var(--muted); }
+  details.tool.error summary { color:var(--err); }
+  pre, code { font:13px/1.45 ui-monospace, Menlo, Consolas, monospace; background:var(--code); border-radius:4px; }
+  pre { padding:8px 10px; overflow-x:auto; white-space:pre-wrap; } code { padding:0 3px; }
+  #widgets { padding:0 16px; white-space:pre-wrap; color:var(--warn); font-size:13px; }
+  #compose { display:flex; gap:8px; padding:8px 16px 4px; }
+  textarea { flex:1; font:inherit; color:inherit; background:transparent; border:1px solid var(--line); border-radius:6px; padding:8px; min-height:44px; resize:vertical; }
+  button, select { font:inherit; color:inherit; background:transparent; border:1px solid var(--line); border-radius:6px; padding:4px 10px; }
+  #hints { padding:0 16px; color:var(--muted); font-size:13px; }
+  #hints span { margin-right:12px; cursor:pointer; }
+  dialog { border:1px solid var(--line); border-radius:8px; background:var(--bg); color:var(--fg); min-width:min(520px, 90vw); }
+  dialog textarea { width:100%; min-height:160px; }
+  .muted { color:var(--muted); }
+</style>
+</head>
+<body>
+<header><b>gah</b><span id="model" class="muted">connecting…</span><select id="models" hidden></select><span id="busy"></span></header>
+<main id="log" aria-live="polite"></main>
+<div id="widgets"></div>
+<div id="compose">
+  <textarea id="input" placeholder="Message (Enter to send, Shift+Enter newline, Esc interrupts, / for commands)"></textarea>
+  <button id="send">Send</button>
+</div>
+<div id="hints"></div>
+<footer><span id="ctx"></span><span id="status"></span></footer>
+<dialog id="dlg"><form method="dialog"><h3 id="dlg-title"></h3><div id="dlg-body"></div><p><button value="ok">OK</button> <button value="cancel">Cancel</button></p></form></dialog>
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const log = $("log"), input = $("input");
+let seq = 0, streaming = false, commands = [];
+const pending = new Map();          // command id -> callback for its response
+const live = new Map();             // contentIndex -> element of the streaming assistant message
+const tools = new Map();            // toolCallId -> <details>
+const statuses = new Map(), widgets = new Map();
+
+// --- transport -----------------------------------------------------------------
+function send(cmd, onResponse) {
+  cmd.id = cmd.id ?? `w${++seq}`;
+  if (onResponse) pending.set(cmd.id, onResponse);
+  return fetch("/cmd", { method: "POST", body: JSON.stringify(cmd) });
+}
+const events = new EventSource("/events");
+events.onopen = () => { log.textContent = ""; live.clear(); tools.clear(); refresh(); }; // the bridge replays everything
+events.onerror = () => { $("model").textContent = "disconnected — retrying…"; };
+events.onmessage = (e) => { try { handle(JSON.parse(e.data)); } catch (err) { console.error(err, e.data); } };
+
+// --- tiny markdown: escape first, then a handful of forms ---------------------------
+function esc(s) { return s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]); }
+function md(text) {
+  const parts = esc(text).split(/```[^\n]*\n([\s\S]*?)(?:```|$)/);
+  return parts.map((p, i) => i % 2 ? `<pre>${p}</pre>` : p
+    .replace(/`([^`\n]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*\n]+)\*\*/g, "<b>$1</b>")
+    .replace(/\[([^\]\n]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
+    .replace(/(^|\n)(#{1,4}) ([^\n]+)/g, (_, a, h, t) => `${a}<b>${t}</b>`)
+    .split(/\n{2,}/).map((b) => `<p>${b.replace(/\n/g, "<br>")}</p>`).join("")).join("");
+}
+function add(cls, html, tag = "div") {
+  const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 40;
+  const el = document.createElement(tag); el.className = `msg ${cls}`; el.innerHTML = html; log.append(el);
+  if (atBottom) log.scrollTop = log.scrollHeight;
+  return el;
+}
+const textOf = (content) => typeof content === "string" ? content
+  : (content ?? []).filter((c) => c.type === "text").map((c) => c.text).join("\n");
+
+// --- the protocol ---------------------------------------------------------------------
+function handle(r) {
+  switch (r.type) {
+    case "response": {
+      const cb = pending.get(r.id); pending.delete(r.id);
+      if (!r.success && r.command !== "parse") add("notice error", esc(`${r.command}: ${r.error}`));
+      if (cb && r.success) cb(r.data);
+      break;
+    }
+    case "agent_start": setBusy(true); break;
+    case "agent_settled": setBusy(false); refresh(); break;
+    case "message_start":
+      if (r.message.role === "user") add("user", esc(textOf(r.message.content)));
+      if (r.message.role === "assistant") live.clear();
+      break;
+    case "message_update": {
+      const u = r.assistantMessageEvent;
+      if (u.type === "text_start" || u.type === "thinking_start") live.set(u.contentIndex, add(u.type === "text_start" ? "assistant" : "thinking", ""));
+      const el = live.get(u.contentIndex); if (!el) break;
+      if (u.type === "text_delta" || u.type === "thinking_delta") { el.dataset.raw = (el.dataset.raw ?? "") + u.delta; el.innerHTML = el.classList.contains("assistant") ? md(el.dataset.raw) : esc(el.dataset.raw); }
+      if (u.type === "text_end") el.innerHTML = md(u.content);
+      if (u.type === "thinking_end") el.textContent = u.content;
+      break;
+    }
+    case "message_end":
+      if (r.message.role === "assistant" && r.message.stopReason === "error") add("notice error", esc(r.message.errorMessage ?? "The model returned an error."));
+      break;
+    case "tool_execution_start": {
+      const det = add("tool", `<summary>${esc(r.toolName)} ${esc(summarise(r.args))} <span class="muted">…</span></summary><pre>${esc(JSON.stringify(r.args, null, 2))}</pre>`, "details");
+      tools.set(r.toolCallId, det);
+      break;
+    }
+    case "tool_execution_end": {
+      const det = tools.get(r.toolCallId); if (!det) break;
+      if (r.isError) det.classList.add("error");
+      det.querySelector("summary .muted").textContent = r.isError ? "failed" : "done";
+      det.insertAdjacentHTML("beforeend", `<pre>${esc(textOf(r.result?.content).slice(0, 20000))}</pre>`);
+      break;
+    }
+    case "queue_update": $("busy").textContent = streaming ? `working… ${r.steering.length + r.followUp.length ? `(${r.steering.length + r.followUp.length} queued)` : ""}` : ""; break;
+    case "extension_ui_request": ui(r); break;
+    case "extension_error": add("notice error", esc(`${r.extensionPath}: ${r.error}`)); break;
+    case "bridge_exit": add("notice error", esc(`gah exited${r.code != null ? ` (code ${r.code})` : ""}${r.error ? `: ${r.error}` : ""}. Restart the bridge to start a new session.`)); setBusy(false); break;
+  }
+}
+function summarise(args) {
+  if (!args || typeof args !== "object") return "";
+  return Object.entries(args).map(([k, v]) => `${k}=${typeof v === "string" ? v : JSON.stringify(v)}`).join(" ").slice(0, 140);
+}
+function setBusy(b) { streaming = b; $("busy").textContent = b ? "working… (Esc interrupts)" : ""; }
+
+// --- extension UI: what the policy pack and skills ask of the person ---------------------
+function ui(r) {
+  const reply = (v) => send({ type: "extension_ui_response", id: r.id, ...v });
+  switch (r.method) {
+    case "notify": add(`notice ${r.notifyType ?? "info"}`, esc(r.message)); break;
+    case "setStatus": r.statusText ? statuses.set(r.statusKey, r.statusText) : statuses.delete(r.statusKey); $("status").textContent = [...statuses.values()].join(" · "); break;
+    case "setWidget": r.widgetLines ? widgets.set(r.widgetKey, r.widgetLines.join("\n")) : widgets.delete(r.widgetKey); $("widgets").textContent = [...widgets.values()].join("\n"); break;
+    case "setTitle": document.title = r.title; break;
+    case "set_editor_text": input.value = r.text; input.focus(); break;
+    case "select": case "confirm": case "input": case "editor": dialog(r, reply); break;
+  }
+}
+function dialog(r, reply) {
+  const dlg = $("dlg"); $("dlg-title").textContent = r.title; const body = $("dlg-body");
+  if (r.method === "select") body.innerHTML = `<select id="dlg-v" size="${Math.min(r.options.length, 8)}">${r.options.map((o) => `<option>${esc(o)}</option>`).join("")}</select>`;
+  if (r.method === "confirm") body.innerHTML = `<p>${esc(r.message ?? "")}</p>`;
+  if (r.method === "input") body.innerHTML = `<input id="dlg-v" placeholder="${esc(r.placeholder ?? "")}" style="width:100%">`;
+  if (r.method === "editor") body.innerHTML = `<textarea id="dlg-v">${esc(r.prefill ?? "")}</textarea>`;
+  const v = $("dlg-v"); if (v?.tagName === "SELECT") v.selectedIndex = 0;
+  dlg.onclose = () => {
+    if (dlg.returnValue !== "ok") return reply({ cancelled: true });
+    if (r.method === "confirm") return reply({ confirmed: true });
+    reply({ value: v.value });
+  };
+  dlg.returnValue = ""; dlg.showModal();
+}
+
+// --- state: header model picker, footer context ------------------------------------------
+function refresh() {
+  send({ type: "get_state" }, (s) => { $("model").textContent = s.model ? `${s.model.provider}/${s.model.id} • ${s.thinkingLevel}` : "no model"; });
+  send({ type: "get_session_stats" }, (s) => { const c = s.contextUsage; $("ctx").textContent = c ? `${Math.round((c.percent ?? 0) * 10) / 10}% of ${Math.round((c.contextWindow ?? 0) / 1000)}k context` : ""; });
+  send({ type: "get_commands" }, (d) => { commands = d.commands; hints(); });
+}
+function pickModel() {
+  send({ type: "get_available_models" }, (d) => {
+    const sel = $("models"); sel.hidden = false;
+    sel.innerHTML = d.models.map((m) => `<option value="${esc(m.provider)}\u0000${esc(m.id)}">${esc(m.provider)}/${esc(m.id)}</option>`).join("");
+    sel.onchange = () => { const [provider, modelId] = sel.value.split("\u0000"); send({ type: "set_model", provider, modelId }, refresh); sel.hidden = true; };
+    sel.focus();
+  });
+}
+function hints() {
+  const q = input.value.startsWith("/") ? input.value.slice(1).split(/\s/)[0] : null;
+  const builtins = [{ name: "model", description: "choose a model" }, { name: "new", description: "start a new session" }];
+  const list = q === null ? [] : [...builtins, ...commands].filter((c) => c.name.startsWith(q)).slice(0, 8);
+  $("hints").innerHTML = list.map((c) => `<span data-n="${esc(c.name)}">/${esc(c.name)} <span class="muted">${esc(c.description ?? "")}</span></span>`).join("");
+  for (const s of $("hints").querySelectorAll("[data-n]")) s.onclick = () => { input.value = `/${s.dataset.n} `; input.focus(); hints(); };
+}
+
+// --- composing -------------------------------------------------------------------------
+function submit() {
+  const text = input.value.trim(); if (!text) return;
+  input.value = ""; hints();
+  // The TUI's own slash commands are not RPC prompts; the two a person needs most map to commands.
+  if (text === "/model") return pickModel();
+  if (text === "/new") return send({ type: "new_session" }, () => { log.textContent = ""; refresh(); });
+  send(streaming ? { type: "prompt", message: text, streamingBehavior: "steer" } : { type: "prompt", message: text });
+}
+input.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); }
+  if (e.key === "Escape" && streaming) { e.preventDefault(); send({ type: "abort" }); }
+});
+input.addEventListener("input", hints);
+$("send").onclick = submit;
+input.focus();
+</script>
+</body>
+</html>
