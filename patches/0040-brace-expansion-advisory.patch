@@ -1,0 +1,73 @@
+From 3cf4689b0bc2d9b5cf995b50656eff5c22ba8365 Mon Sep 17 00:00:00 2001
+From: csolomon <charliesolomon@gmail.com>
+Date: Wed, 30 Sep 2026 09:47:33 -0700
+Subject: [PATCH] deps: brace-expansion 5.0.9 -> 5.0.12 (GHSA-q2hr-2g5m-vwhr,
+ GHSA-qhr7-859c-m2p7, GHSA-6j4f-fj2g-mc7p)
+
+Why a patch: this is a change to upstream's lockfile, which no
+policy-pack extension can express. Upstream v0.99.1 resolves
+brace-expansion 5.0.9; retire this patch at the first sync whose
+upstream lockfile resolves >= 5.0.12.
+
+What: `npm audit --omit=dev --audit-level=high` in vendor/pi, which CI
+runs, reports three denial-of-service advisories in brace-expansion
+>= 4.0.0 < 5.0.12 (quadratic-time rewrite, and two unbounded
+recursions on nested or comma-separated brace groups). It is a runtime
+dependency, through pi-coding-agent -> minimatch 10.2.6, whose range
+(^5.0.8) already admits the fix. Lockfiles only: one entry each, version,
+resolved URL and integrity (checked against the registry). No manifest
+changes. Two lockfiles carry it: the workspace's, and
+packages/coding-agent/install-lock/package-lock.json, which upstream
+generates from it for installs of the published package and which trivy
+scans. The second was regenerated with `npm run
+install-lock:coding-agent` and then trimmed to the brace-expansion
+entry; the generator also carries 0001's pi -> gah bin rename across,
+which is 0001's concern, not this patch's.
+
+Made with `npm update brace-expansion --package-lock-only
+--ignore-scripts`; audit reports 0 vulnerabilities after it.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WHU6GR6xxBMmQZUcB1KhgK
+---
+ package-lock.json                                    | 6 +++---
+ packages/coding-agent/install-lock/package-lock.json | 6 +++---
+ 2 files changed, 6 insertions(+), 6 deletions(-)
+
+diff --git a/package-lock.json b/package-lock.json
+index b86e492ef..dd8716248 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -2515,9 +2515,9 @@
+ 			"license": "MIT"
+ 		},
+ 		"node_modules/brace-expansion": {
+-			"version": "5.0.9",
+-			"resolved": "https://registry.npmjs.org/brace-expansion/-/brace-expansion-5.0.9.tgz",
+-			"integrity": "sha512-ScQ4IuvIEF1TMlP7Zt+vjJ//9zlPb2SDcxWxM3bk8s6t6GGdJ7KO1dCcTidOPJKePW30LE/2cT7wCyPho9/Wxg==",
++			"version": "5.0.12",
++			"resolved": "https://registry.npmjs.org/brace-expansion/-/brace-expansion-5.0.12.tgz",
++			"integrity": "sha512-YovQ3rzhaLMIrDjNDMkNS01tea93qhEhG5xy8f6+R0l+dw3Ki+5sCoIoI942iuLZTHWogWktgwVDhU09iNEimQ==",
+ 			"license": "MIT",
+ 			"dependencies": {
+ 				"balanced-match": "^4.0.2"
+diff --git a/packages/coding-agent/install-lock/package-lock.json b/packages/coding-agent/install-lock/package-lock.json
+index 62a4d395e..aebd82b52 100644
+--- a/packages/coding-agent/install-lock/package-lock.json
++++ b/packages/coding-agent/install-lock/package-lock.json
+@@ -1226,9 +1226,9 @@
+ 			"license": "MIT"
+ 		},
+ 		"node_modules/brace-expansion": {
+-			"version": "5.0.9",
+-			"resolved": "https://registry.npmjs.org/brace-expansion/-/brace-expansion-5.0.9.tgz",
+-			"integrity": "sha512-ScQ4IuvIEF1TMlP7Zt+vjJ//9zlPb2SDcxWxM3bk8s6t6GGdJ7KO1dCcTidOPJKePW30LE/2cT7wCyPho9/Wxg==",
++			"version": "5.0.12",
++			"resolved": "https://registry.npmjs.org/brace-expansion/-/brace-expansion-5.0.12.tgz",
++			"integrity": "sha512-YovQ3rzhaLMIrDjNDMkNS01tea93qhEhG5xy8f6+R0l+dw3Ki+5sCoIoI942iuLZTHWogWktgwVDhU09iNEimQ==",
+ 			"license": "MIT",
+ 			"dependencies": {
+ 				"balanced-match": "^4.0.2"
+-- 
+2.43.0
+
