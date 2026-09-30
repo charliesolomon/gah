@@ -13,7 +13,7 @@ process's stdio. So the minimum is two small pieces:
 | Piece | Here | Size | Dependencies |
 |---|---|---|---|
 | The page | `index.html` | ~215 lines, one file | none: vanilla JS, no build |
-| The bridge | `bridge.mjs` | ~215 lines, a third of it comments | none: Node, already a GAH prerequisite on Linux and Windows |
+| The bridge | `bridge.mjs` | ~290 lines, a third of it comments; the relay itself is under half, the rest is launcher discovery, `--selftest` and `--open` | none: Node, already a GAH prerequisite on Linux and Windows |
 
 The bridge starts **one policed `gah --mode rpc` child as the person running
 it** and relays: `GET /events` (Server-Sent Events, every record gah writes,
@@ -94,20 +94,21 @@ minimal. Out of scope (#119).
 
 ## Windows risks (to check on a Win11 machine before anything else)
 
+`node bridge.mjs --selftest` checks the first two (see "Testing on Windows 11").
+
 1. **stdin through Windows PowerShell 5.1.** The bridge writes commands to
    `powershell.exe`, which runs `gah.ps1`, which starts `node` with `&`. That
    the native child inherits a *redirected* stdin, and that nothing buffers
-   it, is expected but unproven. Test:
-   `'{"type":"get_state"}' | powershell -NoProfile -File .\bin\gah.ps1 --mode rpc`
-   should print one `response` line.
+   it, is expected but unproven.
 2. **UTF-8 on stdout.** Windows PowerShell can re-encode native output through
-   the console code page when stdout is redirected. A `—` or non-Latin text in
-   a reply is the test. If it mangles, the fallback is for `gah.ps1` to report
-   the exact `node` command and environment it would run, and the bridge to
-   start that directly, so the launcher still owns the policy wiring.
-3. `gah.ps1` writes to the host only in its `init` and `update-skills`
-   subcommands, not on a normal launch; the bridge also sends any
-   non-protocol stdout line to stderr rather than to the page.
+   the console code page when stdout is redirected. If it mangles, the
+   fallback is for `gah.ps1` to report the exact `node` command and
+   environment it would run, and the bridge to start that directly, so the
+   launcher still owns the policy wiring.
+3. **Launcher chatter.** The dev `gah.ps1` writes to the host only in its
+   `init` and `update-skills` subcommands; the package launcher also prints a
+   line when it updates skills. The bridge sends any stdout line that is not a
+   protocol record to its own stderr, never to the page.
 
 ## What the launchers would need (both platforms)
 
@@ -143,24 +144,70 @@ minimal. Out of scope (#119).
 
 ## Run it
 
-Linux, from a built checkout, against whatever models your environment allows:
+The bridge finds gah itself, first match wins: `--gah PATH`; the checkout it
+sits in (`bin/gah`, or `bin\gah.ps1` on Windows); on Windows, the installed
+deployment package (`%LOCALAPPDATA%\gah\gah-launch.ps1`). The session starts
+in the current folder unless `--cwd DIR` says otherwise.
+
+### Testing on Windows 11
+
+Nothing to install beyond what gah already needs (Node on PATH). Two files do
+it all, so this works from a dev checkout or next to the installed package.
+
+1. **Get the two files.** From a checkout: `git fetch` and check out this
+   branch; they are in `experiments\web-min\`. For the installed package:
+   copy `bridge.mjs` and `index.html` into any folder, together.
+
+2. **Self-test first** (no browser; about ten seconds):
+
+   ```powershell
+   node .\experiments\web-min\bridge.mjs --selftest --cwd $HOME
+   # installed package, files copied elsewhere:
+   node .\bridge.mjs --selftest --cwd $HOME
+   ```
+
+   It prints which launcher it started, then:
+
+   ```
+   stdin reaches gah:   PASS (get_state answered in … ms)
+   model:               <provider>/<model>
+   UTF-8 round trip:    PASS (an em dash came back intact)
+   ```
+
+   Those are the two open Windows risks (below). A FAIL on either is the
+   finding; please post the output on #119.
+
+3. **Open the page:**
+
+   ```powershell
+   node .\experiments\web-min\bridge.mjs --open --cwd $HOME
+   ```
+
+   `--open` starts your default browser on `http://127.0.0.1:8765/?t=…`
+   (the token is new each run; without `--open`, copy the printed URL).
+   Ctrl+C in the PowerShell window stops the bridge and the session.
+
+   Worth trying: a prompt that uses a tool, `/` for the command list,
+   `/model`, Esc while it works, a reload of the tab mid-answer, and a skill.
+
+Setup steps are skipped (`GAH_SKIP_SETUP=1`: they are interactive, and stdout
+is the protocol here), so run gah once in the terminal first if it has never
+run on the machine.
+
+### Linux
+
+From a built checkout:
 
 ```bash
-node experiments/web-min/bridge.mjs            # prints http://127.0.0.1:8765/?t=…
+node experiments/web-min/bridge.mjs --open        # or --selftest
 ```
 
 On a shared host, as yourself:
 
 ```bash
 node experiments/web-min/bridge.mjs --socket ~/.gah/web.sock
-# on your machine:
+# on your machine (Windows 11 ships OpenSSH):
 ssh -N -L 8765:/home/<you>/.gah/web.sock <host>   # then open the printed URL
-```
-
-Windows (untested, see above):
-
-```powershell
-node experiments\web-min\bridge.mjs
 ```
 
 `-- <command…>` replaces the gah command, for example

@@ -28,9 +28,18 @@
  *     The token still applies.
  *
  * Usage:
- *   node bridge.mjs [--port N | --socket PATH] [--cwd DIR] [-- <gah command...>]
- * Default command: bin/gah (Linux/macOS) or bin\gah.ps1 via Windows
- * PowerShell (Windows), with --mode rpc, from the checkout this file sits in.
+ *   node bridge.mjs [--port N | --socket PATH] [--cwd DIR] [--gah PATH] [--open] [--selftest] [-- <gah command...>]
+ *
+ * Which gah (first that exists), always with --mode rpc:
+ *   --gah PATH                          a gah launcher (a .ps1 runs through Windows PowerShell)
+ *   <checkout>/bin/gah(.ps1)            when this file sits in a gah checkout
+ *   %LOCALAPPDATA%\gah\gah-launch.ps1   Windows: the installed deployment package
+ * `-- <command...>` replaces all of that with an exact command.
+ *
+ * --open        open the page in the default browser
+ * --selftest    no server: check that commands reach gah and that UTF-8 comes
+ *               back intact (the two Windows PowerShell risks), then exit
+ *
  * GAH_SKIP_SETUP=1 is set for the child: the launcher's interactive setup
  * steps write to stdout, which is the protocol channel in RPC mode.
  */
@@ -57,12 +66,32 @@ const opt = (name) => {
 const port = Number(opt("--port") ?? 8765);
 const socketPath = opt("--socket");
 const cwd = resolve(opt("--cwd") ?? process.cwd());
-const command =
-	dash >= 0
-		? argv.slice(dash + 1)
-		: process.platform === "win32"
-			? ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", join(REPO, "bin", "gah.ps1"), "--mode", "rpc"]
-			: [join(REPO, "bin", "gah"), "--mode", "rpc"];
+const openBrowser = own.includes("--open");
+const selftest = own.includes("--selftest");
+
+function launcher() {
+	const win = process.platform === "win32";
+	const explicit = opt("--gah");
+	if (explicit && !existsSync(explicit)) {
+		console.error(`bridge: --gah ${explicit} does not exist`);
+		process.exit(2);
+	}
+	const candidates = [
+		opt("--gah"),
+		join(REPO, "bin", win ? "gah.ps1" : "gah"),
+		win && process.env.LOCALAPPDATA ? join(process.env.LOCALAPPDATA, "gah", "gah-launch.ps1") : undefined,
+	].filter(Boolean);
+	const found = candidates.find((c) => existsSync(c));
+	if (!found) {
+		console.error(`bridge: no gah launcher found (tried ${candidates.join(", ")}); pass --gah PATH`);
+		process.exit(2);
+	}
+	return found.toLowerCase().endsWith(".ps1")
+		? ["powershell.exe", "-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", found, "--mode", "rpc"]
+		: [found, "--mode", "rpc"];
+}
+const command = dash >= 0 ? argv.slice(dash + 1) : launcher();
+console.error(`bridge: starting ${command.join(" ")}`);
 
 const token = randomBytes(18).toString("base64url");
 const page = readFileSync(join(HERE, "index.html"));
@@ -103,10 +132,45 @@ child.stderr.setEncoding("utf8");
 child.stderr.on("data", (text) => process.stderr.write(text)); // diagnostics, never protocol
 child.on("exit", (code, signal) => {
 	publish(JSON.stringify({ type: "bridge_exit", code, signal }));
-	console.error(`bridge: gah exited (${signal ?? code}); the page shows it. Ctrl+C to stop the bridge.`);
+	if (!selftest) console.error(`bridge: gah exited (${signal ?? code}); the page shows it. Ctrl+C to stop the bridge.`);
 });
 child.on("error", (err) => publish(JSON.stringify({ type: "bridge_exit", error: String(err) })));
 
+// --- --selftest: the two Windows risks, without a browser ----------------------------
+if (selftest) {
+	const t0 = Date.now();
+	const answered = (id) => records.find((l) => l.includes(`"id":"${id}"`) && l.includes('"type":"response"'));
+	const send = (cmd) => child.stdin.write(`${JSON.stringify(cmd)}\n`);
+	const report = () => {
+		const state = answered("st1");
+		const cmds = answered("st2");
+		const model = state ? (JSON.parse(state).data?.model ?? {}) : {};
+		console.log(`stdin reaches gah:   ${state ? "PASS" : "FAIL"}${state ? ` (get_state answered in ${Date.now() - t0} ms)` : " (no response to get_state within 60 s)"}`);
+		console.log(`model:               ${model.provider ? `${model.provider}/${model.id}` : "(none selected)"}`);
+		if (cmds) {
+			// whats-new-seen's description carries an em dash; a mangled code page shows it as mojibake or U+FFFD.
+			const text = cmds;
+			const dash = text.includes("\u2014") || text.includes("—");
+			const broken = /\uFFFD|â€|�/.test(text);
+			console.log(`UTF-8 round trip:    ${broken ? "FAIL (mangled characters in gah's output)" : dash ? "PASS (an em dash came back intact)" : "UNKNOWN (no non-ASCII text in the command list to check)"}`);
+		} else console.log("UTF-8 round trip:    FAIL (no response to get_commands)");
+		const other = records.filter((l) => !l.includes('"type":"response"')).length;
+		console.log(`other records:       ${other} (startup notices, extension UI)`);
+		child.stdin.end();
+		setTimeout(() => process.exit(state && cmds ? 0 : 1), 1500).unref();
+	};
+	// Sent at once, before gah is ready: a pipe buffers them, which is part of the test.
+	send({ id: "st1", type: "get_state" });
+	send({ id: "st2", type: "get_commands" });
+	const wait = setInterval(() => {
+		if ((answered("st1") && answered("st2")) || Date.now() - t0 > 60_000) {
+			clearInterval(wait);
+			report();
+		}
+	}, 250);
+} else startServer();
+
+function startServer() {
 // --- HTTP --------------------------------------------------------------------------
 function sameToken(a) {
 	const x = Buffer.from(a ?? "");
@@ -202,7 +266,9 @@ if (socketPath) {
 	});
 } else {
 	server.listen(port, "127.0.0.1", () => {
-		console.error(`bridge: open http://127.0.0.1:${server.address().port}/?t=${token}`);
+		const url = `http://127.0.0.1:${server.address().port}/?t=${token}`;
+		console.error(`bridge: open ${url}`);
+		open(url);
 	});
 }
 
@@ -215,3 +281,11 @@ function shutdown() {
 }
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
+}
+
+function open(url) {
+	if (!openBrowser) return;
+	const [cmd, args] =
+		process.platform === "win32" ? ["cmd.exe", ["/c", "start", '""', url]] : process.platform === "darwin" ? ["open", [url]] : ["xdg-open", [url]];
+	spawn(cmd, args, { stdio: "ignore", detached: true, windowsVerbatimArguments: process.platform === "win32" }).unref();
+}
