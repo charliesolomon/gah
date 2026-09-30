@@ -152,7 +152,6 @@ import {
 	formatAuthSelectorProviderType,
 	OAuthSelectorComponent,
 } from "./components/oauth-selector.ts";
-import { piLogoLines } from "./components/pi-logo.ts";
 import { ScopedModelsSelectorComponent } from "./components/scoped-models-selector.ts";
 import { SessionSelectorComponent } from "./components/session-selector.ts";
 import { SettingsSelectorComponent } from "./components/settings-selector.ts";
@@ -175,6 +174,7 @@ import { UserMessageSelectorComponent } from "./components/user-message-selector
 import { editInExternalEditor } from "./external-editor.ts";
 import { refreshModelCatalogs } from "./model-catalog-refresh.ts";
 import { getModelSearchText } from "./model-search.ts";
+import { gahAudit } from "../../core/gah-audit.ts";
 import { shareSession } from "./session-share.ts";
 import {
 	getAvailableThemes,
@@ -971,14 +971,14 @@ export class InteractiveMode {
 		if (this.options.verbose || !this.settingsManager.getQuietStartup()) {
 			// Built on demand so the header follows theme changes. The logo's first line carries the version,
 			// its second line the first line of key hints.
-			const withLogo = (hints: string) => {
-				const [top, bottom] = piLogoLines();
-				return `${top} ${theme.fg("dim", `v${this.version}`)}\n${bottom} ${hints}`;
-			};
+			// GAH: the header names the product in text ("gah v0.99.1"), as it did before upstream
+			// replaced the app name with the pi logo; the logo is upstream's brand, not ours.
+			const withLogo = (hints: string) => `${theme.bold(APP_NAME)} ${theme.fg("dim", `v${this.version}`)}\n${hints}`;
 
 			// Build startup instructions using keybinding hint helpers
 			const hint = (keybinding: AppKeybinding, description: string) => keyHint(keybinding, description);
 
+			const gahShellAllowed = /(^|,)(bash|powershell)(,|$)/.test(process.env.GAH_EFFECTIVE_TOOLS ?? "bash");
 			const expandedInstructions = () =>
 				[
 					hint("app.interrupt", "to interrupt"),
@@ -997,8 +997,9 @@ export class InteractiveMode {
 					hint("app.thinking.toggle", "to expand thinking"),
 					hint("app.editor.external", "for external editor"),
 					rawKeyHint("/", "for commands"),
-					rawKeyHint("!", "to run bash"),
-					rawKeyHint("!!", "to run bash (no context)"),
+					// GAH: the shell escape exists only when the policy allows a shell
+					// (policy.ts exports the enforced set before this banner is built).
+					...(gahShellAllowed ? [rawKeyHint("!", "to run bash"), rawKeyHint("!!", "to run bash (no context)")] : []),
 					hint("app.message.followUp", "to queue follow-up"),
 					hint("app.message.dequeue", "to edit all queued messages"),
 					hint("app.clipboard.pasteImage", "to paste files on macOS, images, or text"),
@@ -1009,13 +1010,13 @@ export class InteractiveMode {
 					hint("app.interrupt", "interrupt"),
 					rawKeyHint(`${keyText("app.clear")}/${keyText("app.exit")}`, "clear/exit"),
 					rawKeyHint("/", "commands"),
-					rawKeyHint("!", "bash"),
+					...(gahShellAllowed ? [rawKeyHint("!", "bash")] : []),
 					hint("app.tools.expand", "more"),
 				].join(theme.fg("muted", " · "));
 			const compactOnboarding = () =>
 				theme.fg("dim", `Press ${keyText("app.tools.expand")} to show full startup help and loaded resources.`);
 			const onboarding = () =>
-				theme.fg("dim", `Pi can explain its own features and look up its docs. Ask it how to use or extend Pi.`);
+				theme.fg("dim", `GAH enforces a tool allowlist and audits every call. Ask the agent what it can and can't do.`);
 			this.builtInHeader = new ExpandableText(
 				() => `${withLogo(compactInstructions())}\n${compactOnboarding()}\n\n${onboarding()}`,
 				() => `${withLogo(expandedInstructions())}\n\n${onboarding()}`,
@@ -6393,6 +6394,15 @@ export class InteractiveMode {
 	}
 
 	private async handleShareCommand(): Promise<void> {
+		// GAH: /share uploads the transcript to a GitHub gist through the gh
+		// CLI -- a child process the egress allowlist (0011) cannot see, and a
+		// transcript on a governed host is the organisation's data. Off unless
+		// the deployment sets GAH_ALLOW_SHARE=1.
+		if (process.env.GAH_ALLOW_SHARE !== "1") {
+			gahAudit({ kind: "blocked", reason: "share_disabled", command: "/share" });
+			this.showError("/share is disabled by GAH policy: session transcripts stay on this machine.");
+			return;
+		}
 		await shareSession({
 			session: this.session,
 			ui: this.ui,

@@ -67,6 +67,13 @@ import {
 import { getAgentDir } from "../config.ts";
 import { operationSignal, raceWithAbortSignal } from "../utils/abort.ts";
 import { AuthStorage as DefaultAuthStorage } from "./auth-storage.ts";
+import {
+	gahAllowsBuiltInModel,
+	gahAllowsModelsJson,
+	gahProviderHasModels,
+	gahRestrictProvider,
+	gahVisibleProviders,
+} from "./gah-model-policy.ts";
 import { ModelConfig } from "./model-config.ts";
 import { FileModelsStore, InMemoryCodingAgentModelsStore } from "./models-store.ts";
 import {
@@ -214,8 +221,15 @@ export class ModelRuntime implements Models {
 
 	static async create(options: CreateModelRuntimeOptions = {}): Promise<ModelRuntime> {
 		const credentials = new RuntimeCredentials(options.credentials ?? DefaultAuthStorage.create(options.authPath));
+		// GAH: models.json can define arbitrary provider ids with their own
+		// baseUrl/apiKey/headers, and its `oauth: "radius"` form injects straight
+		// into the builtins map — so it is an endpoint bypass, not a preference.
+		// Gating the PATH (not the loader) also neutralises the radius injection
+		// and the re-read in refresh(). See gah-model-policy.ts.
 		const modelsPath =
-			options.modelsPath === null ? undefined : (options.modelsPath ?? join(getAgentDir(), "models.json"));
+			options.modelsPath === null || !gahAllowsModelsJson()
+				? undefined
+				: (options.modelsPath ?? join(getAgentDir(), "models.json"));
 		const config = await ModelConfig.load(modelsPath);
 		const modelsStore =
 			options.modelsStore ??
@@ -223,13 +237,16 @@ export class ModelRuntime implements Models {
 				? new FileModelsStore(options.modelsStorePath ?? join(dirname(modelsPath), "models-store.json"))
 				: new InMemoryCodingAgentModelsStore());
 		const builtinModelDataGeneratedAt = builtinProviderCatalog.getBuiltinModelDataGeneratedAt();
+		// GAH: apply the allowlist OUTERMOST — after withRemoteCatalog — so models
+		// the remote catalog adds at call time are filtered too.
 		const providers = builtinProviderCatalog
 			.builtinProviders()
 			.map((provider) =>
 				provider.id === "radius"
 					? provider
 					: withRemoteCatalog(provider, options.catalogBaseUrl, builtinModelDataGeneratedAt),
-			);
+			)
+			.map(gahRestrictProvider);
 		const runtime = new ModelRuntime(
 			credentials,
 			config,
@@ -288,7 +305,16 @@ export class ModelRuntime implements Models {
 
 	/** Returns the provider without virtual models, or undefined when only virtual models define it. */
 	private recomposeProvider(providerId: string): Provider | undefined {
-		const provider = this.composeProvider(providerId);
+		// GAH: whatever ends up registered under a built-in provider id is subject
+		// to the allowlist, however it got there. An extension can re-register a
+		// built-in as a native object (the policy pack does, to strip OAuth flows),
+		// and that object is upstream's raw catalogue, not the wrapped one from
+		// create() -- without this, a providers.json on the host reopened every
+		// built-in with an OAuth flow. Idempotent over already-wrapped builtins.
+		// Wrapped before withVirtualModels, so virtual entries stay listed; the
+		// physical model they route to is checked in prepareRequest().
+		const composed = this.composeProvider(providerId);
+		const provider = composed && this.defaultBuiltins.has(providerId) ? gahRestrictProvider(composed) : composed;
 		const virtualModels = [...(this.virtualModels.get(providerId)?.values() ?? [])].map((entry) => entry.model);
 		if (virtualModels.length > 0) this.models.setProvider(withVirtualModels(providerId, provider, virtualModels));
 		else if (provider) this.models.setProvider(provider);
@@ -430,12 +456,16 @@ export class ModelRuntime implements Models {
 		}
 	}
 
+	// GAH: the public surface hides providers with no allowed models, so /login,
+	// `gah auth` and extensions see only what a user can actually use. Internal
+	// paths keep reading this.models directly. See gah-model-policy.ts.
 	getProviders(): readonly Provider[] {
-		return this.models.getProviders();
+		return gahVisibleProviders(this.models.getProviders());
 	}
 
 	getProvider(providerId: string): Provider | undefined {
-		return this.models.getProvider(providerId);
+		const provider = this.models.getProvider(providerId);
+		return provider && gahProviderHasModels(provider) ? provider : undefined;
 	}
 
 	getModels(providerId?: string): readonly Model<Api>[] {
@@ -660,6 +690,14 @@ export class ModelRuntime implements Models {
 	}> {
 		const provider = this.models.getProvider(model.provider);
 		if (!provider) throw new ModelsError("provider", `Unknown provider: ${model.provider}`);
+		// GAH: every chat, deferred, image and classifier request passes through
+		// here, and the model is the caller's object, not a catalogue lookup. The
+		// filtered catalogue keeps denied models out of every picker; this keeps a
+		// constructed or restored one (an old session, a virtual model's route)
+		// from being dispatched. See gah-model-policy.ts.
+		if (this.defaultBuiltins.has(model.provider) && !gahAllowsBuiltInModel(model.provider, model.id)) {
+			throw new ModelsError("provider", `Model ${model.provider}/${model.id} is not allowed by GAH_BUILTIN_MODELS`);
+		}
 		const resolution = await this.getAuth(model, {
 			apiKey: options?.apiKey,
 			env: options?.env,

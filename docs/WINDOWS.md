@@ -96,8 +96,8 @@ and that fallback. It also skips upstream's `prepare: husky` hook, which is
 bash-only and irrelevant here, and silences newer npm's `allow-scripts`
 warning about unapproved install scripts.
 
-**Do not use `--omit=dev`** — the compilers (`typescript`, `@typescript/native-preview`,
-`esbuild`, `shx`, `tsx`) are devDependencies, so omitting them breaks the build.
+**Do not use `--omit=dev`** — the compilers (`typescript`, `esbuild`, `shx`) are
+devDependencies, so omitting them breaks the build.
 
 ## Build
 
