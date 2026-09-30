@@ -226,7 +226,8 @@ export function capLines(lines: readonly string[], cap: number): string[] {
 /** settings.json key: repo root → last sha the person has been told about. */
 export const SEEN_KEY = "skillsSeen";
 
-function readSettings(path: string): Record<string, unknown> | null {
+/** settings.json as an object; {} when absent, null when unparseable (and then never written). */
+export function readSettings(path: string): Record<string, unknown> | null {
 	if (!existsSync(path)) return {};
 	try {
 		const parsed = JSON.parse(readFileSync(path, "utf-8").replace(/^﻿/, ""));
@@ -237,7 +238,7 @@ function readSettings(path: string): Record<string, unknown> | null {
 }
 
 /** Merge-write like last-model.ts: every other key survives; an unparseable file is left alone. */
-function writeSettings(path: string, next: Record<string, unknown>): void {
+export function writeSettings(path: string, next: Record<string, unknown>): void {
 	mkdirSync(dirname(path), { recursive: true });
 	const tmp = `${path}.${process.pid}.tmp`;
 	writeFileSync(tmp, `${JSON.stringify(next, null, 2)}\n`, "utf-8");

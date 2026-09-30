@@ -71,6 +71,7 @@ install -m 0755 "$HERE/gah-update" /usr/local/bin/gah-update
 install -d -m 0755 /etc/gah /etc/gah/users.d
 install -m 0644 "$HERE/tmux.conf" /etc/gah/tmux.conf
 install -m 0644 "$HERE/users.d/agent.conf.example" /etc/gah/users.d/agent.conf.example
+install -m 0644 "$HERE/whats-new.md.example" /etc/gah/whats-new.md.example
 
 # gah-session is a login shell; register it so chsh & friends accept it.
 grep -qx /usr/local/bin/gah-session /etc/shells || echo /usr/local/bin/gah-session >>/etc/shells

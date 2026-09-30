@@ -127,6 +127,7 @@ also be on; it is the per-user switch that produces the "Copied!" flash.
 | Task | Command |
 |---|---|
 | Update gah build | `sudo gah-update` (sessions pick it up on next launch) |
+| Tell users what changed | add a dated `## ` section at the top of `/etc/gah/whats-new.md` (start from `whats-new.md.example`); each person sees it once at their next launch, `/whats-new` shows all (#117). Upstream pi's own changelog is one line with a link (patch 0003) |
 | Update the knowledge base | merge the proposal `kb-propose` opened — every launch fast-forwards a clean checkout (docs/KB.md) |
 | Update skills | merge a PR in the skills repo — every launch pulls. Open sessions are told within 10 min that updates are waiting (`/quit` and relaunch); the next launch summarises what changed (#91) |
 | Test a skill under a user's account | `sudo -u <user> -H /usr/local/bin/gah-launch --no-mark-seen` — bypasses the login shell (which drops arguments) and leaves the user's skills-update notice unconsumed. Inside the TUI, `/skills-seen reset` undoes a launch that did consume it |
