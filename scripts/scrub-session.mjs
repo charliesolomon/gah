@@ -356,7 +356,10 @@ function looksIpv6(s) {
 	if (s.includes(":::") || s.split("::").length > 2) return false;
 	return (s.includes("::") && colons >= 2 && /[0-9a-f]/i.test(s)) || colons === 7;
 }
-const RE_WIN_PATH = /\b[A-Za-z]:\\(?:[^\\\s"'<>|?*]+\\)*[^\\\s"'<>|?*]*/g;
+// Either separator: pi writes Windows paths with `/` too (the system prompt's cwd
+// section is `C:/Users/<name>`). A lone drive letter before the colon, so a URL
+// scheme (`https:`) cannot match.
+const RE_WIN_PATH = /\b[A-Za-z]:[\\/](?:[^\\/\s"'<>|?*]+[\\/])*[^\\/\s"'<>|?*]*/g;
 const RE_UNC_PATH = /\\\\[^\\\s"'<>|?*]+(?:\\[^\\\s"'<>|?*]+)+/g;
 // Two or more segments from a root, not preceded by a word char, a placeholder's `>`, `~`, or a URL `:`.
 const RE_POSIX_PATH = /(?<![\w<>~:./-])(?:\/[A-Za-z0-9._+@%-]+){2,}\/?/g;
@@ -498,7 +501,8 @@ export function createScrubber(ids, options = {}) {
 		// 5. Paths.
 		t = t.replace(RE_WIN_PATH, (m) => {
 			bump("path");
-			return placeholder("path", m);
+			// One path, one placeholder, whichever separator it was written with.
+			return placeholder("path", m.replaceAll("/", "\\"));
 		});
 		t = t.replace(RE_UNC_PATH, (m) => {
 			bump("path");
@@ -626,14 +630,23 @@ function scrubContent(content, scrub, opts, role) {
 	return out;
 }
 
+/**
+ * Message fields that carry no free text, kept as written. Every other field is
+ * scrubbed: fail closed, so a field upstream adds later is covered before anyone
+ * notices it. pi 0.99 began storing the system prompt as `sections` (docs and
+ * skill paths, the cwd) beside an empty `content`; the old allowlist of fields
+ * passed it through and only the leak-check caught it.
+ */
+const MESSAGE_STRUCTURE = new Set(["role", "timestamp", "api", "usage", "stopReason", "toolCallId", "toolName", "isError", "thinkingLevel"]);
+
 function scrubMessage(msg, scrub, opts) {
 	if (!msg || typeof msg !== "object") return msg;
-	const out = { ...msg };
-	if ("content" in out) out.content = scrubContent(out.content, scrub, opts, msg.role);
-	if (typeof out.provider === "string") out.provider = scrub.scrubText(out.provider);
-	if (typeof out.model === "string") out.model = scrub.scrubText(out.model);
-	if (typeof out.errorMessage === "string") out.errorMessage = scrub.scrubText(out.errorMessage);
-	if ("details" in out) out.details = scrubValue(out.details, scrub);
+	const out = {};
+	for (const [key, value] of Object.entries(msg)) {
+		if (key === "content") out.content = scrubContent(value, scrub, opts, msg.role);
+		else if (MESSAGE_STRUCTURE.has(key)) out[key] = value;
+		else out[key] = scrubValue(value, scrub);
+	}
 	return out;
 }
 
