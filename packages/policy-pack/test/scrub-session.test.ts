@@ -238,6 +238,45 @@ test("scrubSession options: drop tool results, drop thinking, keep images", () =
 	assert.equal(out[3].message.content[1].data, "iVBORw0KGgo=");
 });
 
+test("scrubSession: message fields it does not know are scrubbed, structure kept (0.99 system sections)", () => {
+	const i = ids();
+	const s = createScrubber(i, { cwd: "/home/csolomon/gah" });
+	const system = {
+		type: "message", id: "s1", parentId: null, timestamp: "2026-09-30T00:00:00.000Z",
+		message: {
+			role: "system",
+			content: "",
+			sections: {
+				docs: "- Main documentation: /home/csolomon/gah/vendor/pi/packages/coding-agent/README.md",
+				skills: "<location>C:\\Users\\csolomon\\kb-shared\\skills\\kb-search\\SKILL.md</location>",
+				cwd: "<cwd>\n/home/csolomon/gah\n</cwd>",
+			},
+			toolsAdded: ["read", "ls"],
+			someFutureField: { note: "on charlie-laptop via proxy.corp.example" },
+			timestamp: 1790000000000,
+		},
+	};
+	const { text } = scrubSession(JSON.stringify(system), s);
+	const out = JSON.parse(text.trim());
+	assert.equal(out.message.role, "system");
+	assert.equal(out.message.timestamp, 1790000000000, "structural fields untouched");
+	assert.deepEqual(out.message.toolsAdded, ["read", "ls"]);
+	assert.equal(out.message.sections.docs, "- Main documentation: <cwd>/vendor/pi/packages/coding-agent/README.md");
+	assert.doesNotMatch(out.message.sections.skills, /Users|csolomon|kb-shared/);
+	assert.equal(out.message.sections.cwd, "<cwd>\n<cwd>\n</cwd>");
+	assert.match(out.message.someFutureField.note, /^on <host-\d+> via <host-\d+>$/);
+	assert.deepEqual(leakCheck(text, i), []);
+});
+
+test("Windows paths with forward slashes are paths too, for the scrub and the leak-check", () => {
+	const i = emptyIdentifiers();
+	const s = createScrubber(i, {});
+	assert.equal(s.scrubText("open C:/Users/alice/notes.txt now"), "open <path-1> now");
+	assert.equal(s.scrubText("C:\\Users\\alice\\notes.txt"), "<path-1>", "same path, same placeholder");
+	assert.equal(s.scrubText("see https://example.com/a/b and docs.example.com:443"), "see https://example.com/a/b and docs.example.com:443");
+	assert.ok(leakCheck(JSON.stringify({ t: "C:/Users/alice/x" }), i).some((f) => f.category === "path"));
+});
+
 test("leakCheck finds what a scrub missed", () => {
 	const i = ids();
 	const findings = leakCheck('{"text":"ssh csolomon@charlie-laptop then https://llm-gateway.acme-corp.com/v1 and 10.0.0.7 and glpat-abcdefghijklmnopqrstuv and C:\\\\Users\\\\x"}', i);
