@@ -128,7 +128,13 @@ jobs:
         run: cd vendor/pi && npm ci --ignore-scripts
 
       - name: npm audit (runtime deps)
-        run: cd vendor/pi && npm audit --omit=dev --audit-level=high
+        # Scoped to coding-agent, the one workspace GAH builds and ships, with
+        # everything it depends on. The repo root also lists upstream's example
+        # extensions and packages GAH never builds or loads (server, client,
+        # durable, evals); auditing them failed CI on advisories in code we do
+        # not ship, with no remedy short of editing vendored lockfiles -- see
+        # ci/scans/README.md, "Scan exclusions".
+        run: cd vendor/pi && npm audit --omit=dev --audit-level=high --workspace=packages/coding-agent
 
       - name: Trivy filesystem scan
         uses: aquasecurity/trivy-action@v0.36.0
