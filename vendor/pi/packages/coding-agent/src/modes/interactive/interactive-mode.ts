@@ -144,7 +144,7 @@ import { CustomEntryComponent } from "./components/custom-entry.ts";
 import { CustomMessageComponent } from "./components/custom-message.ts";
 import { DynamicBorder } from "./components/dynamic-border.ts";
 import { EarendilAnnouncementComponent } from "./components/earendil-announcement.ts";
-import { playArmin3d, playPiLogo3d } from "./components/easter-egg-3d.lazy.ts";
+import { playArmin3d } from "./components/easter-egg-3d.lazy.ts";
 import { ExtensionEditorComponent } from "./components/extension-editor.ts";
 import { ExtensionInputComponent } from "./components/extension-input.ts";
 import { ExtensionSelectorComponent } from "./components/extension-selector.ts";
@@ -159,7 +159,6 @@ import {
 	formatAuthSelectorProviderType,
 	OAuthSelectorComponent,
 } from "./components/oauth-selector.ts";
-import { piLogoLines, piWordmark, supportsPiLogo } from "./components/pi-logo.ts";
 import { createLoginMenuSelector } from "./components/radius-login-selector.ts";
 import { ScopedModelsSelectorComponent } from "./components/scoped-models-selector.ts";
 import { SessionSelectorComponent } from "./components/session-selector.ts";
@@ -183,6 +182,7 @@ import { UserMessageSelectorComponent } from "./components/user-message-selector
 import { editInExternalEditor } from "./external-editor.ts";
 import { refreshModelCatalogs } from "./model-catalog-refresh.ts";
 import { getModelSearchText } from "./model-search.ts";
+import { gahAudit } from "../../core/gah-audit.ts";
 import { shareSession } from "./session-share.ts";
 import {
 	getAvailableThemes,
@@ -846,8 +846,21 @@ export class InteractiveMode {
 		if (this.settingsManager.getCollapseChangelog()) {
 			const versionMatch = this.changelogMarkdown.match(/##\s+\[?(\d+\.\d+\.\d+)\]?/);
 			const latestVersion = versionMatch ? versionMatch[1] : this.version;
-			const condensedText = `Updated to v${latestVersion}. Use ${theme.bold("/changelog")} to view full changelog.`;
-			this.chatContainer.addChild(new Text(condensedText, 1, 0));
+			// GAH: one line with a link to exactly this version's notes, instead of
+			// upstream's wording. The deployment's own notes come from the policy
+			// pack (whats-new.ts, #117).
+			const notesUrl = `https://github.com/earendil-works/pi/blob/v${latestVersion}/packages/coding-agent/CHANGELOG.md`;
+			const condensedLine = () => {
+				const link = getCapabilities().hyperlinks
+					? hyperlink(theme.fg("accent", notesUrl), notesUrl)
+					: theme.fg("accent", notesUrl);
+				return (
+					theme.fg("muted", `Updated to pi v${latestVersion}. Release notes: `) +
+					link +
+					theme.fg("muted", ` · ${theme.bold("/changelog")} shows them here.`)
+				);
+			};
+			this.chatContainer.addChild(new ThemedText(condensedLine, 1, 0));
 		} else {
 			this.chatContainer.addChild(new ThemedText(() => theme.bold(theme.fg("accent", "What's New")), 1, 0));
 			this.chatContainer.addChild(new Spacer(1));
@@ -997,18 +1010,15 @@ export class InteractiveMode {
 		if (this.shouldShowStartupHeader()) {
 			const showDetails = this.shouldShowStartupDetails();
 			// Built on demand so the header follows theme changes. The logo's first line carries the version,
-			// its second line the first line of key hints. Terminals that cannot render the logo get a
-			// "Pi vX" line instead, with the key hints below it.
-			const showLogo = supportsPiLogo();
-			const withLogo = (hints: string) => {
-				if (!showLogo) return `${piWordmark()} ${theme.fg("dim", `v${this.version}`)}\n${hints}`;
-				const [top, bottom] = piLogoLines();
-				return `${top} ${theme.fg("dim", `v${this.version}`)}\n${bottom} ${hints}`;
-			};
+			// its second line the first line of key hints.
+			// GAH: the header names the product in text ("gah v1.0.1"), not upstream's logo or its
+			// "Pi" wordmark fallback; those are upstream's brand, not ours.
+			const withLogo = (hints: string) => `${theme.bold(APP_NAME)} ${theme.fg("dim", `v${this.version}`)}\n${hints}`;
 
 			// Build startup instructions using keybinding hint helpers
 			const hint = (keybinding: AppKeybinding, description: string) => keyHint(keybinding, description);
 
+			const gahShellAllowed = /(^|,)(bash|powershell)(,|$)/.test(process.env.GAH_EFFECTIVE_TOOLS ?? "bash");
 			const expandedInstructions = () =>
 				[
 					hint("app.interrupt", "to interrupt"),
@@ -1027,8 +1037,9 @@ export class InteractiveMode {
 					hint("app.thinking.toggle", "to expand thinking"),
 					hint("app.editor.external", "for external editor"),
 					rawKeyHint("/", "for commands"),
-					rawKeyHint("!", "to run bash"),
-					rawKeyHint("!!", "to run bash (no context)"),
+					// GAH: the shell escape exists only when the policy allows a shell
+					// (policy.ts exports the enforced set before this banner is built).
+					...(gahShellAllowed ? [rawKeyHint("!", "to run bash"), rawKeyHint("!!", "to run bash (no context)")] : []),
 					hint("app.message.followUp", "to queue follow-up"),
 					hint("app.message.dequeue", "to edit all queued messages"),
 					hint("app.clipboard.pasteImage", "to paste files on macOS, images, or text"),
@@ -1039,7 +1050,7 @@ export class InteractiveMode {
 					hint("app.interrupt", "interrupt"),
 					rawKeyHint(`${keyText("app.clear")}/${keyText("app.exit")}`, "clear/exit"),
 					rawKeyHint("/", "commands"),
-					rawKeyHint("!", "bash"),
+					...(gahShellAllowed ? [rawKeyHint("!", "bash")] : []),
 					hint("app.tools.expand", "more"),
 				].join(theme.fg("muted", " · "));
 			const compactOnboarding = () =>
@@ -1048,7 +1059,7 @@ export class InteractiveMode {
 					`Press ${keyText("app.tools.expand")} to show full startup help${showDetails ? " and loaded resources" : ""}.`,
 				);
 			const onboarding = () =>
-				theme.fg("dim", `Pi can explain its own features and look up its docs. Ask it how to use or extend Pi.`);
+				theme.fg("dim", `GAH enforces a tool allowlist and audits every call. Ask the agent what it can and can't do.`);
 			const header = new BuiltInHeader(
 				() => `${withLogo(compactInstructions())}\n${compactOnboarding()}\n\n${onboarding()}`,
 				() => `${withLogo(expandedInstructions())}\n\n${onboarding()}`,
@@ -1056,7 +1067,6 @@ export class InteractiveMode {
 				1,
 				0,
 			);
-			if (showLogo) header.onLogoClick = (column, row) => playPiLogo3d(this.renderer, column, row);
 			this.builtInHeader = header;
 
 			// Setup UI layout
@@ -6537,6 +6547,15 @@ export class InteractiveMode {
 	}
 
 	private async handleShareCommand(): Promise<void> {
+		// GAH: /share uploads the transcript to a GitHub gist through the gh
+		// CLI -- a child process the egress allowlist (0011) cannot see, and a
+		// transcript on a governed host is the organisation's data. Off unless
+		// the deployment sets GAH_ALLOW_SHARE=1.
+		if (process.env.GAH_ALLOW_SHARE !== "1") {
+			gahAudit({ kind: "blocked", reason: "share_disabled", command: "/share" });
+			this.showError("/share is disabled by GAH policy: session transcripts stay on this machine.");
+			return;
+		}
 		await shareSession({
 			session: this.session,
 			ui: this.ui,
