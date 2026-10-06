@@ -20,11 +20,12 @@ export function openrouterProvider(): Provider<"anthropic-messages" | "openai-co
 				load: loadOpenRouterOAuth,
 			}),
 		},
+		// GAH (0030-offline-model-data): seeded empty, these catalogues type their values as unknown.
 		models: [
 			...Object.values(OPENROUTER_MODELS),
 			...Object.values(OPENROUTER_IMAGE_MODELS),
 			...Object.values(OPENROUTER_CLASSIFIER_MODELS),
-		],
+		] as never[],
 		api: {
 			"anthropic-messages": anthropicMessagesApi(),
 			"openai-completions": openAICompletionsApi(),

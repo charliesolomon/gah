@@ -1,6 +1,6 @@
-From 7e30ee29fe1884d320e01f1e9a1bbe3cb27e4fe5 Mon Sep 17 00:00:00 2001
+From 2f002f2f77fd7bfc186f4f216b81e7a151191e00 Mon Sep 17 00:00:00 2001
 From: csolomon <charliesolomon@gmail.com>
-Date: Thu, 17 Sep 2026 10:24:00 -0700
+Date: Sat, 3 Oct 2026 10:00:55 -0700
 Subject: [PATCH] branded-cli: GAH_* environment names, and a --help page that
  describes this session
 
@@ -125,7 +125,7 @@ index bdb184edf..2dac020c0 100644
  import { main } from "./main.ts";
  
 diff --git a/packages/coding-agent/src/cli/args.ts b/packages/coding-agent/src/cli/args.ts
-index 8ad5da63e..76c02f523 100644
+index 9461c3e21..8e54e7900 100644
 --- a/packages/coding-agent/src/cli/args.ts
 +++ b/packages/coding-agent/src/cli/args.ts
 @@ -5,6 +5,7 @@
@@ -136,7 +136,7 @@ index 8ad5da63e..76c02f523 100644
  import type { ExtensionFlag } from "../core/extensions/types.ts";
  import type { TuiMode } from "../core/settings-manager.ts";
  
-@@ -249,6 +250,10 @@ export function parseArgs(args: string[]): Args {
+@@ -262,6 +263,10 @@ export function parseArgs(args: string[]): Args {
  }
  
  export function printHelp(extensionFlags?: ExtensionFlag[]): void {
@@ -147,8 +147,8 @@ index 8ad5da63e..76c02f523 100644
  	const extensionFlagsText =
  		extensionFlags && extensionFlags.length > 0
  			? `\n${chalk.bold("Extension CLI Flags:")}\n${extensionFlags
-@@ -315,7 +320,7 @@ ${chalk.bold("Options:")}
-   --tui-mode <mode>              TUI mode: regular (default) or fullscreen
+@@ -329,7 +334,7 @@ ${chalk.bold("Options:")}
+   --tui-mode <mode>              TUI mode: fullscreen (default) or regular
    --approve, -a                  Trust project-local files for this run
    --no-approve, -na              Ignore project-local files for this run
 -  --offline                      Disable startup network operations (same as PI_OFFLINE=1)
@@ -156,7 +156,7 @@ index 8ad5da63e..76c02f523 100644
    --                             End option parsing; treat remaining arguments as messages/files
    --help, -h                     Show this help
    --version, -v                  Show version number
-@@ -429,10 +434,10 @@ ${chalk.bold("Environment Variables:")}
+@@ -444,10 +449,10 @@ ${chalk.bold("Environment Variables:")}
    AWS_REGION                       - AWS region for Amazon Bedrock (e.g., us-east-1)
    ${ENV_AGENT_DIR.padEnd(32)} - Config directory (default: ~/${CONFIG_DIR_NAME}/agent)
    ${ENV_SESSION_DIR.padEnd(32)} - Session storage directory (overridden by --session-dir)

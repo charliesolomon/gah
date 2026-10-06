@@ -15,7 +15,8 @@ export function opencodeProvider(): Provider<OpenCodeApi> {
 		id: "opencode",
 		name: "OpenCode Zen",
 		auth: { apiKey: envApiKeyAuth("OpenCode API key", ["OPENCODE_API_KEY"]) },
-		models: [...Object.values(OPENCODE_MODELS), ...Object.values(OPENCODE_CLASSIFIER_MODELS)],
+		// GAH (0030-offline-model-data): seeded empty, these catalogues type their values as unknown.
+		models: [...Object.values(OPENCODE_MODELS), ...Object.values(OPENCODE_CLASSIFIER_MODELS)] as never[],
 		api: {
 			"anthropic-messages": withOpenCodeSessionHeader(anthropicMessagesApi()),
 			"google-generative-ai": withOpenCodeSessionHeader(googleGenerativeAIApi()),

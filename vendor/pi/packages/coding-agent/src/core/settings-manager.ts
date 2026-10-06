@@ -1129,7 +1129,9 @@ export class SettingsManager {
 	}
 
 	getCollapseChangelog(): boolean {
-		return this.settings.collapseChangelog ?? false;
+		// GAH: condensed by default. Upstream's full changelog is written for people
+		// who build on pi; a deployment's users get its own notes (#117).
+		return this.settings.collapseChangelog ?? true;
 	}
 
 	setCollapseChangelog(collapse: boolean): void {
