@@ -6,7 +6,7 @@ Scans run on every push and PR via `.github/workflows/ci.yml`. The sync PRs open
 
 | Scanner | Catches | Failure threshold |
 |---------|---------|--------------------|
-| `npm audit --omit=dev` | Known CVEs in runtime npm deps | high/critical |
+| `npm audit --omit=dev --workspace=packages/coding-agent` | Known CVEs in the runtime deps of what GAH ships | high/critical |
 | Trivy (filesystem) | CVEs in deps + misconfig + secrets in files | critical/high (unfixed ignored) |
 | Semgrep (`p/owasp-top-ten`, `p/javascript`, `p/typescript`, `p/secrets`) | SAST findings in our owned source | any finding |
 | Gitleaks | Secrets committed in git history (full depth) | any finding |
@@ -54,6 +54,25 @@ Bump deliberately when needed; expect to do so manually every few months (no Ren
 ## Scan exclusions
 
 Every exclusion is recorded here so it can be reviewed rather than discovered in YAML.
+
+### Workspaces GAH does not ship — npm audit
+
+`npm audit` runs against `packages/coding-agent` and everything it depends on, not the
+whole upstream monorepo: 124 of 157 production packages at pi v0.99.1. The root also
+lists upstream's example extensions and four packages GAH never builds, bundles or
+loads (`server`, `client`, `durable`, `evals`).
+
+What forced it: upstream's `gondolin` example extension (an Alpine sandbox demo, a
+workspace of the monorepo) depends on `node-forge` 1.4.0. On 2026-10-01 GitHub widened
+GHSA-86w9-cpqp-85rv (high, RSA signature verification) to cover `<= 1.4.0`, with no
+fixed version, and the root audit turned red with no code change -- the overnight
+behaviour noted above. `node-forge` is in neither the coding-agent bundle nor the
+Windows package, and `bin/gah` never loads an example. The remedies left were editing a
+vendored lockfile (the failure mode recorded under the Trivy exclusion below) or a
+standing patch removing an upstream workspace. Trivy still scans the whole tree and
+reports `node-forge` once a fixed version exists (`ignore-unfixed`).
+
+If GAH ever builds another upstream package, add its `--workspace` to the CI step.
 
 ### `vendor/pi/packages/coding-agent/examples/` — Trivy
 
