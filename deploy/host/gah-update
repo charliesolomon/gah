@@ -19,4 +19,12 @@ git -C "$GAH_HOME" pull --ff-only
 make -C "$GAH_HOME" install
 make -C "$GAH_HOME" build-all
 make -C "$GAH_HOME" smoke
+
+# The launcher chain runs from /usr/local/bin, where setup.sh installed it, so a
+# change to it used to need setup.sh again. Refresh it from the pulled tree so it
+# ships with the build. gah-update itself is left to setup.sh: replacing a
+# script while bash is still reading it is not safe.
+for f in gah-session gah-launch gah-adduser gah-rmuser; do
+	install -m 0755 "$GAH_HOME/deploy/host/$f" "/usr/local/bin/$f"
+done
 echo "gah-update: OK — new sessions get the updated build"

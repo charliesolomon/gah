@@ -126,7 +126,7 @@ also be on; it is the per-user switch that produces the "Copied!" flash.
 
 | Task | Command |
 |---|---|
-| Update gah build | `sudo gah-update` (sessions pick it up on next launch) |
+| Update gah build | `sudo gah-update` (sessions pick it up on next launch; the launcher scripts in `/usr/local/bin` are refreshed too, except `gah-update` itself, which needs `setup.sh`) |
 | Tell users what changed | add a dated `## ` section at the top of `/etc/gah/whats-new.md` (start from `whats-new.md.example`); each person sees it once at their next launch, `/whats-new` shows all (#117). Upstream pi's own changelog is one line with a link (patch 0003) |
 | Update the knowledge base | merge the proposal `kb-propose` opened — every launch fast-forwards a clean checkout (docs/KB.md) |
 | Update skills | merge a PR in the skills repo — every launch pulls. Open sessions are told within 10 min that updates are waiting (`/quit` and relaunch); the next launch summarises what changed (#91) |
@@ -136,6 +136,40 @@ also be on; it is the per-user switch that produces the "Copied!" flash.
 | Audit a user's tool calls | `~<user>/.gah/audit.log` (JSONL; rolled daily to `audit-<date>.log`, kept 30 days — `GAH_AUDIT_RETENTION_DAYS` in the manifest to change, `0` = forever) |
 | Audit inference | Bedrock model invocation logging + CloudTrail (Phase 2) |
 | Offboard | `usermod -L <user>` + deactivate IAM keys |
+| Run a scheduled job | `gah-launch --print <prompt-file>` from cron, under a service account — see [Scheduled jobs](#scheduled-jobs) |
+
+## Scheduled jobs
+
+A job that should run on a timer, such as classifying new items in a queue,
+runs under its own service account: a manifest in `/etc/gah/users.d/` like any
+user's, but no person, no SSH key and no login shell. cron starts it through
+the launcher's headless mode:
+
+```
+# /etc/cron.d/<account>   (root-owned, so the job cannot reschedule itself)
+*/5 8-17 * * 1-5  <account>  /usr/local/bin/gah-launch --print jobs/prompts/classify.md \
+    --only-if jobs/bin/has-work.sh --model amazon-bedrock/<id> --timeout 600 >> /home/<account>/logs/classify.log 2>&1
+```
+
+- The prompt file and the `--only-if` check are paths inside the synced skills
+  repo, so what a job does is reviewed like any skill. Point the account's
+  `SKILLS_SUBDIR` at the job's own skills to keep its system prompt small.
+- `--only-if` runs after the sync. Exit 1 means nothing to do: the launcher
+  exits 0 without calling a model, so a check every few minutes costs nothing.
+- An unattended run reads input it did not choose, and its home is writable by
+  the agent it runs. The launcher therefore leaves nothing for a previous run to
+  have planted: the skills checkout is reset and cleaned to the fetched commit,
+  personal skills and setup steps are skipped, each run starts in a fresh empty
+  directory with context-file discovery off, and stdin is closed.
+- Exit status is gah's: 0 when the run completed, non-zero on a provider or
+  launcher failure, 124 on timeout. A job that finishes but does the wrong thing
+  still exits 0, so check the outcome the job exists for, not only the status.
+- Its usage lands in the account's own audit log, like a person's.
+
+Give the account only what its job needs. In particular, do not add it to a
+group that carries other powers (a sudo rule, a shared spool another job applies)
+just to grant it read access to a file; use a file ACL instead. Add the account
+to `/etc/cron.deny` so it cannot keep a crontab of its own.
 
 ## Skills repo contract
 

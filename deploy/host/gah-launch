@@ -14,17 +14,68 @@
 #                    bypassing the login shell (which drops arguments):
 #                      sudo -u <user> -H /usr/local/bin/gah-launch --no-mark-seen
 #
+# Headless mode runs one prompt and exits, for scheduled jobs (cron) under an
+# account that has a manifest but no person behind it:
+#
+#   gah-launch --print <prompt-file> [--only-if <check>] [--model <provider/id>]
+#              [--timeout <seconds>]
+#
+#   <prompt-file>  path inside the synced skills repo; its text is the prompt.
+#                  What a job asks for is reviewed like the skills themselves.
+#   --only-if      path inside the skills repo, run after the sync. Exit 0 =
+#                  run the prompt, 1 = nothing to do (exit 0, no model call),
+#                  anything else = error (exit with that status).
+#   --model        model to use; still subject to GAH_BUILTIN_MODELS.
+#   --timeout      seconds before the run is killed (default 600; exit 124).
+#
+# An unattended run reads input it did not choose, and the account's home is
+# writable by the agent it runs. So nothing a previous run left behind may
+# steer the next one: the skills checkout (and the knowledge base, if any) is
+# hard-reset and cleaned to the fetched commit even when the fetch fails,
+# personal skills are not loaded, setup steps do not run, the session starts in
+# a fresh empty directory with context-file discovery off, and stdin is closed.
+# Exit status is gah's own: 0 ok, non-zero on a provider or launcher failure.
+#
 set -euo pipefail
 
-for arg in "$@"; do
-	case "$arg" in
-		--no-mark-seen) export GAH_SKILLS_NO_MARK_SEEN=1 ;;
-		*) echo "gah-launch: unknown argument '$arg' (only --no-mark-seen is accepted)" >&2; exit 2 ;;
+HEADLESS="" PROMPT_FILE="" ONLY_IF="" RUN_MODEL="" RUN_TIMEOUT="600"
+need_value() { [ -n "${2:-}" ] || { echo "gah-launch: $1 needs a value" >&2; exit 2; }; }
+while [ $# -gt 0 ]; do
+	case "$1" in
+		--no-mark-seen) export GAH_SKILLS_NO_MARK_SEEN=1; shift ;;
+		--print)   need_value "$1" "${2:-}"; HEADLESS=1; PROMPT_FILE="$2"; shift 2 ;;
+		--only-if) need_value "$1" "${2:-}"; ONLY_IF="$2"; shift 2 ;;
+		--model)   need_value "$1" "${2:-}"; RUN_MODEL="$2"; shift 2 ;;
+		--timeout) need_value "$1" "${2:-}"; RUN_TIMEOUT="$2"; shift 2 ;;
+		*) echo "gah-launch: unknown argument '$1' (see the header of $0)" >&2; exit 2 ;;
 	esac
 done
+if [ -z "$HEADLESS" ] && [ -n "$ONLY_IF$RUN_MODEL" ]; then
+	echo "gah-launch: --only-if and --model only apply with --print" >&2; exit 2
+fi
+case "$RUN_TIMEOUT" in ''|*[!0-9]*) echo "gah-launch: --timeout takes whole seconds" >&2; exit 2 ;; esac
+if [ -n "$HEADLESS" ]; then
+	# No person sees a "what changed" summary, so never consume one.
+	export GAH_SKILLS_NO_MARK_SEEN=1
+fi
+
+# A path inside the skills repo, as a job names it: relative, no "..".
+repo_path_ok() {
+	case "$1" in
+		/*|..|../*|*/..|*/../*) return 1 ;;
+	esac
+	return 0
+}
+if [ -n "$HEADLESS" ]; then
+	repo_path_ok "$PROMPT_FILE" || { echo "gah-launch: --print takes a path inside the skills repo" >&2; exit 2; }
+	[ -z "$ONLY_IF" ] || repo_path_ok "$ONLY_IF" || { echo "gah-launch: --only-if takes a path inside the skills repo" >&2; exit 2; }
+fi
 
 GAH_HOME="/opt/gah"
 CONF_DIR="/etc/gah"
+# cron sets LOGNAME and HOME but not always USER.
+USER="${USER:-$(id -un)}"
+export USER
 CONF="$CONF_DIR/users.d/$USER.conf"
 
 fail() { echo "gah: $*" >&2; exit 1; }
@@ -113,13 +164,26 @@ else
 	timeout 120 git clone --quiet --branch "$SKILLS_BRANCH" "$SKILLS_REPO" "$SKILLS_DIR" \
 		|| warn "skills clone failed — starting without skills"
 fi
+if [ -n "$HEADLESS" ] && [ -d "$SKILLS_DIR/.git" ]; then
+	# Unattended: the checkout is nobody's work in progress, and a previous run
+	# could have edited or added files in it. Return it to the fetched commit,
+	# untracked files included, whether or not this run's fetch succeeded.
+	git -C "$SKILLS_DIR" checkout --quiet --force "$SKILLS_BRANCH" 2>/dev/null || true
+	git -C "$SKILLS_DIR" reset --hard --quiet "origin/$SKILLS_BRANCH" \
+		|| fail "headless: cannot reset the skills checkout to origin/$SKILLS_BRANCH"
+	git -C "$SKILLS_DIR" clean -fdxq
+fi
 
 # --- Sync personal skills (optional) -------------------------------------------
 # Note the asymmetry with the shared checkout above, which is `reset --hard`:
 # here it is `pull --ff-only`, because personal skills are edited in place and
 # uncommitted work must survive a launch. A failure is never fatal — the agent
 # keeps whatever is on disk.
-if [ -n "$MY_SKILLS_REPO" ]; then
+if [ -n "$HEADLESS" ]; then
+	# Personal skills belong to a person. An unattended account has none, and a
+	# directory a previous run could write to must not become instructions.
+	:
+elif [ -n "$MY_SKILLS_REPO" ]; then
 	if [ -d "$MY_SKILLS_DIR/.git" ]; then
 		timeout 30 git -C "$MY_SKILLS_DIR" pull --ff-only --quiet 2>/dev/null \
 			|| warn "personal skills not updated — continuing with the local copy"
@@ -156,6 +220,16 @@ if [ -n "$KB_REPO" ]; then
 		timeout 120 git clone --quiet --branch "$KB_BRANCH" "$KB_REPO" "$KB_DIR" \
 			|| warn "knowledge base clone failed — continuing without it"
 	fi
+	if [ -n "$HEADLESS" ] && [ -d "$KB_DIR/.git" ]; then
+		# Same rule as the skills checkout: an unattended account has no drafts
+		# to protect, so the knowledge base is returned to the fetched commit.
+		timeout 30 git -C "$KB_DIR" fetch --quiet origin "$KB_BRANCH" \
+			|| warn "knowledge base not updated — resetting to the last fetched commit"
+		git -C "$KB_DIR" checkout --quiet --force "$KB_BRANCH" 2>/dev/null || true
+		git -C "$KB_DIR" reset --hard --quiet "origin/$KB_BRANCH" \
+			|| fail "headless: cannot reset the knowledge base to origin/$KB_BRANCH"
+		git -C "$KB_DIR" clean -fdxq
+	fi
 	# The scripts and skills locate the knowledge base through this.
 	[ -d "$KB_DIR" ] && export GAH_KB_DIR="$KB_DIR"
 fi
@@ -176,7 +250,7 @@ if [ -t 0 ]; then
 	printf '\033[2J\033[H'
 fi
 
-if [ -d "$SKILLS_DIR/setup" ]; then
+if [ -z "$HEADLESS" ] && [ -d "$SKILLS_DIR/setup" ]; then
 	for step in "$SKILLS_DIR"/setup/[0-9]*.sh; do
 		[ -e "$step" ] || continue
 		bash "$step" || warn "setup step $(basename "$step") failed — continuing"
@@ -213,8 +287,15 @@ export GAH_SKIP_VERSION_CHECK=1
 # the explicit --skill path below is still loaded — same pinning philosophy as
 # bin/gah uses for extensions. Sessions start in ~/work, not $HOME.
 
-WORKDIR="${WORKDIR:-$HOME/work}"
-mkdir -p "$WORKDIR"
+if [ -n "$HEADLESS" ]; then
+	# A fresh, empty directory per run, removed afterwards: nothing a previous
+	# run wrote is within reach of context-file discovery or relative paths.
+	WORKDIR="$(mktemp -d "${TMPDIR:-/tmp}/gah-run.XXXXXX")"
+	trap 'rm -rf "$WORKDIR"' EXIT
+else
+	WORKDIR="${WORKDIR:-$HOME/work}"
+	mkdir -p "$WORKDIR"
+fi
 cd "$WORKDIR"
 
 # Skills come from two places, and a personal skill of the same name wins.
@@ -253,7 +334,7 @@ personal_names=" "
 shared_names=" "
 
 # Personal skills first: they are the ones that win, so they define the shadow set.
-if [ -d "$MY_SKILLS_DIR" ]; then
+if [ -z "$HEADLESS" ] && [ -d "$MY_SKILLS_DIR" ]; then
 	for d in "$MY_SKILLS_DIR"/*/; do
 		[ -d "$d" ] || continue
 		d="${d%/}"
@@ -332,5 +413,32 @@ fi
 # with the arguments below and never forwards the user's own. Clearing it keeps
 # the help page honest for the people who only ever arrive this way.
 export GAH_SCAFFOLD_COMMANDS=""
+
+if [ -n "$HEADLESS" ]; then
+	[ -f "$SKILLS_DIR/$PROMPT_FILE" ] || fail "headless: no prompt file '$PROMPT_FILE' in the skills repo"
+	prompt="$(cat "$SKILLS_DIR/$PROMPT_FILE")"
+	[ -n "${prompt//[[:space:]]/}" ] || fail "headless: prompt file '$PROMPT_FILE' is empty"
+	if [ -n "$ONLY_IF" ]; then
+		[ -x "$SKILLS_DIR/$ONLY_IF" ] || fail "headless: no executable check '$ONLY_IF' in the skills repo"
+		set +e
+		"$SKILLS_DIR/$ONLY_IF" </dev/null
+		check=$?
+		set -e
+		case "$check" in
+			0) ;;
+			1) exit 0 ;;
+			*) warn "headless: check '$ONLY_IF' failed (exit $check) — prompt not run"; exit "$check" ;;
+		esac
+	fi
+	model_args=()
+	[ -n "$RUN_MODEL" ] && model_args=(--model "$RUN_MODEL")
+	set +e
+	timeout --kill-after=30 "$RUN_TIMEOUT" "$GAH_HOME/bin/gah" --no-skills --no-context-files \
+		"${skill_args[@]}" "${model_args[@]}" -p "$prompt" </dev/null
+	status=$?
+	set -e
+	[ "$status" -eq 124 ] && warn "headless: run killed after ${RUN_TIMEOUT}s"
+	exit "$status"
+fi
 
 exec "$GAH_HOME/bin/gah" --no-skills "${skill_args[@]}"
