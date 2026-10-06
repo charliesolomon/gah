@@ -82,8 +82,7 @@ function readProviderStructure(path: string, providerId: string): Record<string,
 			models.set(modelKey, api);
 		}
 	}
-	// GAH: an empty catalogue is the intended state for every provider not seeded
-	// by scripts/gah-model-data.ts, so a provider file with no models is valid.
+	if (models.size === 0) throw new Error(`${path} contains no generated model data`);
 	return sortedRecord(models);
 }
 

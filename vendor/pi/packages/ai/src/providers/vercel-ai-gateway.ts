@@ -10,8 +10,7 @@ export function vercelAIGatewayProvider(): Provider<"anthropic-messages"> {
 		name: "Vercel AI Gateway",
 		baseUrl: "https://ai-gateway.vercel.sh",
 		auth: { apiKey: envApiKeyAuth("Vercel AI Gateway API key", ["AI_GATEWAY_API_KEY"]) },
-		// GAH (0030-offline-model-data): seeded empty, these catalogues type their values as unknown.
-		models: [...Object.values(VERCEL_AI_GATEWAY_MODELS), ...Object.values(VERCEL_AI_GATEWAY_CLASSIFIER_MODELS)] as never[],
+		models: [...Object.values(VERCEL_AI_GATEWAY_MODELS), ...Object.values(VERCEL_AI_GATEWAY_CLASSIFIER_MODELS)],
 		api: anthropicMessagesApi(),
 		// AI Gateway serves TypeSafe's System One protocol at /typesafe/v1/systemone.
 		classifiers: { "typesafe-system-one": typesafeSystemOneApi() },
