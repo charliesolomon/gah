@@ -36,8 +36,10 @@ version. Show its output. Anything marked ✗ blocks a build; fix those first.
 Each ! is worth a sentence to the admin, not a stop.
 
 Ask for the deployment folder if the admin did not name it. A deployment called
-`gah-deploy-engineering` is usually a sibling folder or under their GitLab
-clones; look with `ls` before asking twice. Before anything else in that folder,
+`gah-deploy-engineering` is usually a sibling of this repository. Find it by
+name, with `find` and the pattern `gah-deploy*/gah-deploy.json` in the parent
+folder, rather than listing that folder: on a workstation the parent is often
+the admin's home, and a listing of it ends up in every session log they share. Before anything else in that folder,
 `git -C <folder> pull --ff-only` so you work from what GitLab holds.
 
 ## Flow A: upgrade a deployment to this checkout's gah
