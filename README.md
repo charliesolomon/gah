@@ -41,6 +41,7 @@ gah/
 ├── docs/SUPPLY-CHAIN.md       ← what reaches the network, and the fd/ripgrep install
 ├── docs/DEPLOY-WINDOWS.md     ← one zip for consumers: package, install, auto-update, skills sync
 ├── docs/CONCEPT.html         ← the concept, for a non-technical audience (standalone, offline)
+├── docs/CONCEPT-revisited.html ← the same paper marked up after five weeks of team use
 └── .github/workflows/         ← CI scans, daily sync-canary, on-demand upstream sync
 ```
 
