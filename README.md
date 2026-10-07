@@ -29,7 +29,7 @@ gah/
 ├── templates/skills-repo/     ← scaffold written by `gah init`: skills, prompts, setup steps
 ├── templates/kb-repo/         ← scaffold written by `gah init-kb`: the optional knowledge base
 ├── templates/deploy/          ← gah-deploy.json example + the Windows launcher/installer shipped in packages
-├── skills/                    ← skills for running GAH on GAH itself (package-deploy)
+├── .agents/skills/            ← project skills for the gah admin (gah-deployments), loaded in a session started here
 ├── scripts/                   ← sync, patch, build helpers
 ├── ci/scans/                  ← SBOM, CVE, semgrep/CodeQL configs
 ├── docs/WORKFLOW.md           ← upstream sync + patch hygiene

@@ -19,6 +19,12 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
+# Every case states its own tool allowlist. One inherited from the caller --
+# an admin's gah session started with GAH_ALLOW_TOOLS=powershell to run the
+# packaging skill -- would otherwise widen the "default" case and fail a
+# correct package.
+unset GAH_ALLOW_TOOLS
+
 WORK="$(mktemp -d)"
 # Under Git Bash on Windows, node gets Windows paths in arguments (converted
 # automatically) but not in environment variables: /tmp/tmp.X reaches it as a
