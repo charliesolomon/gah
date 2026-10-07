@@ -431,14 +431,13 @@
     <p>
       Nothing from the original has been removed. Where a claim held, it is stamped as such.
       Where experience said otherwise, the original is struck through and the correction
-      written beside it. Where the honest answer is still “we don't know”, that is said too.
+      written beside it. Where we still don't know, the note says so.
       A new stage, <em>five-b</em>, holds the usage figures, and a closing stage holds the
-      author's own notes, which are opinion and marked as opinion. Everything that could
-      identify the organisation remains generic; the pen marks describe shapes, not places.
+      author's own notes, which are opinion and marked as opinion.
     </p>
     <div class="legend">
       <span><span class="k"></span>field note — what we learned</span>
-      <span><span class="k held"></span>held — the original claim survived contact</span>
+      <span><span class="k held"></span>held — the original claim still stands</span>
       <span><span class="k open"></span>open — still undecided</span>
       <span><del class="x">struck</del> — withdrawn, left legible</span>
     </div>
@@ -480,7 +479,7 @@
   <div class="fn held">
     <span class="tag">Field note · October 2026</span>
     <p>
-      The opening example turned out to be literal. The single most-used question in five
+      The opening example was not hypothetical. The single most-used question in five
       weeks of team use was a variant of “which switch serves that room?” — and the first
       time a technician asked it, the directory of rooms held an answer for fewer than a
       third of them. Of 125 people in the staff directory the system started with, 40 had a
@@ -539,8 +538,7 @@
       <em>this</em> queue. Nobody asked the agent to explain a protocol.
     </p>
     <p>
-      One refinement to the claim: the value turned out to be the <strong>live</strong>
-      context as much as the written context. The questions people came back for were
+      The value also came from <strong>live</strong> context, not only written context. The questions people came back for were
       answered from a ticket cache refreshed every few minutes and a reachability check run
       at that moment, with the documentation supplying the names and the map. Static
       documentation alone would have answered the fourth-most-common question, not the first
@@ -586,8 +584,7 @@
       In August the context was ten Markdown documents. By mid-September most of it had been
       taken apart into <strong>structured data files</strong> — a people directory, printers,
       switches, firewalls, networks, sites, per-room notes — with articles rendered from
-      them, and the agent's lookup tools reading the same files. The reason was mundane and
-      decisive: a procedure that <em>reads</em> a directory can also <em>write to</em> it,
+      them, and the agent's lookup tools reading the same files. The reason was practical: a procedure that <em>reads</em> a directory can also <em>write to</em> it,
       one fact at a time, with an undo. Prose cannot be updated that way by a tool, and
       “append a sentence to a document” is not a correction anyone trusts a machine to make.
     </p>
@@ -620,16 +617,16 @@
   </p>
 
   <div class="fn held">
-    <span class="tag">Field note · the vehicle became interchangeable</span>
+    <span class="tag">Field note · the tool became interchangeable</span>
     <p>
-      This line aged better than intended. The skill file format used here became an open
+      The skill file format used here became an open
       standard in December 2025, and by autumn 2026 it is read by most of the assistant
       products a team might buy as well as by this harness. The procedures a team writes
       are now portable in a way they were not when this paper was drafted; the knowledge
       base is plain data behind a small set of lookup tools, which the same products can
-      also reach. The practical consequence for a team deciding what to build: <strong>build
-      the cargo, and treat the vehicle as a choice you can revisit.</strong> The next section
-      says why that matters.
+      also reach. The practical consequence for a team deciding what to build: <strong>invest
+      in the context and procedures, and treat the tool that runs them as a choice you can
+      revisit.</strong>
     </p>
   </div>
 </section>
@@ -708,22 +705,22 @@
       the code underneath had moved.
     </p>
     <p>
-      Two incidents are worth a reader's attention. The scheduled sync that was supposed to
+      Two incidents stand out. The scheduled sync that was supposed to
       surface upstream drift had <strong>failed fifteen weeks in a row without anyone
       noticing</strong>, because its only signal was an email; a daily check that files an
       issue when it breaks replaced it. And one upstream release added a second way to list
       models that the policy's allowlist did not know about. Re-applied mechanically, the
       modification would have left every denied model reachable through the new path. It
       was caught because the sync was done by hand, with tests written for both paths.
-      <em>Vendoring buys control; it is paid for in attention, every time upstream
-      moves.</em>
+      <em>Vendoring gives control, and the cost is a careful review every time upstream
+      releases.</em>
     </p>
     <p>
       The same releases shipped capabilities the deployment keeps off: connections to
       external tool servers, model-written code running in a sandbox, new sign-in flows.
       None reached the team, because the policy layer refuses everything it has not been
-      told to allow. That is the separation working as designed — and it is also a reminder
-      that “pull upstream in” means reviewing what arrived, not only whether it builds.
+      told to allow. The separation worked as designed. Even so, pulling in an upstream release means
+      reviewing what arrived, not only checking that it builds.
     </p>
   </div>
 
@@ -804,9 +801,9 @@
       moved to a schedule, because a technician mid-task will not wait four minutes for an
       answer. What replaced them was faster and narrower: <em>what should I look at</em>,
       <em>brief me on this one</em>, <em>who sits in that room</em>, each answering in
-      seconds from a local cache. Twenty-two skills was a measure of ambition; thirteen is a
-      measure of what a team reached for. <strong>Expect your library to shrink the first
-      time real users touch it, and treat that as the system working.</strong>
+      seconds from a local cache. The original 22 included skills one person wanted; the 13 that remain are the ones the
+      team used. <strong>Expect your library to shrink once real users start using it. That
+      is a healthy sign, not a setback.</strong>
     </p>
   </div>
 
@@ -869,7 +866,7 @@
       how to use one. A script that formats a table, ranks a queue, or answers a lookup
       deterministically gave the same answer to every technician, and improving it improved
       everyone's next session. The model supplied judgement and wording; the scripts
-      supplied facts. That division is the one to keep.
+      supplied facts. Keep that division.
     </p>
   </div>
 
@@ -974,15 +971,15 @@
   <div class="fn">
     <span class="tag">Field note · one regular, two occasional</span>
     <p>
-      The distribution is the finding. One technician made the tool part of their day
+      This split is the main finding. One technician made the tool part of their day
       within a week and has not stopped. Two others used it when prompted and otherwise did
       not open it — not from objection, as far as anyone can tell, but because nothing in
       their day required them to. Their queues are small; the question “what should I work
       on?” has an obvious answer for them without a tool.
     </p>
     <p>
-      The owner's conclusion, recorded at the time: <strong>usage follows need, and the
-      tool has to earn the first open every morning.</strong> The response was to change
+      The owner's conclusion, recorded at the time: <strong>people open the tool when
+      their day needs it, not because they were told to.</strong> The response was to change
       what opening it feels like — a plan for the day, three tickets with a reason each,
       printed before the first prompt — rather than to ask people to use it more. Whether
       that works is not yet known.
@@ -1032,8 +1029,8 @@
       work on the team's terminal until the server's session multiplexer was reconfigured;
       long links wrapped into dead fragments because that multiplexer predates the escape
       sequence that keeps them whole; and the server, sized for one person, had two
-      gigabytes of memory for a team. None of this was the agent. All of it was the first
-      thing a new user met.
+      gigabytes of memory for a team. None of these were problems with the agent,
+      but they were the first things a new user ran into.
     </p>
   </div>
 
@@ -1129,7 +1126,7 @@
       profile, as a conscious decision, and moved to a same-region profile the day one
       existed, at ten percent more per token. The catalogue the harness could have exposed
       by wildcard held 177 entries. Eight were allowed. <em>Naming models explicitly is a
-      governance control that happens to look like configuration.</em>
+      governance control, not just a configuration setting.</em>
     </p>
   </div>
 
@@ -1158,7 +1155,7 @@
   </p>
 
   <div class="fn open">
-    <span class="tag">Open · the browser door exists; whether to open it does not</span>
+    <span class="tag">Open · a browser version exists; whether to adopt it is undecided</span>
     <p>
       In October a two-file prototype — one web page, one small relay, no framework — ran a
       real session through the browser, on a laptop against a local agent and on the shared
@@ -1168,7 +1165,7 @@
       launcher mode that does not assume a terminal, and a first run that does not need one.
     </p>
     <p>
-      What the exercise settled is the question's shape rather than its answer: for people
+      What the exercise clarified is the choice itself: for people
       who will never want a terminal, the choice is between a browser client of this agent,
       a terminal-in-a-browser, or a product the organisation already pays for that can read
       the same skills and reach the same knowledge base. The author's view is in the closing
@@ -1209,8 +1206,8 @@
       policy layer — and it taught two things the server never would have. The build must
       not need the network, which it now does not. And some gateways refuse to let a model
       call tools at all, so the harness learned to carry tool calls as plain text when it
-      must. The principles in the caution note above transferred unchanged; the boxes did
-      not, which is what the note said.
+      must. The principles in the caution note above transferred unchanged; the specific
+      setup did not, as the note anticipated.
     </p>
   </div>
 </section>
@@ -1257,9 +1254,9 @@
   <p class="loop-close">→ and every later question, by anyone, is answered from the better version</p>
 
   <div class="fn">
-    <span class="tag">Field note · the loop ran, but not the way it was drawn</span>
+    <span class="tag">Field note · the loop ran, but differently from the four steps above</span>
     <p>
-      The loop that worked is smaller and faster than the one in the diagram. When the agent
+      The loop that worked is smaller and faster than the four steps above. When the agent
       said “no switch is recorded for that room” and the technician knew the answer, they
       said it in the next sentence and the agent wrote it down — one fact, one commit, in
       their name, with an undo. Nineteen such corrections landed in five weeks: which switch
@@ -1267,7 +1264,7 @@
       use. All but two came from one technician.
     </p>
     <p>
-      The loop that was drawn — notice a gap, record it, write the article — barely ran.
+      The four-step version — notice a gap, record it, write the article — barely ran.
       One gap was formally recorded, by the owner. Two new articles were written, by the
       owner, from tickets. Writing an article is a different act from stating a fact: it
       takes ten minutes nobody mid-ticket has. <strong>Design the loop for facts first.
@@ -1276,7 +1273,7 @@
     <p>
       One assumption was also withdrawn in practice: “proposed as a reviewed change”
       became “saved directly, reviewable afterwards, undoable by anyone on the team.” A
-      review gate in front of a one-line fact was friction nobody paid; the undo tool and the
+      review step before a one-line fact was friction nobody wanted; the undo tool and the
       change log turned out to be the review.
     </p>
   </div>
@@ -1377,7 +1374,7 @@
     <div class="fn held" style="margin-bottom:0">
       <span class="tag">As it happened</span>
       <p>
-        This phase is the one that never ends. A hundred and two changes to the procedures in
+        This phase never really finished. A hundred and two changes to the procedures in
         five weeks, most of them small, several prompted by one regular user: links that
         wrapped, a total that disagreed with the ticket system, a name the directory did not
         know. The regular user shaped the set; the occasional users mostly inherited it.
@@ -1414,7 +1411,7 @@
     </p>
     <div class="aim"><b>Aim:</b> the assistant contributes without being invoked — having earned it.</div>
     <div class="fn held" style="margin-bottom:0">
-      <span class="tag">As it happened · running, in shadow</span>
+      <span class="tag">As it happened · running in shadow mode</span>
       <p>
         An unattended account now runs a classifier against new tickets every few minutes
         during working hours, through the same launcher, policy, audit log and model list as
@@ -1479,8 +1476,8 @@
         <td><strong>Institutional memory</strong></td>
         <td>Reasoning that used to close with the ticket accumulates instead. Departures stop
             being knowledge losses.</td>
-        <td class="pen-col">Nineteen facts and two articles that did not exist in August. Small,
-            and real.</td>
+        <td class="pen-col">Nineteen facts and two articles that did not exist in August. A small
+            start.</td>
       </tr>
       <tr>
         <td><strong>Wider capability</strong></td>
@@ -1532,8 +1529,8 @@
       If that is the real shape of it, then the work is to <strong>identify the champions
       early and make their contribution easy and visible</strong>, rather than to design
       for universal participation and be disappointed. The nineteen facts in Stage seven
-      came from one person. That is not a failure of the loop; it may be what the loop
-      looks like.
+      came from one person. That is not a failure of the loop; it may be how the loop
+      normally works.
     </p>
   </div>
 
@@ -1568,7 +1565,7 @@
       Five weeks and four people cannot separate those.
     </p>
     <p>
-      What I can say is that the question has changed shape since August. The browser door
+      What I can say is that the question has changed since August. The browser door
       now exists as a prototype, and the skills and knowledge base have become readable by
       assistant products a team may already own. The decision for non-technical staff is
       therefore no longer “build a web front end or not”; it is which front door to put in
@@ -1578,8 +1575,8 @@
   </div>
 
   <p class="pull">
-    The concept held. The cargo turned out to matter even more than the paper claimed, and
-    the vehicle rather less.
+    The concept held. The context and procedures mattered even more than the paper
+    claimed; the tool that carries them mattered less.
   </p>
 </section>
 
@@ -1590,7 +1587,7 @@
   from its own audit logs, session records and version history, with people reduced to
   roles. It remains deliberately independent of any particular organisation, ticketing
   system, model provider, or endpoint management platform — the shape holds regardless of
-  which you use, and so, we now think, do most of the corrections.
+  which you use, and so do most of the corrections.
 </footer>
 
 </div>
