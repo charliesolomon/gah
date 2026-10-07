@@ -58,10 +58,12 @@ For "update gah-deploy-engineering to 1.0.4" and the like.
    `npm run build`, not `build:offline`: only the full build re-seeds the
    model data (docs/WINDOWS.md). Then they relaunch gah here and say
    "continue". Run the status again; continue only when nothing is ✗.
-3. **Say what changes for consumers.** The installed package records the gah
-   commit it was built from: on Windows `%LOCALAPPDATA%\gah\current.txt` names
-   the package folder and its `VERSION` file holds `gahRev`; a `dist-deploy\`
-   folder from the last build has the same file. With that commit:
+3. **Say what changes for consumers.** The last package records the gah
+   commit it was built from, as `gahRev` in its `VERSION` file. Look first in
+   this repo's `dist-deploy\gah-<org>-<version>\VERSION` from the last
+   build (the admin's build machine often has no installed copy); otherwise,
+   where the package is installed, `%LOCALAPPDATA%\gah\current.txt` names the
+   package folder. With that commit:
    - `git log --first-parent --format='%cs %s' <gahRev>..HEAD` — summarise in
      a few lines what a consumer will notice, not the plumbing;
    - `git log --oneline <gahRev>..HEAD -- templates/deploy docs/DEPLOY-WINDOWS.md docs/GITLAB.md`
@@ -73,10 +75,14 @@ For "update gah-deploy-engineering to 1.0.4" and the like.
 4. **Choose the version.** First establish what is already published,
    because the config alone does not say: older deployments bumped the config
    *after* publishing, so its number may be the one published or the next one.
-   Check the installed version (`%LOCALAPPDATA%\gah\current.txt` names the
-   package folder) and ask the admin to read the newest version on the
-   deployment project's *Deploy* → *Package registry* page. Then propose the
-   status's next version, raised above both if needed, and say why in one line. The rules the launcher imposes: digits and dots, two to four
+   Ask the admin to read the newest version on the deployment project's
+   *Deploy* → *Package registry* page, then rerun the status with
+   `--published <that version>`; its proposal is then relative to what is
+   actually out. Propose that version and say why in one line. **Do not
+   change `version` until the admin has said yes to a number** — not even as
+   part of another edit, such as updating version numbers in the README's
+   install instructions. Agree the number first, then make every edit that
+   depends on it. The rules the launcher imposes: digits and dots, two to four
    parts, and strictly higher than every version already published; a suffix
    like `1.0.4-1` breaks every consumer's update check. A deployment that has
    mirrored gah's version (`0.87.0`) moves to gah's (`1.0.4`); a rebuild of the
@@ -88,7 +94,9 @@ For "update gah-deploy-engineering to 1.0.4" and the like.
    ```
    It assembles the package, runs the tool-surface check against it (Git Bash
    is needed for that on Windows), and writes
-   `dist-deploy/gah-<org>-<version>.zip` and `.sha256`. Report the `✓` line:
+   `dist-deploy/gah-<org>-<version>.zip` (`<org>` slugged) and `.sha256`. The check
+   sets its own tool allowlist, so the shell this session was started with
+   does not leak into it. Report the `✓` line:
    path, sha256, gah and upstream versions. If the check fails, stop and show
    it. Never publish an unchecked package unless the admin explicitly asks for
    `--skip-check` and understands it skips the policy check.

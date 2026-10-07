@@ -4,7 +4,12 @@
  * builds anything, computed rather than guessed. Read-only; touches no network
  * unless --fetch is given (then only `git fetch` of this gah checkout).
  *
- *   node .agents/skills/gah-deployments/scripts/deploy-status.mjs [--config <gah-deploy.json>] [--fetch] [--json]
+ *   node .agents/skills/gah-deployments/scripts/deploy-status.mjs [--config <gah-deploy.json>] [--published <version>] [--fetch] [--json]
+ *
+ * --published: the newest version on the deployment project's package registry
+ * page, as the admin reads it. Without it the config's version is taken as
+ * published, which is wrong when the config was already raised for a build
+ * that has not been published yet.
  *
  * Reports:
  *   checkout  this gah checkout: upstream pi version, gah commit, dirty or not,
@@ -30,13 +35,14 @@ import { fileURLToPath } from "node:url";
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..");
 const args = process.argv.slice(2);
-const opt = { config: undefined, fetch: false, json: false };
+const opt = { config: undefined, published: undefined, fetch: false, json: false };
 for (let i = 0; i < args.length; i++) {
 	if (args[i] === "--config") opt.config = resolve(args[++i] ?? "");
+	else if (args[i] === "--published") opt.published = args[++i];
 	else if (args[i] === "--fetch") opt.fetch = true;
 	else if (args[i] === "--json") opt.json = true;
 	else if (args[i] === "-h" || args[i] === "--help") {
-		console.log("usage: deploy-status.mjs [--config <gah-deploy.json>] [--fetch] [--json]");
+		console.log("usage: deploy-status.mjs [--config <gah-deploy.json>] [--published <version>] [--fetch] [--json]");
 		process.exit(0);
 	} else {
 		console.error(`deploy-status: unknown argument ${args[i]}`);
@@ -153,7 +159,16 @@ const cmp = (a, b) => {
 };
 let version;
 if (cfg?.version && VERSION_RE.test(cfg.version) && gahVersion && VERSION_RE.test(gahVersion)) {
-	const cur = cfg.version;
+	if (opt.published && !VERSION_RE.test(opt.published)) blockers.push(`--published '${opt.published}' is not digits and dots`);
+	// What is already out: the registry's newest when the admin read it, else
+	// the config's own number.
+	const published = opt.published && VERSION_RE.test(opt.published) ? opt.published : undefined;
+	if (published && cmp(cfg.version, published) > 0) {
+		version = { current: cfg.version, published, gah: gahVersion, proposed: cfg.version, unpublished: true, scheme: "as configured", why: `the config already names ${cfg.version}, above the published ${published}: build it as it is` };
+	}
+}
+if (!version && cfg?.version && VERSION_RE.test(cfg.version) && gahVersion && VERSION_RE.test(gahVersion)) {
+	const cur = opt.published && VERSION_RE.test(opt.published) && cmp(opt.published, cfg.version) > 0 ? opt.published : cfg.version;
 	const triple = cur.split(".").slice(0, 3).join(".");
 	// A deployment "mirrors" gah when its version reads as a gah version no newer
 	// than this checkout's (0.87.0, 1.0.4, 1.0.4.1). Otherwise it numbers its own
@@ -174,7 +189,7 @@ if (cfg?.version && VERSION_RE.test(cfg.version) && gahVersion && VERSION_RE.tes
 		next = `${p[0]}.${(p[1] ?? 0) + 1}.0`;
 		why = `this deployment numbers its own releases; a minor bump. Use a patch bump instead if only the config changed`;
 	}
-	version = { current: cur, gah: gahVersion, proposed: next, why, scheme: mirrors ? "mirrors gah's version" : "independent" };
+	version = { current: cur, published: opt.published, gah: gahVersion, proposed: next, why, scheme: mirrors ? "mirrors gah's version" : "independent" };
 }
 
 const out = { repo: REPO, checkout, config, version, blockers, warnings, ok: blockers.length === 0 };
@@ -198,7 +213,7 @@ if (opt.json) {
 	}
 	if (version) {
 		L();
-		L(`next version   ${version.current} -> ${version.proposed}   (${version.scheme})`);
+		L(version.unpublished ? `next version   ${version.proposed} (already in the config; published is ${version.published})` : `next version   ${version.current} -> ${version.proposed}   (${version.scheme})${version.published ? "" : "   [pass --published <registry's newest> to be sure]"}`);
 		L(`  why          ${version.why}`);
 	}
 	if (warnings.length) {
