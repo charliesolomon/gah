@@ -1,0 +1,50 @@
+From 89594e426f3153e912a9310489e1e09878cf863d Mon Sep 17 00:00:00 2001
+From: csolomon <charliesolomon@gmail.com>
+Date: Wed, 7 Oct 2026 13:17:37 -0700
+Subject: [PATCH] deps: shell-quote 1.10.0 -> 1.12.0 (GHSA-pqg4-j6r4-53mv)
+
+Why a patch: this is a change to upstream's lockfile, which no
+policy-pack extension can express. Upstream v1.0.4 resolves shell-quote
+1.10.0; retire this patch at the first sync whose upstream lockfile
+resolves >= 1.11.0, the first fixed version.
+
+What: GHSA-pqg4-j6r4-53mv (critical, published 2026-10-06) is a command
+injection in shell-quote's quote() for versions >= 1.8.4 < 1.11.0.
+shell-quote reaches vendor/pi only through upstream's `sandbox` example
+extension (@anthropic-ai/sandbox-runtime), a workspace of the monorepo
+that GAH never builds, bundles or loads: the coding-agent dependency
+tree has no copy, and the install-lock lockfile scans clean. Trivy
+scans the root lockfile regardless, and a fixed version exists, so
+ignore-unfixed does not apply; main's next CI run fails on it.
+
+Lockfile only: one entry, version, resolved URL and integrity (checked
+against the registry). sandbox-runtime's range already admits 1.12.0;
+no manifest changes. Made with `npm update shell-quote
+--package-lock-only --ignore-scripts`, which took the newest release.
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WHU6GR6xxBMmQZUcB1KhgK
+---
+ package-lock.json | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/package-lock.json b/package-lock.json
+index b40cd88da..d7d783584 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -4536,9 +4536,9 @@
+ 			}
+ 		},
+ 		"node_modules/shell-quote": {
+-			"version": "1.10.0",
+-			"resolved": "https://registry.npmjs.org/shell-quote/-/shell-quote-1.10.0.tgz",
+-			"integrity": "sha512-w1aiOKwKuRgtwAReIIj89puqg+I7GvX4IbLrvmhXbzQsj1+Zwi4VO3+fa6ZF91TWSjIxoEkKnMeHcLEODK5ZXA==",
++			"version": "1.12.0",
++			"resolved": "https://registry.npmjs.org/shell-quote/-/shell-quote-1.12.0.tgz",
++			"integrity": "sha512-PcByqNyT/38F2kDNi006HAMRJaULuBzq/FOsw3qdZvX/GA9W/jamDaRskgHjubHiftXK5sIFxLNkvrXUwcof6Q==",
+ 			"license": "MIT",
+ 			"engines": {
+ 				"node": ">= 0.4"
+-- 
+2.43.0
+
