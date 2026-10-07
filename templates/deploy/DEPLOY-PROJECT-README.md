@@ -71,7 +71,8 @@ GitLab locations, allowed hosts and tools, the inference provider and its
 models. It never contains keys or tokens.
 
 To publish a new version, from a checkout of the gah repository with a
-completed build:
+completed build, first raise `version` in `gah-deploy.json` (digits and dots
+only, e.g. `1.0.4` or `1.0.4.1`), then:
 
 ```powershell
 node scripts\package-windows.mjs --config <path>\gah-deploy.json
@@ -79,6 +80,7 @@ $env:GAH_GITLAB_TOKEN = '<api-scope token>'
 node scripts\publish-gitlab.mjs --config <path>\gah-deploy.json --zip dist-deploy\gah-<org>-<version>.zip --cert "CurrentUser\MY\<thumbprint>"
 ```
 
-Then bump `version` in `gah-deploy.json` and commit. Consumers pick the new
-version up on their next launch. Reference: `docs/DEPLOY-WINDOWS.md` in the
+Then commit `gah-deploy.json`, so it names the published version. Consumers
+pick the new version up on their next launch. In a gah session started from
+the gah repository, the `gah-deployments` skill walks through all of this. Reference: `docs/DEPLOY-WINDOWS.md` in the
 gah repository.

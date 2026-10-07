@@ -64,9 +64,21 @@ GAH_GITLAB_TOKEN=... node scripts/publish-gitlab.mjs --config ../deploy/gah-depl
 ```
 
 `make package-windows DEPLOY=../deploy/gah-deploy.json` wraps the first script.
-The `package-deploy` skill in `skills/` walks through all of it; run this
-repository's own `bin/gah` with `GAH_SKILLS_DIR=$PWD/skills` and
-`GAH_ALLOW_TOOLS=bash` to use it. Then bump `version` in the config and commit.
+The `gah-deployments` project skill (`.agents/skills/`) walks through all of
+it: upgrading an existing deployment to this checkout's gah, creating a new
+deployment project, and republishing after a config change, including the
+steps in GitLab. Start this repository's own launcher from the repository
+folder with a shell allowed (`$env:GAH_ALLOW_TOOLS='powershell'; .\bin\gah.ps1`
+on Windows, `GAH_ALLOW_TOOLS=bash bin/gah` elsewhere), trust the project when
+asked, and say what you want, e.g. "upgrade gah-deploy-engineering to the
+latest gah".
+
+**Version first, then build.** Set `version` in the config to the new number
+*before* packaging (the zip is named from it), publish, then commit the
+config: the committed config then always names the version that is
+published. The launcher compares versions as PowerShell `[version]`: digits
+and dots, two to four parts, so `1.0.4.1` is a valid rebuild of `1.0.4` and
+`1.0.4-1` would break every consumer's update check.
 
 Phase 1 builds on the admin's machine. A GitLab CI job in the deployment
 project that runs the same two scripts with a checkout of this repository as a
