@@ -23,15 +23,17 @@
  * environment variable (Windows) or in ~/.config/gah/secrets.env (Linux, 0600);
  * /login providers in the agent's auth.json. The launcher re-reads them.
  *
- * --out receives {"proxy": <url or null>}: the launcher exports it as
- * HTTPS_PROXY with NODE_USE_ENV_PROXY=1. No secret is ever written there.
+ * --out receives {"proxy": <url or null>, "direct": [hosts]}: with a proxy the
+ * launcher exports it as HTTPS_PROXY; with a direct route it adds the
+ * inference hosts to NO_PROXY, so the session goes the way that was tested
+ * even when the environment names a proxy (for other traffic). No secret is
+ * ever written there.
  *
  * Exit: 0 ready; 2 no route to any inference host; 3 no usable key; 4 proxy
- * needs a login; 5 Node too old for the proxy that is needed.
+ * needs a login.
  */
 
 import { spawnSync } from "node:child_process";
-import net from "node:net";
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -47,68 +49,44 @@ const providers = JSON.parse(readFileSync(opt.providers, "utf8")).providers ?? [
 const interactive = Boolean(process.stdin.isTTY && process.stderr.isTTY);
 const say = (m = "") => process.stderr.write(`${m}\n`);
 
-// --- Node's own proxy support --------------------------------------------------
-// NODE_USE_ENV_PROXY needs Node 22.21+ (or 24.5+). Below that Node ignores
-// HTTPS_PROXY entirely, so a network that needs a proxy cannot work.
-const [maj, min] = process.versions.node.split(".").map(Number);
-const nodeHasEnvProxy = maj > 24 || (maj === 24 && min >= 5) || (maj === 22 && min >= 21) || maj === 23;
-
 // --- One request, through one route, in a child process -------------------------
-// A child, because the proxy is read from the environment when Node starts.
+// Through a proxy, the child asks for a CONNECT tunnel itself and speaks TLS
+// over it, so any Node 22 works (Node's own proxy support needs 22.21+) and a
+// refused tunnel reports its status (407: wants a login). gah itself reaches
+// the proxy through undici's EnvHttpProxyAgent, independent of Node's version.
+const PROBE = `
+const http = require("node:http"), https = require("node:https"), tls = require("node:tls");
+const url = new URL(process.argv[1]), headers = JSON.parse(process.argv[2]), proxy = process.argv[3];
+const done = (o) => { console.log(JSON.stringify(o)); process.exit(0); };
+const fail = (e) => done({ error: String(e.code ?? e.name ?? "error"), message: String(e.message).slice(0, 200) });
+setTimeout(() => done({ error: "ETIMEDOUT", message: "no answer in time" }), Number(process.argv[4])).unref();
+const secure = url.protocol === "https:";
+const send = (opts) => {
+	const r = (secure ? https : http).request(url, { headers, ...opts }, (res) => { res.resume(); done({ status: res.statusCode }); });
+	r.on("error", fail);
+	r.end();
+};
+if (!proxy) send({});
+else {
+	const p = new URL(proxy), target = url.hostname + ":" + (url.port || (secure ? 443 : 80));
+	const c = http.request({ host: p.hostname, port: p.port || 80, method: "CONNECT", path: target, headers: { host: target } });
+	c.on("connect", (res, socket) => {
+		if (res.statusCode === 407) { socket.destroy(); return done({ status: 407 }); }
+		if (res.statusCode !== 200) { socket.destroy(); return done({ error: "EPROXY", message: "the proxy answered " + res.statusCode + " to CONNECT " + target }); }
+		send({ createConnection: () => (secure ? tls.connect({ socket, servername: url.hostname }) : socket) });
+	});
+	c.on("error", fail);
+	c.end();
+}`;
 function probe(url, headers, proxy, timeoutMs) {
 	const env = { ...process.env };
 	for (const k of ["HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "NODE_USE_ENV_PROXY"]) delete env[k];
-	if (proxy) Object.assign(env, { HTTPS_PROXY: proxy, HTTP_PROXY: proxy, NODE_USE_ENV_PROXY: "1" });
-	const script = `
-		fetch(process.argv[1], { headers: JSON.parse(process.argv[2]), signal: AbortSignal.timeout(${timeoutMs}) })
-			.then((r) => { console.log(JSON.stringify({ status: r.status })); })
-			.catch((e) => { const c = e.cause ?? e; console.log(JSON.stringify({ error: String(c.code ?? c.name ?? "error"), message: String(c.message ?? e.message).slice(0, 200) })); });`;
-	const r = spawnSync(process.execPath, ["-e", script, url, JSON.stringify(headers)], { env, encoding: "utf8", timeout: timeoutMs + 5000 });
+	const r = spawnSync(process.execPath, ["-e", PROBE, url, JSON.stringify(headers), proxy ?? "", String(timeoutMs)], { env, encoding: "utf8", timeout: timeoutMs + 5000 });
 	try {
 		return JSON.parse(r.stdout.trim().split("\n").pop());
 	} catch {
 		return { error: "spawn", message: (r.stderr || "no output").slice(0, 200) };
 	}
-}
-
-/**
- * Node reports a refused tunnel only as "Request was cancelled". To tell the
- * person why a proxy failed, ask it for a tunnel ourselves and read the status
- * line: 407 means it wants a login; 200 means the proxy is fine and the problem
- * lies beyond it. Resolves the status code, or an error string.
- */
-function connectStatus(proxy, targetUrl, timeoutMs = 6000) {
-	return new Promise((resolveP) => {
-		let p;
-		let t;
-		try {
-			p = new URL(proxy);
-			t = new URL(targetUrl);
-		} catch {
-			return resolveP("not a URL");
-		}
-		const port = t.port || (t.protocol === "https:" ? "443" : "80");
-		const sock = net.connect(Number(p.port || 80), p.hostname);
-		const timer = setTimeout(() => {
-			sock.destroy();
-			resolveP("timed out");
-		}, timeoutMs);
-		let buf = "";
-		sock.on("connect", () => sock.write(`CONNECT ${t.hostname}:${port} HTTP/1.1\r\nHost: ${t.hostname}:${port}\r\n\r\n`));
-		sock.on("data", (d) => {
-			buf += d;
-			const m = buf.match(/^HTTP\/1\.[01] (\d{3})/);
-			if (m || buf.includes("\r\n")) {
-				clearTimeout(timer);
-				sock.destroy();
-				resolveP(m ? Number(m[1]) : "no HTTP answer");
-			}
-		});
-		sock.on("error", (e) => {
-			clearTimeout(timer);
-			resolveP(e.code ?? e.message);
-		});
-	});
 }
 
 // --- Provider endpoints and keys ------------------------------------------------
@@ -250,7 +228,9 @@ function tryRoute(proxy, timeoutMs) {
 }
 
 const state = readState();
-const envProxy = process.env.HTTPS_PROXY || process.env.https_proxy || "";
+// curl and dnf read a proxy without a scheme as http://; so does gah (0012).
+const withScheme = (u) => (u && !u.includes("://") ? `http://${u}` : u);
+const envProxy = withScheme((process.env.HTTPS_PROXY || process.env.https_proxy || "").trim());
 const candidates = [];
 const add = (proxy, label) => {
 	const key = proxy || "none";
@@ -259,13 +239,12 @@ const add = (proxy, label) => {
 if (state.proxy !== undefined) add(state.proxy === "none" ? null : state.proxy, "what worked last time");
 add(null, "a direct connection");
 if (envProxy) add(envProxy, `the proxy in HTTPS_PROXY (${envProxy})`);
-if (opt["system-proxy"]) add(opt["system-proxy"], `the system proxy (${opt["system-proxy"]})`);
+if (opt["system-proxy"]) add(withScheme(opt["system-proxy"]), `the system proxy (${opt["system-proxy"]})`);
 if (deploy.inferenceProxy) add(deploy.inferenceProxy, `the proxy your deployment suggests (${deploy.inferenceProxy})`);
 
 let route;
 let result;
 for (const c of candidates) {
-	if (c.proxy && !nodeHasEnvProxy) continue;
 	result = tryRoute(c.proxy, c.proxy ? 8000 : 5000);
 	if (result.proxyAuth) {
 		say(`gah: the proxy ${c.proxy} asks for a login. gah does not support proxies that need one.`);
@@ -276,16 +255,6 @@ for (const c of candidates) {
 		route = c;
 		break;
 	}
-	if (c.proxy && (await connectStatus(c.proxy, providers[0]?.baseUrl ?? "")) === 407) {
-		say(`gah: the proxy ${c.proxy} asks for a login. gah does not support proxies that need one.`);
-		say("     Ask your IT for a proxy that does not, or a network where the inference service is reachable directly.");
-		process.exit(4);
-	}
-}
-if (!route && candidates.some((c) => c.proxy) && !nodeHasEnvProxy) {
-	say(`gah: this network seems to need a proxy, and Node ${process.versions.node} cannot use one.`);
-	say("     Install Node.js 22.21 or newer (the current LTS), then start gah again.");
-	process.exit(5);
 }
 while (!route && interactive) {
 	const hosts = [...new Set(providers.map((p) => { try { return new URL(p.baseUrl).host; } catch { return p.baseUrl; } }))].join(", ");
@@ -296,13 +265,9 @@ while (!route && interactive) {
 	say("(your browser's or IT's proxy settings name it). Press Enter to give up.");
 	const typed = await readLine("  Proxy: ");
 	if (!typed) break;
-	const proxy = /^https?:\/\//.test(typed) ? typed : `http://${typed}`;
-	if (!nodeHasEnvProxy) {
-		say(`gah: Node ${process.versions.node} cannot use a proxy. Install Node.js 22.21 or newer, then start gah again.`);
-		process.exit(5);
-	}
+	const proxy = withScheme(typed);
 	const r = tryRoute(proxy, 8000);
-	if (r.proxyAuth || (!r.reachable && (await connectStatus(proxy, providers[0]?.baseUrl ?? "")) === 407)) {
+	if (r.proxyAuth) {
 		say(`gah: ${proxy} asks for a login. gah does not support proxies that need one.`);
 		continue;
 	}
@@ -349,5 +314,6 @@ while (!answers.some(usable)) {
 	else say(`  that key was refused (HTTP ${now?.status ?? now?.error ?? "?"}).`);
 }
 
-writeFileSync(opt.out, `${JSON.stringify({ proxy: route.proxy })}\n`);
+const direct = route.proxy ? [] : [...new Set(providers.map((p) => { try { return new URL(p.baseUrl).hostname; } catch { return ""; } }).filter(Boolean))];
+writeFileSync(opt.out, `${JSON.stringify({ proxy: route.proxy, direct })}\n`);
 process.exit(0);

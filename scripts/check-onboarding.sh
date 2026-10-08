@@ -175,7 +175,7 @@ preflight() { # [env...] -- [args...]; sets rc and out
 echo '{}' >"$WORK/pf-deploy.json"
 pf_providers "http://127.0.0.1:$KEYPORT/v1"
 rm -f "$WORK/pf-state.json"; preflight CORP_KEY=good
-check "direct route, accepted key: ready, no proxy" "$([ "$rc" -eq 0 ] && [ "$out" = '{"proxy":null}' ] && echo 1 || echo 0)"
+check "direct route, accepted key: ready, no proxy" "$([ "$rc" -eq 0 ] && [ "$out" = '{"proxy":null,"direct":["127.0.0.1"]}' ] && echo 1 || echo 0)"
 preflight CORP_KEY=bad
 check "a refused key without a terminal stops with code 3" "$([ "$rc" -eq 3 ] && echo 1 || echo 0)"
 check "and says the key was refused" "$(has "$(cat "$WORK/pf.log")" "was refused (HTTP 401)")"
@@ -184,14 +184,16 @@ check "a missing key without a terminal stops with code 3" "$([ "$rc" -eq 3 ] &&
 
 pf_providers "http://inference.invalid:$KEYPORT/v1"
 rm -f "$WORK/pf-state.json"; preflight CORP_KEY=good HTTPS_PROXY="$PROXY"
-check "unreachable directly, reachable through HTTPS_PROXY" "$([ "$rc" -eq 0 ] && [ "$out" = "{\"proxy\":\"$PROXY\"}" ] && echo 1 || echo 0)"
+check "unreachable directly, reachable through HTTPS_PROXY" "$([ "$rc" -eq 0 ] && [ "$out" = "{\"proxy\":\"$PROXY\",\"direct\":[]}" ] && echo 1 || echo 0)"
 preflight CORP_KEY=good
-check "the next launch reuses the route without HTTPS_PROXY" "$([ "$rc" -eq 0 ] && [ "$out" = "{\"proxy\":\"$PROXY\"}" ] && echo 1 || echo 0)"
+check "the next launch reuses the route without HTTPS_PROXY" "$([ "$rc" -eq 0 ] && [ "$out" = "{\"proxy\":\"$PROXY\",\"direct\":[]}" ] && echo 1 || echo 0)"
+rm -f "$WORK/pf-state.json"; preflight CORP_KEY=good https_proxy="${PROXY#http://}"
+check "a proxy variable without a scheme is read as http:// (as curl does)" "$([ "$rc" -eq 0 ] && [ "$out" = "{\"proxy\":\"$PROXY\",\"direct\":[]}" ] && echo 1 || echo 0)"
 rm -f "$WORK/pf-state.json"; preflight CORP_KEY=good -- --system-proxy "$PROXY"
-check "the system proxy the launcher found is tried" "$([ "$rc" -eq 0 ] && [ "$out" = "{\"proxy\":\"$PROXY\"}" ] && echo 1 || echo 0)"
+check "the system proxy the launcher found is tried" "$([ "$rc" -eq 0 ] && [ "$out" = "{\"proxy\":\"$PROXY\",\"direct\":[]}" ] && echo 1 || echo 0)"
 echo "{\"inferenceProxy\":\"$PROXY\"}" >"$WORK/pf-deploy.json"
 rm -f "$WORK/pf-state.json"; preflight CORP_KEY=good
-check "the deployment's suggested proxy is tried" "$([ "$rc" -eq 0 ] && [ "$out" = "{\"proxy\":\"$PROXY\"}" ] && echo 1 || echo 0)"
+check "the deployment's suggested proxy is tried" "$([ "$rc" -eq 0 ] && [ "$out" = "{\"proxy\":\"$PROXY\",\"direct\":[]}" ] && echo 1 || echo 0)"
 echo '{}' >"$WORK/pf-deploy.json"
 rm -f "$WORK/pf-state.json"; preflight CORP_KEY=good HTTPS_PROXY="$PROXY407"
 check "a proxy that wants a login stops with code 4" "$([ "$rc" -eq 4 ] && echo 1 || echo 0)"

@@ -143,8 +143,11 @@ with each:
 | **A working API key** | Checked against the provider's model list, never with a chat request, because some gateways bill per message. An endpoint without a model list is accepted unchecked. When no provider has a key that works, the person is asked for one, masked, until one works or they give up. It is stored as the user environment variable the config names, or where `/login` keeps it. |
 
 Node does not use the Windows proxy settings by itself. The launcher exports
-the route preflight found as `HTTPS_PROXY` with `NODE_USE_ENV_PROXY=1`, which
-needs Node 22.21 or newer.
+the route preflight found as `HTTPS_PROXY`; on a direct route it adds the
+inference hosts to `NO_PROXY` instead, so a proxy set for other traffic is not
+used for them. Any Node 22 works: preflight opens the proxy tunnel itself, and
+gah's own HTTP client reads the proxy from the environment. A proxy value
+without a scheme (`10.0.0.1:8080`) is read as `http://`, as curl does.
 
 **In the session**, while no shared skills are loaded, one line above the
 input box says *gah is better with your team's skills. Type /setup-skills to

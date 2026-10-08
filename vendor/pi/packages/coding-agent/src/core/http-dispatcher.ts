@@ -79,11 +79,32 @@ function createUndiciOriginDispatcher(origin: string | URL, options: object): un
 	);
 }
 
+// GAH: curl, dnf and most Linux tools accept a proxy variable without a
+// scheme (https_proxy=10.0.0.1:8080) and treat it as http://. Undici's
+// EnvHttpProxyAgent throws "Invalid URL" on it and gah would not start. Read
+// such a value as http://, as they do; drop one that is still not a URL, with
+// a warning, rather than crash.
+export function gahNormalizeProxyEnv(env: NodeJS.ProcessEnv = process.env): void {
+	for (const name of ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"]) {
+		const value = env[name]?.trim();
+		if (!value) continue;
+		const url = value.includes("://") ? value : `http://${value}`;
+		try {
+			new URL(url);
+			env[name] = url;
+		} catch {
+			process.stderr.write(`gah: ignoring ${name}=${value}: not a proxy URL\n`);
+			delete env[name];
+		}
+	}
+}
+
 export function configureHttpDispatcher(timeoutMs: number = DEFAULT_HTTP_IDLE_TIMEOUT_MS): void {
 	const normalizedTimeoutMs = parseHttpIdleTimeoutMs(timeoutMs);
 	if (normalizedTimeoutMs === undefined) {
 		throw new Error(`Invalid HTTP idle timeout: ${String(timeoutMs)}`);
 	}
+	gahNormalizeProxyEnv();
 	const dispatcher = withUndiciErrorListener(
 		new undici.EnvHttpProxyAgent({
 			allowH2: false,

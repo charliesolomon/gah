@@ -328,7 +328,10 @@ if (-not $InfoOnly -and -not $env:GAH_NO_UPDATE) {
             exit $LASTEXITCODE
         }
     } catch {
-        $Problems += "update check: $($_.Exception.Message)"
+        # GitLab answers 404, not 401, for a project an anonymous caller may not see.
+        if ((Get-StatusCode $_) -eq 404 -and -not $Req.Headers.ContainsKey('PRIVATE-TOKEN')) {
+            $Problems += "update check: $($Deploy.gitlab.project) is not visible without a GitLab token (read_api), so updates cannot be found"
+        } else { $Problems += "update check: $($_.Exception.Message)" }
     }
 }
 
@@ -339,7 +342,7 @@ if (-not $InfoOnly) {
 $Skills = if ($Current -and (Test-Path (Join-Path (Join-Path $SkillsRoot $Current) 'skills'))) { Join-Path $SkillsRoot $Current } else { '' }
 if ($Problems.Count -gt 0) {
     $what = if ($Skills) { "continuing with $($Deploy.version) and the local skills" } else { "continuing with $($Deploy.version), without shared skills" }
-    Warn "GitLab not available ($($Problems[0])) - $what"
+    Warn "GitLab: $($Problems[0]) - $what"
 }
 
 # --- 3. Environment: what the admin decided, nothing else ---------------------------
@@ -370,7 +373,11 @@ if (-not $InfoOnly -and -not $env:GAH_SKIP_PREFLIGHT) {
     & node (Join-Path $Here 'preflight.mjs') @pfArgs
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     $pf = Get-Content -LiteralPath (Join-Path $Root 'preflight-out.json') -Raw | ConvertFrom-Json
+    # The session goes the way that was tested: through the proxy found, or, on
+    # a direct route, with the inference hosts in NO_PROXY so a proxy set for
+    # other traffic is not used for them.
     if ($pf.proxy) { $env:HTTPS_PROXY = $pf.proxy; $env:HTTP_PROXY = $pf.proxy; $env:NODE_USE_ENV_PROXY = '1' }
+    elseif (@($pf.direct).Count) { $env:NO_PROXY = (@($env:NO_PROXY) + @($pf.direct) | Where-Object { $_ }) -join ',' }
     # A key preflight just stored is in the user scope, not in this window yet.
     foreach ($e in @($Deploy.providersEnv)) {
         if ($e -and -not (Test-Path "Env:$($e.variable)")) {

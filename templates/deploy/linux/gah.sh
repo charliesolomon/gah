@@ -315,7 +315,12 @@ UPDATED_TO=""
 # both steps fail for the same reason, and gah still starts.
 problem=""
 if [ "$info_only" -eq 0 ] && [ -z "${GAH_NO_UPDATE:-}" ]; then
-	self_update || problem="update check: $(why)"
+	if ! self_update; then
+		# GitLab answers 404, not 401, for a project an anonymous caller may not see.
+		if [ -z "${GAH_GITLAB_TOKEN:-}" ] && grep -q 'error: 404' "$ERR_FILE" 2>/dev/null; then
+			problem="update check: $D_PROJECT is not visible without a GitLab token (read_api), so updates cannot be found"
+		else problem="update check: $(why)"; fi
+	fi
 	if [ -n "$UPDATED_TO" ]; then
 		export GAH_NO_UPDATE=1
 		rm -f "$ERR_FILE"
@@ -330,8 +335,8 @@ fi
 SKILLS=""
 [ -n "$CURRENT" ] && [ -d "$SKILLS_ROOT/$CURRENT/skills" ] && SKILLS="$SKILLS_ROOT/$CURRENT"
 if [ -n "$problem" ]; then
-	if [ -n "$SKILLS" ]; then warn "GitLab not available ($problem) - continuing with $D_VERSION and the local skills"
-	else warn "GitLab not available ($problem) - continuing with $D_VERSION, without shared skills"; fi
+	if [ -n "$SKILLS" ]; then warn "GitLab: $problem - continuing with $D_VERSION and the local skills"
+	else warn "GitLab: $problem - continuing with $D_VERSION, without shared skills"; fi
 fi
 
 # --- 3. Environment: what the admin decided, nothing else ---------------------------
@@ -357,14 +362,22 @@ fi
 # --- 3b. Preflight: a model must be reachable, with a working key ---------------------
 # preflight.mjs finds the route (direct, HTTPS_PROXY, the deployment's
 # suggestion, or asks) and makes sure at least one provider has a key it
-# accepts, asking for one (masked) when none does. The route found is exported
-# below; Node uses a proxy only with NODE_USE_ENV_PROXY.
+# accepts, asking for one (masked) when none does. The session then goes the
+# way that was tested: through the proxy found (lower-case too: undici reads
+# https_proxy before HTTPS_PROXY), or, on a direct route, with the inference
+# hosts added to NO_PROXY so a proxy the environment names for other traffic
+# is not used for them.
 if [ "$info_only" -eq 0 ] && [ -z "${GAH_SKIP_PREFLIGHT:-}" ]; then
 	rm -f "$ROOT/preflight-out.json"
 	node "$HERE/preflight.mjs" --deploy "$HERE/deploy.json" --providers "$GAH_PROVIDERS_FILE" \
 		--state "$ROOT/preflight-state.json" --out "$ROOT/preflight-out.json" || { rc=$?; rm -f "$ERR_FILE"; exit "$rc"; }
 	pf_proxy="$(node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).proxy ?? "")' "$ROOT/preflight-out.json")"
-	[ -n "$pf_proxy" ] && export HTTPS_PROXY="$pf_proxy" HTTP_PROXY="$pf_proxy" NODE_USE_ENV_PROXY=1
+	pf_direct="$(node -e 'process.stdout.write((JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).direct ?? []).join(","))' "$ROOT/preflight-out.json")"
+	if [ -n "$pf_proxy" ]; then
+		export HTTPS_PROXY="$pf_proxy" HTTP_PROXY="$pf_proxy" https_proxy="$pf_proxy" http_proxy="$pf_proxy" NODE_USE_ENV_PROXY=1
+	elif [ -n "$pf_direct" ]; then
+		export NO_PROXY="${NO_PROXY:+$NO_PROXY,}$pf_direct" no_proxy="${no_proxy:+$no_proxy,}$pf_direct"
+	fi
 	load_secrets                                        # a key preflight just stored
 fi
 

@@ -278,9 +278,13 @@ if (cfg.setupSkills) {
 	cpSync(dir, join(tree, "gah-policy", "deploy-setup-skills"), { recursive: true });
 }
 for (const f of P.launcher) {
-	cpSync(join(launcherSrc, f), join(tree, f));
-	// Executable in the zip (it records Unix modes), whatever the checkout's mode.
-	if (f.endsWith(".sh")) chmodSync(join(tree, f), 0o755);
+	if (f.endsWith(".sh")) {
+		// LF whatever the checkout has: a Windows checkout with core.autocrlf
+		// gives CRLF, and bash then fails on its first line ("set: pipefail:
+		// invalid option name"). Executable in the zip, which records Unix modes.
+		writeFileSync(join(tree, f), readFileSync(join(launcherSrc, f), "utf8").replace(/\r\n/g, "\n"));
+		chmodSync(join(tree, f), 0o755);
+	} else cpSync(join(launcherSrc, f), join(tree, f));
 }
 
 // tools: pinned archives + checksums; the installer verifies and unpacks them
