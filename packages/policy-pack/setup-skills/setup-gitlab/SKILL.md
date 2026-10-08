@@ -56,8 +56,11 @@ Needed unless `skillsAnonymous` is already 200.
    2. Avatar (top left or right) → **Edit profile** → **Access tokens** → **Add new token**.
    3. Name it `gah`, set an expiry date, tick only **read_api**.
    4. **Create token**, then copy it. GitLab shows it once.
-2. Run `gah_setup` action `enter_gitlab_token`. A dialog opens; the person
-   pastes the token there, not in the chat.
+2. Before running it, tell the person a box for the token is about to open
+   where they normally type, and that they paste the token there and press
+   Enter. Then run `gah_setup` action `enter_gitlab_token`. The box is the
+   only input on screen while it is open, so do not tell them where not to
+   paste it ("not in the chat" confuses people: the chat input is hidden).
 3. Read the result's `probes.skillsWithToken`:
    - **200**: done. Return to the setup-skills skill.
    - **401**: the token was mistyped, expired, or revoked. Offer to enter it again.

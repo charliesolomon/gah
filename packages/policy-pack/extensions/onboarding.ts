@@ -280,7 +280,7 @@ export default function (pi: ExtensionAPI) {
 				const token = await askSecret(
 					ctx,
 					"GitLab personal access token",
-					"Scope read_api is enough to fetch skills. Paste it here, not into the chat.",
+					"Paste your token below and press Enter. The read_api scope is enough.",
 				);
 				if (!token) return text({ stored: false, reason: "cancelled by the person" });
 				const r = await store("GAH_GITLAB_TOKEN", token);
