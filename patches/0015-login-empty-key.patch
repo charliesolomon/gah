@@ -1,0 +1,120 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: csolomon <charliesolomon@gmail.com>
+Date: Thu, 8 Oct 2026 16:05:00 -0700
+Subject: [PATCH] login-empty-key: /login never saves an empty API key
+
+The API-key login dialog submits whatever the field holds. Enter on an
+empty field, or a paste that never reached the terminal, saved "" as the
+key, replaced a working one in auth.json, and still said "Saved API key".
+The session then had no usable model (/model listed none) and the next
+launch asked for a key again (seen on a RHEL 9 test, #136).
+
+ModelRuntime.login() wraps the interaction's prompt: a secret that is
+empty or whitespace is refused before anything is stored ("no API key was
+entered; the stored key is unchanged"), and any other secret is trimmed.
+One place covers every provider's API-key login, built-in or configured.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WHU6GR6xxBMmQZUcB1KhgK
+---
+diff --git a/packages/coding-agent/src/core/model-runtime.ts b/packages/coding-agent/src/core/model-runtime.ts
+index 6cc6bc044..8f83cc1bf 100644
+--- a/packages/coding-agent/src/core/model-runtime.ts
++++ b/packages/coding-agent/src/core/model-runtime.ts
+@@ -859,8 +859,17 @@ export class ModelRuntime implements Models {
+ 		options?: LoginOptions,
+ 	): Promise<Credential> {
+ 		const signal = operationSignal(interaction.signal);
++		// GAH: an empty secret (Enter on an empty field, or a paste that never
++		// arrived) was saved as the key, replacing a working one, and reported as
++		// "Saved API key". Refuse it before anything is stored; trim the rest.
++		const prompt: AuthInteraction["prompt"] = async (request) => {
++			const value = await interaction.prompt(request);
++			if (request.type !== "secret" || typeof value !== "string") return value;
++			if (!value.trim()) throw new Error("no API key was entered; the stored key is unchanged");
++			return value.trim();
++		};
+ 		return this.enqueueCredentialOperation(providerId, signal, async () => {
+-			const credential = await this.models.login(providerId, type, { ...interaction, signal }, options);
++			const credential = await this.models.login(providerId, type, { ...interaction, prompt, signal }, options);
+ 			await this.synchronizeCredentialState(providerId, "login", credential, signal);
+ 			return credential;
+ 		});
+diff --git a/packages/coding-agent/test/gah-login-empty-key.test.ts b/packages/coding-agent/test/gah-login-empty-key.test.ts
+new file mode 100644
+index 000000000..c724e5548
+--- /dev/null
++++ b/packages/coding-agent/test/gah-login-empty-key.test.ts
+@@ -0,0 +1,72 @@
++/**
++ * GAH: /login never saves an empty API key (0015-login-empty-key).
++ */
++
++import type { AuthInteraction, Model, Provider } from "@earendil-works/pi-ai";
++import { describe, expect, it } from "vitest";
++import { AuthStorage } from "../src/core/auth-storage.ts";
++import { ModelRuntime } from "../src/core/model-runtime.ts";
++
++const model: Model<"openai-completions"> = {
++	id: "m",
++	name: "M",
++	api: "openai-completions",
++	provider: "corp",
++	baseUrl: "https://example.test/v1",
++	reasoning: false,
++	input: ["text"],
++	cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
++	contextWindow: 1000,
++	maxTokens: 100,
++};
++
++const corp: Provider<"openai-completions"> = {
++	id: "corp",
++	name: "corp",
++	auth: {
++		apiKey: {
++			name: "API key",
++			login: async (interaction: AuthInteraction) => ({
++				type: "api_key",
++				key: await interaction.prompt({ type: "secret", message: "Enter API key" }),
++			}),
++			check: async ({ credential }) => (credential?.key ? { type: "api_key", source: "stored" } : undefined),
++			resolve: async ({ credential }) =>
++				credential?.key ? { auth: { apiKey: credential.key }, source: "stored" } : undefined,
++		},
++	},
++	getModels: () => [model],
++	stream: () => {
++		throw new Error("unused");
++	},
++	streamSimple: () => {
++		throw new Error("unused");
++	},
++};
++
++async function setup() {
++	const credentials = AuthStorage.inMemory();
++	const runtime = await ModelRuntime.create({ credentials, modelsPath: null, allowModelNetwork: false });
++	runtime.registerNativeProvider(corp);
++	await runtime.refresh({ allowNetwork: false, providers: ["corp"] });
++	return { credentials, runtime };
++}
++const typed = (value: string): AuthInteraction => ({ prompt: async () => value, notify: () => {} });
++
++describe("login with an empty API key", () => {
++	it("is refused and leaves a working key in place", async () => {
++		const { credentials, runtime } = await setup();
++		await runtime.login("corp", "api_key", typed("good-key"));
++		for (const empty of ["", "   ", "\n"]) {
++			await expect(runtime.login("corp", "api_key", typed(empty))).rejects.toThrow(/no API key was entered/);
++		}
++		expect(await credentials.read("corp")).toEqual({ type: "api_key", key: "good-key" });
++		expect(runtime.getAvailableSnapshot().some((m) => m.provider === "corp")).toBe(true);
++	});
++
++	it("trims what was pasted", async () => {
++		const { credentials, runtime } = await setup();
++		await runtime.login("corp", "api_key", typed("  pasted-key\n"));
++		expect(await credentials.read("corp")).toEqual({ type: "api_key", key: "pasted-key" });
++	});
++});

@@ -859,8 +859,17 @@ export class ModelRuntime implements Models {
 		options?: LoginOptions,
 	): Promise<Credential> {
 		const signal = operationSignal(interaction.signal);
+		// GAH: an empty secret (Enter on an empty field, or a paste that never
+		// arrived) was saved as the key, replacing a working one, and reported as
+		// "Saved API key". Refuse it before anything is stored; trim the rest.
+		const prompt: AuthInteraction["prompt"] = async (request) => {
+			const value = await interaction.prompt(request);
+			if (request.type !== "secret" || typeof value !== "string") return value;
+			if (!value.trim()) throw new Error("no API key was entered; the stored key is unchanged");
+			return value.trim();
+		};
 		return this.enqueueCredentialOperation(providerId, signal, async () => {
-			const credential = await this.models.login(providerId, type, { ...interaction, signal }, options);
+			const credential = await this.models.login(providerId, type, { ...interaction, prompt, signal }, options);
 			await this.synchronizeCredentialState(providerId, "login", credential, signal);
 			return credential;
 		});
