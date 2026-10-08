@@ -133,9 +133,21 @@ function Expand-Zip($zip, $dest) {
 if (-not $InfoOnly -and -not $env:GAH_NO_UPDATE) {
     try {
         $proj = Enc $Deploy.gitlab.project
-        $pkgs = @(Get-Api "projects/$proj/packages?package_name=$($Deploy.gitlab.package)&order_by=version&sort=desc&per_page=5")
+        # Windows PowerShell 5.1's Invoke-RestMethod emits a JSON array as ONE
+        # object rather than one per element; `ForEach-Object { $_ }` unrolls
+        # it (PowerShell 7 already does). Without that, two or more published
+        # versions made $p the whole list and $p.version an array.
+        # The newest 100 by publication date, and the highest of those by
+        # [version] -- the order this launcher compares in -- rather than
+        # trusting the registry's own version sort.
+        $pkgs = @(Get-Api "projects/$proj/packages?package_name=$(Enc $Deploy.gitlab.package)&order_by=created_at&sort=desc&per_page=100" | ForEach-Object { $_ })
         $latest = $null
-        foreach ($p in $pkgs) { if ($p.name -eq $Deploy.gitlab.package) { $latest = $p.version; break } }
+        foreach ($p in $pkgs) {
+            if ($p.name -ne $Deploy.gitlab.package) { continue }
+            $v = $null
+            if (-not [version]::TryParse([string]$p.version, [ref]$v)) { continue }
+            if (-not $latest -or $v -gt [version]$latest) { $latest = [string]$p.version }
+        }
         if ($latest -and ([version]$latest -gt [version]$Deploy.version)) {
             $slug    = $Deploy.packageName -replace ("-" + [regex]::Escape($Deploy.version) + "$"), ''
             $newName = "$slug-$latest"
