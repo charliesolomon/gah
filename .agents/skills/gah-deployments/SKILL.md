@@ -173,7 +173,12 @@ config cannot tell you.
      (`"$VAR"` collected by the installer, or `/login` on first run);
    - whether consumers may have a shell (`GAH_ALLOW_TOOLS=powershell`; default
      no), and credential files they must never see (`GAH_SECRET_FILES`);
-   - optional: an icon (`.ico`), a `SYSTEM.md` override.
+   - optional: an icon (`.ico`), a `SYSTEM.md` override;
+   - optional, for onboarding (#135): a proxy to suggest when the inference
+     endpoint is not reachable directly (`inferenceProxy`), the deployment's
+     own setup skills (`setupSkills`, a folder of skills such as a
+     `setup-gitlab` with who issues certificates and internal links), and
+     whether to show the /setup-skills line at all (`skillsNudge`).
 2. **Probe the endpoint** so the models and tool-call support are facts, not
    guesses: `node scripts/probe-endpoint.mjs <baseUrl> --key-env <VAR>`. The
    key must already be in that environment variable *before* this session
@@ -189,7 +194,8 @@ config cannot tell you.
      project features, permissions* → *Package registry* enabled.
    - **Skills project**, if new: create it the same way, then from this repo
      `.\bin\gah.ps1 init <folder>` scaffolds it locally; commit and push it.
-     It needs at least one skill, or the launcher refuses to start.
+     It needs at least one skill, or consumers see the /setup-skills line
+     with nothing to fetch.
    - Clone the empty deployment project next to the others.
 4. **Scaffold the deployment folder** from the answers:
    `gah-deploy.json` from `templates/deploy/gah-deploy.example.json` (keep its

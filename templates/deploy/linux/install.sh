@@ -121,7 +121,7 @@ if [ "$UPDATE" -eq 0 ]; then
 	if [ -z "$token" ] && [ -n "$(get_secret GAH_GITLAB_TOKEN)" ]; then
 		ok "GitLab token already stored"
 	else
-		[ -z "$token" ] && [ "$NO_PROMPT" -eq 0 ] && token="$(ask_secret "GitLab token for $D_GITLAB (read_api; Enter to skip)")"
+		[ -z "$token" ] && [ "$NO_PROMPT" -eq 0 ] && token="$(ask_secret "GitLab token for $D_GITLAB (read_api; Enter to skip and set it up later with /setup-skills in gah)")"
 		if [ -n "$token" ]; then set_secret GAH_GITLAB_TOKEN "$token"; ok "GitLab token stored in $SECRETS"
 		else ok "no GitLab token (the project must be visible without one)"; fi
 	fi

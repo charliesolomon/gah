@@ -18,6 +18,7 @@
 // scripts/probe-endpoint.mjs can be tried against this mock too. Its history
 // probe (three turns, the answer in the first) is answered from the first
 // turn; MOCK_HISTORY=drop plays a single-turn gateway that never saw it (#96).
+// MOCK_LOG_TEXT=1 adds the system and user text of each request to the log.
 import { appendFileSync } from "node:fs";
 import http from "node:http";
 
@@ -80,7 +81,9 @@ http
 			const historyAnswer = codeWord && process.env.MOCK_HISTORY !== "drop" ? `The code word is ${codeWord}.` : codeWord ? "You have not given me a code word." : undefined;
 			appendFileSync(
 				log,
-				`${JSON.stringify({ path: req.url, tools, hasTools, hasToolRoles, roles, protocolInPrompt, protocolInUser, hasResult })}\n`,
+				// MOCK_LOG_TEXT=1 also records the full system and user text, for checks
+				// that assert what the model was told (scripts/check-onboarding.sh).
+				`${JSON.stringify({ path: req.url, tools, hasTools, hasToolRoles, roles, protocolInPrompt, protocolInUser, hasResult, ...(process.env.MOCK_LOG_TEXT === "1" ? { systemText, userText } : {}) })}\n`,
 			);
 			const askedCap = json.max_tokens ?? json.max_completion_tokens;
 			if (typeof askedCap === "number" && askedCap > 32768) {

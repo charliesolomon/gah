@@ -60,6 +60,12 @@ Uninstall with `~/.local/share/gah/uninstall.sh` (`--purge` also removes
 
 ## First steps
 
+If GitLab access is not set up yet, gah starts anyway and shows a line above
+the input box: *gah is better with your team's skills. Type /setup-skills to
+set them up.* Type `/setup-skills`: it works out what is missing and walks you
+through it. Your token goes into a hidden dialog, never into the chat.
+
+
 - The first start fetches our skills; you will see `gah: skills updated to ...`.
 - Type `/login`, choose `<provider>`, paste your API key. Once.
 - Try `/rrr` - a one-stanza poem about the folder you are in. It proves the

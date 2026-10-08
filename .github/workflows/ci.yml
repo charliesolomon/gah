@@ -100,6 +100,12 @@ jobs:
         # what every deployment reads before writing its third skill.
         run: ./scripts/check-skills.sh
 
+      - name: Onboarding without skills
+        # gah starts without shared skills and says so; the model is told the
+        # session has none; gah_setup reports status without secrets;
+        # preflight.mjs finds proxy routes and asks for a missing key (#135).
+        run: make check-onboarding
+
       - name: Prompted tool calling
         # Tool use through a gateway that refuses native tool calls (issue #42).
         run: make check-prompted

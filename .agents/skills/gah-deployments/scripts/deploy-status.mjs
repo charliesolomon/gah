@@ -89,7 +89,7 @@ if (build === "stale-seed") blockers.push("the model data changed after the last
 if (build === "stale") blockers.push("the source or its dependencies changed after the last build: npm ci --ignore-scripts, then npm run build");
 
 // --- the deployment config -------------------------------------------------------
-const KNOWN = new Set(["$comment", "org", "shortcutName", "icon", "version", "gitlab", "skills", "env", "providers", "systemMd", "windowsArch", "linuxArch"]);
+const KNOWN = new Set(["$comment", "org", "shortcutName", "icon", "version", "gitlab", "skills", "env", "providers", "systemMd", "windowsArch", "linuxArch", "setupSkills", "skillsNudge", "inferenceProxy"]);
 const KNOWN_GITLAB = new Set(["url", "project", "package", "linuxPackage", "clientCert", "clientCertIssuer", "proxy"]);
 const KNOWN_ENV = new Set(["GAH_BUILTIN_MODELS", "GAH_ALLOWED_HOSTS", "GAH_ALLOW_TOOLS", "GAH_SECRET_FILES", "GAH_ALLOW_SHARE"]);
 const VERSION_RE = /^\d+(\.\d+){1,3}$/;
@@ -132,7 +132,9 @@ if (opt.config) {
 			if (hosts.length && !hosts.some((h) => h === "*" || glob(h).test(host))) blockers.push(`config: provider '${pr.name}' host ${host} is not in GAH_ALLOWED_HOSTS`);
 			if (typeof pr.apiKey === "string" && pr.apiKey && !pr.apiKey.startsWith("$")) p(`provider '${pr.name}' has a literal apiKey: it would ship inside every package. Use "$VAR" or /login`);
 		}
-		for (const k of ["systemMd", "icon"]) if (cfg[k] && !existsSync(resolve(dir, cfg[k]))) blockers.push(`config: ${k} '${cfg[k]}' does not exist next to the config`);
+		for (const k of ["systemMd", "icon", "setupSkills"]) if (cfg[k] && !existsSync(resolve(dir, cfg[k]))) blockers.push(`config: ${k} '${cfg[k]}' does not exist next to the config`);
+		if (cfg.inferenceProxy && !/^https?:\/\/\S+$/.test(String(cfg.inferenceProxy))) blockers.push("config: inferenceProxy must be an http(s):// URL");
+		if (cfg.skillsNudge !== undefined && typeof cfg.skillsNudge !== "boolean") blockers.push("config: skillsNudge must be true or false");
 		const readme = join(dir, "README.md");
 		config.readme = existsSync(readme) ? "present" : "missing";
 		if (existsSync(readme)) {

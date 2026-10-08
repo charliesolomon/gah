@@ -19,11 +19,27 @@ rules and different lifetimes. See [KB.md](KB.md). Small deployments keep contex
 in this repository's `context/` folder and never need one; the knowledge base is
 what that grows into when people start correcting it as they work.
 
-**GAH will not start without the second half.** A session with no skills is a
-misconfiguration, not a lighter mode — the system prompt is written around
-skills that are not there, so the agent ends up declining ordinary work while
-the user has no way to see why. Refusing at launch, with instructions, is the
-kinder failure.
+**GAH starts without the second half, and says so** ([#135](https://github.com/charliesolomon/gah/issues/135)).
+It used to refuse, because a session with no skills was a misconfiguration: the
+system prompt is written around skills, so the agent declined ordinary work.
+That put the hardest setup step in front of the first session. Now every
+launcher starts anyway, and while no shared skills are loaded:
+
+- one line above the input box says *gah is better with your team's skills.
+  Type /setup-skills to set them up.*;
+- the model is told the session has no shared skills, so it helps with ordinary
+  work instead of declining it;
+- `/setup-skills` runs a built-in skill that works out what is missing and does
+  the next step: on a deployment package, GitLab access and then the skills
+  fetch, in the same session; on the shared host, a pointer to the
+  administrator; in a checkout, how to point at a skills repository.
+
+The setup skills ship with the policy pack (`packages/policy-pack/setup-skills/`),
+so they exist before any skills repository does. A deployment package can ship
+its own that replace them by name (`setupSkills` in gah-deploy.json,
+[DEPLOY-WINDOWS.md](DEPLOY-WINDOWS.md)); the shared host reads
+`/etc/gah/setup-skills/`. They never count as the team's skills, so the line
+stays until real ones load.
 
 ## Creating it
 
@@ -150,11 +166,13 @@ plain local directory works, only the shared project needs tracking.
 
 ### `--no-skills` is not an opt-out
 
-It means *do not auto-discover from the user-global config dir*. `gah-launch`
-passes it on every launch to pin the loaded set. It does not satisfy the check.
+It means *do not auto-discover from the user-global config dir*. Every launcher
+passes it to pin the loaded set; the setup skills still load, through the
+policy pack.
 
-To start a genuinely empty session — debugging the harness itself, essentially —
-set `GAH_ALLOW_NO_SKILLS=1`.
+`GAH_ALLOW_NO_SKILLS=1` hides the /setup-skills line, for checks and CI that
+start without skills on purpose. A deployment that never uses shared skills
+sets `skillsNudge: false` in gah-deploy.json instead.
 
 ## Prompt templates
 

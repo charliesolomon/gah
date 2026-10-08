@@ -389,16 +389,14 @@ if [ -n "${GAH_KB_DIR:-}" ] && [ -d "$GAH_KB_DIR/skills" ]; then
 	[ "$kb_count" -eq 0 ] && warn "knowledge base at $GAH_KB_DIR has no skills — it will not be searchable"
 fi
 
-# Refuse rather than warn. A session with no skills is a misconfiguration: the
-# system prompt is written around skills that are not there, so the agent
-# declines ordinary work and the user cannot tell why. The warnings above say
-# which half failed -- the clone, or the repo's contents.
+# No skills is no longer a reason to refuse (#135): the session starts, the
+# onboarding extension shows the /setup-skills nudge, and branding.ts tells the
+# model the session has no shared skills so it does not decline ordinary work.
+# The warnings above say which half failed -- the clone, or the repo's
+# contents -- and /setup-skills on this host points the person to the admin,
+# who owns the manifest and the deploy key.
 if [ ${#skill_args[@]} -eq 0 ]; then
-	fail "no skills loaded, refusing to launch.
-  Shared repo:   $SKILLS_REPO (branch $SKILLS_BRANCH, subdir $SKILLS_SUBDIR)
-  Clone target:  $SKILLS_DIR
-Check the warnings above: either the clone failed or the repo has no skills.
-To start a deliberately empty session:  GAH_ALLOW_NO_SKILLS=1 $GAH_HOME/bin/gah --no-skills"
+	warn "no shared skills loaded (repo $SKILLS_REPO, branch $SKILLS_BRANCH); starting without them — tell your administrator"
 fi
 
 # Prompt templates: the shared repo's prompts/ holds the organisation's slash
@@ -413,6 +411,13 @@ fi
 # with the arguments below and never forwards the user's own. Clearing it keeps
 # the help page honest for the people who only ever arrive this way.
 export GAH_SCAFFOLD_COMMANDS=""
+
+# Tells the onboarding extension this is the shared host, so /setup-skills sends
+# people to the administrator instead of walking them through a GitLab token.
+# Setup skills of the host's own (optional) replace the built-in ones by name.
+export GAH_LAUNCHER_KIND=host
+SETUP_SKILLS_DIR="${SETUP_SKILLS_DIR:-$CONF_DIR/setup-skills}"
+[ -d "$SETUP_SKILLS_DIR" ] && export GAH_SETUP_SKILLS_DIR="$SETUP_SKILLS_DIR"
 
 if [ -n "$HEADLESS" ]; then
 	[ -f "$SKILLS_DIR/$PROMPT_FILE" ] || fail "headless: no prompt file '$PROMPT_FILE' in the skills repo"

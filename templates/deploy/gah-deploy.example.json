@@ -36,6 +36,9 @@
     ]
   },
   "systemMd": null,
+  "setupSkills": null,
+  "skillsNudge": true,
+  "inferenceProxy": null,
   "windowsArch": ["x64"],
   "linuxArch": ["x64"]
 }

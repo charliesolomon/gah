@@ -44,6 +44,8 @@ KB="$WORK/kb"
 mkdir -p "$WORK/fakebin"
 cat >"$WORK/fakebin/node" <<'EOF'
 #!/usr/bin/env bash
+# The packaged launchers check the version first (#135); answer like Node 22.
+[ "${1:-}" = "--version" ] && { echo v22.21.0; exit 0; }
 printf '%s\n' "$@"
 EOF
 chmod +x "$WORK/fakebin/node"
@@ -587,11 +589,11 @@ PSEOF
 	check_eq "the packaged launcher refuses init-kb instead of prompting the model" "2" "$rc"
 	check "and says where the subcommand does live" \
 		"$(printf '%s' "$out" | grep -qF 'bin\gah.ps1 init-kb' && echo 1 || echo 0)"
-	argv="$(PATH="$WORK/fakebin:$PATH" GAH_ALLOW_NO_SKILLS=1 GAH_KB_DIR="$PS_KB" pwsh -NoProfile -File "$PKG/gah.ps1" 2>/dev/null)"
+	argv="$(PATH="$WORK/fakebin:$PATH" GAH_ALLOW_NO_SKILLS=1 GAH_SKIP_PREFLIGHT=1 GAH_NO_UPDATE=1 GAH_KB_DIR="$PS_KB" pwsh -NoProfile -File "$PKG/gah.ps1" 2>/dev/null)"
 	check "the packaged launcher passes the knowledge base's skills" \
 		"$(printf '%s' "$argv" | grep -qF "$PS_KB/skills" && echo 1 || echo 0)"
 	check "and its prompts" "$(printf '%s' "$argv" | grep -qF "$PS_KB/prompts" && echo 1 || echo 0)"
-	argv="$(PATH="$WORK/fakebin:$PATH" GAH_ALLOW_NO_SKILLS=1 pwsh -NoProfile -File "$PKG/gah.ps1" 2>/dev/null)"
+	argv="$(PATH="$WORK/fakebin:$PATH" GAH_ALLOW_NO_SKILLS=1 GAH_SKIP_PREFLIGHT=1 GAH_NO_UPDATE=1 pwsh -NoProfile -File "$PKG/gah.ps1" 2>/dev/null)"
 	check "and passes nothing when GAH_KB_DIR is unset" \
 		"$(printf '%s' "$argv" | grep -qF "$PS_KB" && echo 0 || echo 1)"
 else

@@ -351,48 +351,16 @@ if ($SubCommand -eq 'update-kb') {
     exit 0
 }
 
-# --- skills are required ---------------------------------------------------
-# GAH exists to run skills; a session with none is a misconfiguration, not a
-# lighter mode. Without this the policy layer loads with nothing to govern and
-# the agent declines ordinary work, because the system prompt is written around
-# skills that are not there.
-$SkillsConfigured = $false
-# Only --skill counts. --no-skills means "do not auto-discover", not "I want
-# none" - deploy/host/gah-launch passes it on every launch to pin the loaded
-# set, so honouring it here would exempt the shared host from the check.
-if ($args -contains '--skill') { $SkillsConfigured = $true }
-# --help and --version answer without a skills repo and start nothing, so they
-# also skip the setup steps below. Computed at script scope on purpose: inside
-# a Where-Object scriptblock, $args is the scriptblock's own (empty) list.
+# --- skills are optional (#135) ---------------------------------------------
+# GAH is built around the organisation's shared skills, but no longer refuses to
+# start without them; see bin/gah. The onboarding extension shows the
+# /setup-skills nudge until shared skills load, and GAH_ALLOW_NO_SKILLS only
+# silences it. --help and --version start nothing, so they also skip the setup
+# steps below. Computed at script scope on purpose: inside a Where-Object
+# scriptblock, $args is the scriptblock's own (empty) list.
 $InfoOnly = $false
 foreach ($flag in @('--help', '-h', '--version', '-v')) { if ($GahArgs -contains $flag) { $InfoOnly = $true } }
-if ($InfoOnly) { $SkillsConfigured = $true }
-if ($env:GAH_ALLOW_NO_SKILLS) { $SkillsConfigured = $true }
-if ($env:GAH_SKILLS_DIR -and (Test-Path $env:GAH_SKILLS_DIR)) { $SkillsConfigured = $true }
-if (-not $SkillsConfigured) {
-    Write-Host "GAH works with your organization's shared agents and skills."
-    Write-Host "Set them up using:"
-    Write-Host ""
-    Write-Host "  .\bin\gah.ps1 init <directory>"
-    Write-Host ""
-    Write-Host "Then start a session with:"
-    Write-Host "  `$env:GAH_SKILLS_DIR = '<directory>\skills'; .\bin\gah.ps1"
-    Write-Host ""
-    Write-Host "A knowledge base is optional and scaffolded separately (docs/KB.md):"
-    Write-Host "  .\bin\gah.ps1 init-kb <directory>   then   `$env:GAH_KB_DIR = '<directory>'"
-    Write-Host ""
-    Write-Host "Refresh an existing one's scripts and skills, leaving its articles alone:"
-    Write-Host "  .\bin\gah.ps1 update-kb <directory>"
-    Write-Host ""
-    Write-Host "Refresh the starter skills gah maintains, leaving your own alone:"
-    Write-Host "  .\bin\gah.ps1 update-skills <directory>"
-    Write-Host ""
-    Write-Host "Or pass one directly for a single run:  .\bin\gah.ps1 --skill <path>"
-    Write-Host ""
-    Write-Host "To start a deliberately empty session:"
-    Write-Host "  `$env:GAH_ALLOW_NO_SKILLS = '1'; .\bin\gah.ps1"
-    exit 1
-}
+if (-not $env:GAH_LAUNCHER_KIND) { $env:GAH_LAUNCHER_KIND = 'checkout' }
 
 $SkillArgs = @()
 if ($env:GAH_SKILLS_DIR -and (Test-Path $env:GAH_SKILLS_DIR)) {
@@ -532,6 +500,7 @@ try {
         --extension (Join-Path $PolicyDir "providers.ts") `
         --extension (Join-Path $PolicyDir "skills-freshness.ts") `
         --extension (Join-Path $PolicyDir "whats-new.ts") `
+        --extension (Join-Path $PolicyDir "onboarding.ts") `
         @GahArgs
     $ExitCode = $LASTEXITCODE
 } finally {

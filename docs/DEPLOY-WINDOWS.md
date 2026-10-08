@@ -22,6 +22,8 @@ gah checkout + gah-deploy.json ──► package registry ◄──── Instal
 | `node_modules/jiti`, `…/photon-node`, `…/@earendil-works/chord` | the packages the bundle leaves external (the packager checks this list against upstream's bundle script) |
 | `node_modules/esbuild` | a generated stub, not esbuild. Upstream's experimental plugin bundler imports esbuild at startup; GAH never runs it, so the stub satisfies the import and throws a clear error if that path is ever reached, instead of shipping an 11 MB native binary. |
 | `gah-policy/` | the policy pack: `extensions/`, `SYSTEM.md` (your override if given), `providers.json` from the config. Force-loaded by patch 0020; auto-discovery is off. |
+| `gah-policy/setup-skills/`, `gah-policy/deploy-setup-skills/` | the built-in setup skills behind `/setup-skills`, and the deployment's own when the config names them (`setupSkills`) |
+| `preflight.mjs` | run before every session: finds the route to the model (proxy) and makes sure a key works |
 | `tools/` | pinned `fd` and `ripgrep` archives plus `SHA256SUMS`; the installer verifies and unpacks them |
 | `gah.ps1` | the launcher (below) |
 | `Install-Gah.ps1` | the installer (below) |
@@ -55,6 +57,9 @@ Lives in **your** deployment repository, not in this one. Start from
 | `systemMd` | Optional path, relative to the config, of a `SYSTEM.md` override |
 | `icon` | Optional path, relative to the config, of a `.ico` for the desktop shortcut (16/32/48/256 sizes). Carried as `shortcut.ico`; the installer keeps it at `%LOCALAPPDATA%\gah\shortcut.ico` across updates. Absent = the stock terminal icon |
 | `windowsArch` | Default `["x64"]`; add `"arm64"` to ship both tool sets |
+| `inferenceProxy` | Optional proxy URL that the launcher offers when the inference endpoint is not reachable directly, after the machine's own `HTTPS_PROXY` and system proxy ([first launch](#first-launch-and-setup)). `null` = none. |
+| `setupSkills` | Optional folder, relative to the config, of the deployment's own setup skills: one folder per skill with a `SKILL.md`. A skill with the same name as a built-in one (`setup-skills`, `setup-gitlab`) replaces it. The packager refuses one that looks like it holds a credential, because the zip is downloadable by anyone in the organisation. |
+| `skillsNudge` | Default `true`. `false` hides the /setup-skills line, for a deployment that never uses shared skills. |
 | `gitlab.linuxPackage`, `linuxArch` | The Linux package's registry name (default `gah-linux`) and tool architectures (default `["x64"]`); see [DEPLOY-LINUX.md](DEPLOY-LINUX.md) |
 
 ## Admin: build and publish
@@ -102,10 +107,10 @@ The consumer launcher and installer talk to GitLab from PowerShell, which uses t
    - checks Node 22+;
    - copies the package to `%LOCALAPPDATA%\gah\<package>`;
    - verifies the tool archives against the pinned checksums and unpacks `fd.exe`, `rg.exe`;
-   - asks for a GitLab token (Enter to skip when the project is visible without one) and stores it as `GAH_GITLAB_TOKEN`;
+   - asks for a GitLab token (Enter to skip: the project may be visible without one, or the person can set it up later from inside gah with `/setup-skills`) and stores it as `GAH_GITLAB_TOKEN`;
    - asks for any API key the config collects through an environment variable; names providers that use `/login` instead;
    - writes `current.txt`, creates the desktop shortcut and a `gah` command in the PowerShell profile. A `gah` the profile already defines, such as an admin's wrapper for a gah checkout, is left alone with a warning.
-3. Double-click the shortcut. The first launch fetches the skills repository.
+3. Double-click the shortcut. The first launch fetches the skills repository when GitLab access works, and starts anyway when it does not.
 
 Older packages named the command `gg`. The first automatic update to a package
 with this installer replaces that profile line with `gah`, and says so; the
@@ -120,19 +125,68 @@ the stored GitLab token and API-key variables (`-KeepSecrets` keeps those). The
 agent's own state in `~\.gah` (keys from `/login`, audit log, sessions) stays
 unless `-Purge`.
 
+## First launch and setup
+
+gah is built around the organisation's skills, but none of the setup beyond
+Node and a working API key is required to start a session ([#135](https://github.com/charliesolomon/gah/issues/135)).
+The harder steps, GitLab access in particular, are finished from inside the
+session, where gah can help.
+
+**Before the session**, the launcher makes sure of three things, and helps
+with each:
+
+| Needed | When it is missing |
+|---|---|
+| **Node 22+** | Offers to install Node.js LTS with `winget`, or says where to get it. |
+| **A route to the model** | `preflight.mjs` tries a direct connection, then `HTTPS_PROXY`, then the Windows system proxy (from the system settings, including an automatic configuration script), then the config's `inferenceProxy`, and finally asks. The route that worked is remembered and tried first next time. A proxy that asks for a login stops with a clear message; gah does not support those. |
+| **A working API key** | Checked against the provider's model list, never with a chat request, because some gateways bill per message. An endpoint without a model list is accepted unchecked. When no provider has a key that works, the person is asked for one, masked, until one works or they give up. It is stored as the user environment variable the config names, or where `/login` keeps it. |
+
+Node does not use the Windows proxy settings by itself. The launcher exports
+the route preflight found as `HTTPS_PROXY` with `NODE_USE_ENV_PROXY=1`, which
+needs Node 22.21 or newer.
+
+**In the session**, while no shared skills are loaded, one line above the
+input box says *gah is better with your team's skills. Type /setup-skills to
+set them up.*, and the model is told the session has none, so it still helps
+with ordinary work. `/setup-skills` runs the `setup-skills` skill, which uses
+the `gah_setup` tool to find out what is missing and does only the next step:
+
+- **GitLab works already**, for example a public skills project: fetch the
+  skills and reload them into the same session.
+- **GitLab needs access**: the `setup-gitlab` skill. A client certificate first
+  when the front end wants one (the person picks it from their certificate
+  store), then a `read_api` token, typed into a masked dialog the tool opens.
+  The model never sees the token; the tool stores it as `GAH_GITLAB_TOKEN` and
+  reports only whether GitLab now accepts it.
+- **Something only a person can fix** (no access to the project, no
+  certificate, no network): say what, and stop.
+
+A deployment can replace `setup-gitlab`, or any setup skill, with its own
+(`setupSkills`), for what only its people know: who issues certificates,
+internal help links.
+
+**Updates do not need any of this** when the deployment project is public: the
+update check goes anonymously, and falls back to anonymous when a stored token
+is refused.
+
 ## What happens on every launch
 
 `gah.ps1`, started through the stable stub `%LOCALAPPDATA%\gah\gah-launch.ps1`:
 
-1. **Update.** Asks the registry for the newest `gitlab.package` version. If higher than the installed one: downloads the zip and its `.sha256`, verifies, unpacks beside the current package, runs the new package's installer with `-Update` (tools, `current.txt`), and re-launches from it. Any failure is a warning and the current version runs. `GAH_NO_UPDATE=1` skips the check.
-2. **Skills.** Asks the skills repository for the branch head. If it moved: downloads the archive, unpacks to `skills\<sha>`, switches `current.txt`. Any failure keeps the local copy. No skills at all is fatal, as in `bin/gah`.
+0. **Node.** Present and 22 or newer, or offers to install it.
+1. **Update.** Asks the registry for the newest `gitlab.package` version. If higher than the installed one: downloads the zip and its `.sha256`, verifies, unpacks beside the current package, runs the new package's installer with `-Update` (tools, `current.txt`), and re-launches from it. `GAH_NO_UPDATE=1` skips the check.
+2. **Skills.** Asks the skills repository for the branch head. If it moved: downloads the archive, unpacks to `skills\<sha>`, switches `current.txt`. Without any, the session starts without shared skills.
+   A GitLab failure in either step is one line, naming the first reason, and the launch goes on.
 3. **Environment.** Exports `env` from `deploy.json`, defaults `GAH_BUILTIN_MODELS` and `GAH_ALLOWED_HOSTS` to empty when unset, points `GAH_PROVIDERS_FILE` at the packaged `providers.json`, disables `models.json`, and prepends `bin\` to `PATH` for `fd` and `rg`.
-4. **Setup steps.** Runs the repository's `setup\NN-*.ps1`.
-5. **Start.** `node bundle\cli.js --no-extensions --no-skills --skill <repo>\skills --prompt-template <repo>\prompts`. The baked `gah-policy\` supplies the policy.
+4. **Preflight.** `preflight.mjs`, as above: a route to the model and a working key. `GAH_SKIP_PREFLIGHT=1` skips it.
+5. **Setup steps.** Runs the repository's `setup\NN-*.ps1`.
+6. **Start.** `node bundle\cli.js --no-extensions --no-skills [--skill <repo>\skills --prompt-template <repo>\prompts]`. The baked `gah-policy\` supplies the policy and the setup skills.
 
 Steps 1 and 2 talk to GitLab from PowerShell, outside the agent process, so the
 agent's egress allowlist ([PROVIDERS.md](PROVIDERS.md)) still names only the
-inference host. `--help` and `--version` skip steps 1, 2 and 4.
+inference host. So does `gah_setup`, which calls back into this script
+(`--gah-internal status | sync-skills | store | list-certs`). `--help` and
+`--version` skip steps 1, 2, 4 and 5.
 
 ## Relationship to the other deployment shapes
 
