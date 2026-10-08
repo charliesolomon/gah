@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # gah.sh - packaged GAH launcher for Linux (RHEL 9 and similar). Lives inside the
 # installed package directory next to deploy.json, and is started through
-# <root>/gah-launch (which reads current.txt, so updates survive) by the `gg`
+# <root>/gah-launch (which reads current.txt, so updates survive) by the `gah`
 # command and the desktop entry the installer writes.
 #
 # The bash twin of gah.ps1, step for step. On every launch: check the GitLab
@@ -21,7 +21,7 @@ ROOT="$(dirname "$HERE")"                               # ~/.local/share/gah
 warn() { echo "gah: $*" >&2; }
 
 # The subcommand is not necessarily the first argument: a wrapper commonly
-# injects flags ahead of the person's own (`gg() { gah-launch --skill <dir> "$@"; }`),
+# injects flags ahead of the person's own (`gah() { gah-launch --skill <dir> "$@"; }`),
 # so find the first bare token from the list, ignoring one that is the value of
 # a preceding flag (`--skill init-kb` names a directory, not a subcommand).
 #

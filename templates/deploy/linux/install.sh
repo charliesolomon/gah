@@ -8,8 +8,8 @@
 # verifies and unpacks the pinned fd/ripgrep archives, stores the GitLab token,
 # the client certificate's paths and any API keys the deployment collects in
 # ~/.config/gah/secrets.env (0600), writes current.txt and the stable launcher
-# stub, puts a `gg` command in ~/.local/bin and an entry in the applications
-# menu. Idempotent: rerun to repair. --update is what the launcher passes when
+# stub, puts a `gah` command in ~/.local/bin (replacing the `gg` of older
+# packages) and an entry in the applications menu. Idempotent: rerun to repair. --update is what the launcher passes when
 # it has already placed a newer package and only needs it finalised.
 #
 # Non-interactive use: --no-prompt, with GAH_GITLAB_TOKEN and the deployment's
@@ -185,17 +185,30 @@ chmod 755 "$ROOT/gah-launch"
 install -m 0755 "$DEST/uninstall.sh" "$ROOT/uninstall.sh"
 ok "current package: $D_NAME"
 
-if [ "$UPDATE" -eq 0 ]; then
-	# --- gg command --------------------------------------------------------------------------
-	marker="# gah deployment command"
-	mkdir -p "$BIN_DIR"
-	if [ -e "$BIN_DIR/gg" ] && ! grep -qF "$marker" "$BIN_DIR/gg"; then
-		warn "$BIN_DIR/gg exists and is not ours; left alone. Start the agent with $ROOT/gah-launch"
+# --- gah command ---------------------------------------------------------------------------
+# Also runs with --update, so an install from an older package, which named the
+# command gg, moves to gah on the next automatic update. A gah that is not ours
+# (a gah checkout's bin/gah linked here, say) is left alone.
+marker="# gah deployment command"
+ours() { [ -f "$1" ] && grep -qF "$marker" "$1"; }
+mkdir -p "$BIN_DIR"
+if [ -e "$BIN_DIR/gah" ] && ! ours "$BIN_DIR/gah"; then
+	warn "$BIN_DIR/gah exists and is not ours; left alone. Start the assistant with $ROOT/gah-launch"
+elif [ "$UPDATE" -eq 0 ] || [ -e "$BIN_DIR/gah" ] || ours "$BIN_DIR/gg"; then
+	printf '#!/usr/bin/env bash\n%s\nexec "%s/gah-launch" "$@"\n' "$marker" "$ROOT" >"$BIN_DIR/gah"
+	chmod 755 "$BIN_DIR/gah"
+	if ours "$BIN_DIR/gg"; then
+		rm -f "$BIN_DIR/gg"
+		ok "the command is now 'gah' (was 'gg'): $BIN_DIR/gah"
 	else
-		printf '#!/usr/bin/env bash\n%s\nexec "%s/gah-launch" "$@"\n' "$marker" "$ROOT" >"$BIN_DIR/gg"
-		chmod 755 "$BIN_DIR/gg"
-		ok "'gg' command: $BIN_DIR/gg"
+		ok "'gah' command: $BIN_DIR/gah"
 	fi
+	# Another gah earlier on PATH would win; say so rather than leave a puzzle.
+	first="$(PATH="$PATH:$BIN_DIR" type -P gah || true)"
+	[ -n "$first" ] && [ "$first" != "$BIN_DIR/gah" ] && warn "'gah' on your PATH is $first, which comes before $BIN_DIR/gah"
+fi
+
+if [ "$UPDATE" -eq 0 ]; then
 	case ":$PATH:" in
 		*":$BIN_DIR:"*) ;;
 		*)
@@ -228,7 +241,7 @@ EOF
 	fi
 
 	echo
-	echo "Done. Open a new terminal and type gg, or start '$D_SHORTCUT' from the applications menu."
+	echo "Done. Open a new terminal and type gah, or start '$D_SHORTCUT' from the applications menu."
 	echo "The first launch fetches your organisation's skills from $D_GITLAB."
 	echo "To remove everything later: $ROOT/uninstall.sh"
 fi

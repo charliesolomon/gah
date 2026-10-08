@@ -35,7 +35,7 @@ person on their own machine.
 | Installed to | `%LOCALAPPDATA%\gah\<package>` | `~/.local/share/gah/<package>` |
 | Token and API keys | user environment variables | `~/.config/gah/secrets.env`, mode 0600 |
 | Client certificate | a thumbprint from the Windows store | a PEM certificate and key, as git's `http.sslCert` / `http.sslKey` |
-| Start | desktop shortcut, `gg` in the PowerShell profile | applications-menu entry, `gg` in `~/.local/bin` |
+| Start | desktop shortcut, `gah` in the PowerShell profile | applications-menu entry, `gah` in `~/.local/bin` |
 | Setup steps | `setup/NN-*.ps1` | `setup/NN-*.sh` |
 | Skills archive | `archive.zip` | `archive.tar.gz` |
 
@@ -95,16 +95,16 @@ Updates are unpacked with `unzip` when it is present and with python3's
    - asks for any API key the config collects through an environment variable, and names providers that use `/login` instead;
    - stores the answers in `~/.config/gah/secrets.env` (directory 0700, file 0600);
    - writes `current.txt` and the stable stub `~/.local/share/gah/gah-launch`;
-   - puts `gg` in `~/.local/bin`, adding that directory to `PATH` in `~/.bashrc` only if it is not already there (RHEL 9's default `.bashrc` has it);
+   - puts `gah` in `~/.local/bin` (an existing `gah` that is not the installer's own is left alone, with a warning), adding that directory to `PATH` in `~/.bashrc` only if it is not already there (RHEL 9's default `.bashrc` has it);
    - adds an applications-menu entry that opens a terminal (`--no-desktop` skips it).
-2. Open a new terminal and type `gg`. The first launch fetches the skills repository.
+2. Open a new terminal and type `gah`. The first launch fetches the skills repository.
 
 Re-running the installer repairs an installation. For unattended installs,
 `--no-prompt` asks nothing: a `GAH_GITLAB_TOKEN` or API-key variable already in
 the environment is stored, and anything missing is named.
 
 `~/.local/share/gah/uninstall.sh` reverses all of it: the packages, the skills
-cache and downloads, the menu entry, `gg`, the `PATH` line it added, and
+cache and downloads, the menu entry, `gah`, the `PATH` line it added, and
 `secrets.env` (`--keep-secrets` keeps that). The agent's own state in `~/.gah`
 stays unless `--purge`.
 
@@ -129,7 +129,7 @@ order:
    with the knowledge base's skills and prompts after the organisation's when
    `GAH_KB_DIR` names a clone ([KB.md](KB.md)).
 
-`gg init`, `gg init-kb`, `gg update-kb` and `gg update-skills` are refused with
+`gah init`, `gah init-kb`, `gah update-kb` and `gah update-skills` are refused with
 a pointer to a gah checkout, as on Windows: the templates they copy are not in
 a package.
 

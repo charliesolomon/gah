@@ -104,14 +104,18 @@ The consumer launcher and installer talk to GitLab from PowerShell, which uses t
    - verifies the tool archives against the pinned checksums and unpacks `fd.exe`, `rg.exe`;
    - asks for a GitLab token (Enter to skip when the project is visible without one) and stores it as `GAH_GITLAB_TOKEN`;
    - asks for any API key the config collects through an environment variable; names providers that use `/login` instead;
-   - writes `current.txt`, creates the desktop shortcut and a `gg` alias in the PowerShell profile.
+   - writes `current.txt`, creates the desktop shortcut and a `gah` command in the PowerShell profile. A `gah` the profile already defines, such as an admin's wrapper for a gah checkout, is left alone with a warning.
 3. Double-click the shortcut. The first launch fetches the skills repository.
+
+Older packages named the command `gg`. The first automatic update to a package
+with this installer replaces that profile line with `gah`, and says so; the
+change shows in new PowerShell windows.
 
 Re-running the installer repairs an installation. `-NoPrompt` skips the
 questions (RMM use; keys are then set as user environment variables separately).
 
 `%LOCALAPPDATA%\gah\Uninstall-Gah.ps1` reverses all of it: every installed
-package with the skills cache and downloads, the shortcut, the `gg` alias, and
+package with the skills cache and downloads, the shortcut, the `gah` command, and
 the stored GitLab token and API-key variables (`-KeepSecrets` keeps those). The
 agent's own state in `~\.gah` (keys from `/login`, audit log, sessions) stays
 unless `-Purge`.

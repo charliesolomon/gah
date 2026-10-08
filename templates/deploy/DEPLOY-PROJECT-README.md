@@ -33,7 +33,7 @@ You need Node.js 22 or newer on the machine (`node --version` in PowerShell).
    - Nothing else. Your API key for the inference service is entered inside the
      assistant on first use, never on the command line.
 4. **Start it** from the desktop shortcut **<Org> Assistant**, or open a new
-   PowerShell window and type `gg`.
+   PowerShell window and type `gah`.
 
 ## Install (RHEL 9 and other Linux)
 
@@ -52,7 +52,7 @@ You need Node.js 22 or newer: `sudo dnf module enable nodejs:22 && sudo dnf inst
    file here: the installer offers the one git already uses for GitLab.
    Answers are kept in `~/.config/gah/secrets.env`, readable only by you and
    hidden from the assistant.
-3. **Start it:** open a new terminal and type `gg`, or pick **<Org> Assistant**
+3. **Start it:** open a new terminal and type `gah`, or pick **<Org> Assistant**
    from the applications menu.
 
 Uninstall with `~/.local/share/gah/uninstall.sh` (`--purge` also removes
@@ -65,7 +65,7 @@ Uninstall with `~/.local/share/gah/uninstall.sh` (`--purge` also removes
 - Try `/rrr` - a one-stanza poem about the folder you are in. It proves the
   assistant can see files and reach the model.
 - Type `what can you do?` for the skills available to you, and `/` for commands.
-- `gg --help` shows what this installation may use: tools, models, network.
+- `gah --help` shows what this installation may use: tools, models, network.
 
 ## Day to day
 
@@ -85,7 +85,7 @@ Uninstall with `~/.local/share/gah/uninstall.sh` (`--purge` also removes
 | `Node.js 22 or newer is required` | Install Node.js LTS, open a new window, rerun the installer |
 | `update check failed` / `skills update failed` at every launch | GitLab not reachable: proxy not set for this window, wrong certificate, or missing token. Check `$env:HTTPS_PROXY`, and `$env:GAH_GITLAB_CERT_THUMBPRINT` against `Get-ChildItem Cert:\CurrentUser\My` |
 | `No models available` after `/login` | The key was refused; `/login` again |
-| The window closes at once | Start from PowerShell with `gg` to read the message |
+| The window closes at once | Start from PowerShell with `gah` to read the message |
 
 ## For the admin
 

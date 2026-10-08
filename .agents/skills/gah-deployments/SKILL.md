@@ -150,9 +150,9 @@ For "update gah-deploy-engineering to 1.0.4" and the like.
    v1.0.4)`. Push only when the admin says to; if the default branch is
    protected, push a branch and walk them through *Merge requests* → *New*.
 8. **Prove the rollout on the admin's own machine.** Close any open session,
-   start from the desktop shortcut (on Linux, `gg` in a new terminal): the
+   start from the desktop shortcut (on Linux, `gah` in a new terminal): the
    launcher should report the update and relaunch on the new version;
-   `gg --version` names it. Installed consumers
+   `gah --version` names it. Installed consumers
    switch on their next launch, with no action. If the admin's own launch did
    not update: the publish went to a different project or package name, or
    the version is not higher; re-read the status and the registry page.
@@ -201,7 +201,7 @@ config cannot tell you.
 5. **Status, build, publish, commit**: Flow A from step 1, skipping step 3.
 6. **Install it yourself first.** The admin downloads the zip from the package
    registry, unzips it, runs `.\Install-Gah.ps1` (Linux: `bash install.sh`),
-   starts the shortcut (Linux: `gg`), runs
+   starts the shortcut (Linux: `gah`), runs
    `/rrr` and `what can you do?`. Only then does the README go to the team.
 
 ## Flow C: republish after a config change

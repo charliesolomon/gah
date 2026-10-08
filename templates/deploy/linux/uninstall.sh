@@ -6,8 +6,9 @@
 #
 # The twin of Uninstall-Gah.ps1. Removes every installed package under
 # ~/.local/share/gah (with the skills cache, downloads, current.txt and the
-# launcher stub), the applications-menu entry, the `gg` command, the PATH line
-# the installer may have added to ~/.bashrc, and ~/.config/gah/secrets.env
+# launcher stub), the applications-menu entry, the `gah` command (or the `gg`
+# of older packages), the PATH line the installer may have added to ~/.bashrc,
+# and ~/.config/gah/secrets.env
 # (unless --keep-secrets). Leaves the agent's own state in ~/.gah (auth.json
 # with /login keys, audit log, sessions) unless --purge. Idempotent.
 set -euo pipefail
@@ -36,10 +37,12 @@ for f in "$APPS"/*.desktop; do
 	[ -f "$f" ] && grep -qx 'X-GAH-Deployment=true' "$f" && { rm -f "$f"; ok "removed $(basename "$f")"; }
 done
 
-# --- gg command and the PATH line -------------------------------------------------------
-if [ -f "$HOME/.local/bin/gg" ] && grep -qF '# gah deployment command' "$HOME/.local/bin/gg"; then
-	rm -f "$HOME/.local/bin/gg"; ok "removed the gg command"
-fi
+# --- gah command and the PATH line ------------------------------------------------------
+for cmd in gah gg; do
+	if [ -f "$HOME/.local/bin/$cmd" ] && grep -qF '# gah deployment command' "$HOME/.local/bin/$cmd"; then
+		rm -f "$HOME/.local/bin/$cmd"; ok "removed the $cmd command"
+	fi
+done
 if [ -f "$HOME/.bashrc" ] && grep -qF '# gah deployment path' "$HOME/.bashrc"; then
 	grep -vF '# gah deployment path' "$HOME/.bashrc" >"$HOME/.bashrc.gah-tmp" || true
 	cat "$HOME/.bashrc.gah-tmp" >"$HOME/.bashrc"; rm -f "$HOME/.bashrc.gah-tmp"
@@ -70,4 +73,4 @@ elif [ -d "$STATE" ]; then
 fi
 
 echo
-echo "Done. The gg command is gone; a new terminal no longer has the PATH line."
+echo "Done. The gah command is gone; a new terminal no longer has the PATH line."
