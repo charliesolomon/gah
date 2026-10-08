@@ -15,7 +15,7 @@ offers Node (below).
 ```
 admin machine                      corporate GitLab                 consumer (RHEL 9)
 gah checkout + gah-deploy.json ──► package registry ◄──── install.sh, then gah.sh on every launch
-                                   (gah-linux package)
+                                   (<name> package)
                                    skills repository ◄──── archive of <branch> when its head moved
 ```
 
@@ -28,8 +28,8 @@ person on their own machine.
 | | Windows | Linux |
 |---|---|---|
 | Build | `scripts/package.mjs` (or `package-windows.mjs`) | `scripts/package.mjs --platform linux` |
-| Zip | `gah-<org>-<version>.zip` | `gah-<org>-linux-<version>.zip` |
-| Registry package | `gitlab.package`, default `gah-windows` | `gitlab.linuxPackage`, default `gah-linux` |
+| Zip | `<name>-win11-<version>.zip` | `<name>-linux-<version>.zip` |
+| Registry package | `gitlab.package`, default `name` | the same one, same version |
 | Tool binaries | `windowsArch`, default `["x64"]` | `linuxArch`, default `["x64"]`; add `"arm64"` for both |
 | Scripts | `gah.ps1`, `Install-Gah.ps1`, `Uninstall-Gah.ps1` | `gah.sh`, `install.sh`, `uninstall.sh` |
 | Installed to | `%LOCALAPPDATA%\gah\<package>` | `~/.local/share/gah/<package>` |
@@ -53,13 +53,15 @@ desktop's stock terminal icon.
 ```bash
 make build-all                                             # once per gah version
 node scripts/package.mjs --config ../deploy/gah-deploy.json --platform linux
-GAH_GITLAB_TOKEN=... node scripts/publish-gitlab.mjs --config ../deploy/gah-deploy.json --zip dist-deploy/gah-<org>-linux-<version>.zip
+GAH_GITLAB_TOKEN=... node scripts/publish-gitlab.mjs --config ../deploy/gah-deploy.json --zip dist-deploy/<name>-linux-<version>.zip
 ```
 
 The packager runs the same tool-surface check against the assembled tree as
-for Windows. The publisher reads the platform from the zip's name and uploads
-it to `gitlab.linuxPackage`. It refuses a zip whose version is not the
-config's. Version rules are the same as Windows: digits and dots, two to four
+for Windows. The publisher uploads it next to the Windows zip of the same
+version, in `gitlab.package`. It refuses a zip whose version is not the
+config's. Each launcher updates to the highest version that holds its own
+platform's zip, so a version published for one platform only is skipped by
+the other. Version rules are the same as Windows: digits and dots, two to four
 parts. The Linux launcher compares versions exactly as PowerShell's
 `[version]` does, so both platforms agree on what "newer" means.
 
@@ -79,11 +81,11 @@ node --version                         # v22 or newer
 Updates are unpacked with `unzip` when it is present and with python3's
 `zipfile` module otherwise.
 
-1. Download `gah-<org>-linux-<version>.zip` from the deployment project's
-   package registry (*Deploy* → *Package registry* → `gah-linux`) and unpack it:
+1. Download `<name>-linux-<version>.zip` from the deployment project's
+   package registry (*Deploy* → *Package registry* → `<name>`) and unpack it:
    ```bash
-   unzip gah-<org>-linux-<version>.zip          # or: python3 -m zipfile -e gah-<org>-linux-<version>.zip .
-   cd gah-<org>-linux-<version>
+   unzip <name>-linux-<version>.zip          # or: python3 -m zipfile -e <name>-linux-<version>.zip .
+   cd <name>-linux-<version>
    bash install.sh
    ```
    The installer:
@@ -116,7 +118,7 @@ order:
 
 0. **Node** 22 or newer; when it is missing, offers to install it with
    `sudo dnf` in a terminal, or says how.
-1. **Update** from the `gah-linux` registry package, verified against its
+1. **Update** to the highest version in the registry package that holds a Linux zip, verified against its
    `.sha256`, finalised by the new package's `install.sh --update`.
 2. **Skills** as `archive.tar.gz` at the branch head, when the head moved.
    Without GitLab access the session starts without shared skills; a GitLab

@@ -7,10 +7,10 @@ checkout with a completed build:
 
 ```bash
 node scripts/package-windows.mjs --config /path/to/gah-deploy.json
-GAH_GITLAB_TOKEN=... node scripts/publish-gitlab.mjs --config /path/to/gah-deploy.json --zip dist-deploy/gah-<org>-<version>.zip
-# Linux (RHEL 9) package from the same config:
+GAH_GITLAB_TOKEN=... node scripts/publish-gitlab.mjs --config /path/to/gah-deploy.json --zip dist-deploy/<name>-win11-<version>.zip
+# Linux (RHEL 9) package from the same config, into the same registry package and version:
 node scripts/package.mjs --config /path/to/gah-deploy.json --platform linux
-GAH_GITLAB_TOKEN=... node scripts/publish-gitlab.mjs --config /path/to/gah-deploy.json --zip dist-deploy/gah-<org>-linux-<version>.zip
+GAH_GITLAB_TOKEN=... node scripts/publish-gitlab.mjs --config /path/to/gah-deploy.json --zip dist-deploy/<name>-linux-<version>.zip
 ```
 
 `DEPLOY-PROJECT-README.md` is a README for the deployment project itself:

@@ -21,8 +21,9 @@ Both are ordinary GitLab projects. Nothing in them is built by GitLab.
    OS with Node: `node scripts/package.mjs --config gah-deploy.json [--platform linux]`
    assembles the zip, runs the tool-surface check against a mock endpoint, and
    writes the checksum ([DEPLOY-WINDOWS.md](DEPLOY-WINDOWS.md),
-   [DEPLOY-LINUX.md](DEPLOY-LINUX.md)). Windows and Linux zips go to two
-   packages in the same registry, `gah-windows` and `gah-linux` by default.
+   [DEPLOY-LINUX.md](DEPLOY-LINUX.md)). Both zips of a version go into one
+   registry package, named by the config's `name` (default `gah-<org>`):
+   `<name>-win11-<version>.zip` and `<name>-linux-<version>.zip`.
 2. **Publish to the deployment project.** `scripts/publish-gitlab.mjs` uploads
    the zip and its checksum to
    `<gitlab>/api/v4/projects/<deployment project>/packages/generic/<package>/<version>/`.

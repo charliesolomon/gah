@@ -8,7 +8,9 @@
  *
  * --platform defaults to windows; scripts/package-windows.mjs runs this with it fixed.
  *
- * Output: <out>/gah-<org>-<version>.zip (Windows) or gah-<org>-linux-<version>.zip
+ * Output: <out>/<name>-win11-<version>.zip or <name>-linux-<version>.zip, where
+ * <name> is the config's "name" (default gah-<org slug>). Both go into one
+ * registry package, gitlab.package (default <name>), one version each.
  * (Linux), each with a .sha256, containing one folder of the same name:
  *     bundle/              upstream's self-contained build (runs on bare Node)
  *     package.json         version metadata the bundle reads
@@ -57,19 +59,13 @@ const PLATFORMS = {
 		launcher: ["gah.ps1", "Install-Gah.ps1", "Uninstall-Gah.ps1"],
 		archKey: "windowsArch",
 		toolPlatform: "win32",
-		packageKey: "package",
-		defaultPackage: "gah-windows",
-		nameInfix: "",
+		tag: "win11",
 	},
 	linux: {
 		launcher: ["gah.sh", "install.sh", "uninstall.sh"],
 		archKey: "linuxArch",
 		toolPlatform: "linux",
-		packageKey: "linuxPackage",
-		defaultPackage: "gah-linux",
-		// A distinct name, so both zips sit side by side in dist-deploy and the
-		// Windows package keeps the name every installed launcher derives.
-		nameInfix: "linux-",
+		tag: "linux",
 	},
 };
 const P = PLATFORMS[opt.platform] ?? fail(`--platform must be windows or linux, not ${opt.platform}`);
@@ -138,8 +134,16 @@ if (cfg.skillsNudge === false) env.GAH_SKILLS_NUDGE = "0";
 if (cfg.inferenceProxy !== undefined && cfg.inferenceProxy !== null && !/^https?:\/\/[^\s]+$/.test(String(cfg.inferenceProxy))) {
 	fail("config: inferenceProxy must be an http(s):// URL, or null");
 }
-const slug = String(cfg.org).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-const name = `gah-${slug}-${P.nameInfix}${cfg.version}`;
+// One name for the registry package and both zips: <name>-win11-<version>.zip
+// and <name>-linux-<version>.zip side by side under one registry version. Each
+// launcher derives its update's file name from its own packageName.
+const NAME_RE = /^[a-z0-9][a-z0-9._-]*$/;
+const baseName = cfg.name ?? `gah-${String(cfg.org).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`;
+if (!NAME_RE.test(baseName)) fail(`config: name '${baseName}' must be lower-case letters, digits, '.', '_' and '-'`);
+if (cfg.gitlab.linuxPackage !== undefined) fail("config: gitlab.linuxPackage is gone; both platforms now publish into gitlab.package (default: name). Remove it");
+const registryPackage = cfg.gitlab.package ?? baseName;
+if (!NAME_RE.test(registryPackage)) fail(`config: gitlab.package '${registryPackage}' must be lower-case letters, digits, '.', '_' and '-'`);
+const name = `${baseName}-${P.tag}-${cfg.version}`;
 
 // --- Inputs from the build ----------------------------------------------
 const VENDOR = join(REPO, "vendor", "pi");
@@ -310,7 +314,7 @@ const deploy = {
 	gitlab: {
 		url: cfg.gitlab.url,
 		project: cfg.gitlab.project,
-		package: cfg.gitlab[P.packageKey] ?? P.defaultPackage,
+		package: registryPackage,
 		// "user": the installer asks which of the user's certificates to present (mutual TLS front-ends).
 		clientCert: cfg.gitlab.clientCert ?? null,
 		// Optional issuer substring: the installer lists certificates from that CA first.

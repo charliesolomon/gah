@@ -284,19 +284,25 @@ if (-not $InfoOnly -and -not $env:GAH_NO_UPDATE) {
         # object rather than one per element; `ForEach-Object { $_ }` unrolls
         # it (PowerShell 7 already does). Without that, two or more published
         # versions made $p the whole list and $p.version an array.
-        # The newest 100 by publication date, and the highest of those by
-        # [version] -- the order this launcher compares in -- rather than
-        # trusting the registry's own version sort.
+        # The newest 100 by publication date, highest first by [version] -- the
+        # order this launcher compares in -- rather than trusting the
+        # registry's own version sort. Windows and Linux zips share one
+        # registry package, so the update is the highest newer version that
+        # holds this platform's zip: <name>-win11-<version>.zip.
         $pkgs = @(Get-Api "projects/$proj/packages?package_name=$(Enc $Deploy.gitlab.package)&order_by=created_at&sort=desc&per_page=100" | ForEach-Object { $_ })
-        $latest = $null
-        foreach ($p in $pkgs) {
+        $slug = $Deploy.packageName -replace ("-" + [regex]::Escape($Deploy.version) + "$"), ''
+        $newer = @(foreach ($p in $pkgs) {
             if ($p.name -ne $Deploy.gitlab.package) { continue }
             $v = $null
             if (-not [version]::TryParse([string]$p.version, [ref]$v)) { continue }
-            if (-not $latest -or $v -gt [version]$latest) { $latest = [string]$p.version }
+            if ($v -gt [version]$Deploy.version) { [pscustomobject]@{ v = $v; s = [string]$p.version; id = $p.id } }
+        }) | Sort-Object v -Descending | Select-Object -First 10
+        $latest = $null
+        foreach ($c in $newer) {
+            $files = @(Get-Api "projects/$proj/packages/$($c.id)/package_files?per_page=100" | ForEach-Object { $_ })
+            if ($files | Where-Object { $_.file_name -eq "$slug-$($c.s).zip" }) { $latest = $c.s; break }
         }
-        if ($latest -and ([version]$latest -gt [version]$Deploy.version)) {
-            $slug    = $Deploy.packageName -replace ("-" + [regex]::Escape($Deploy.version) + "$"), ''
+        if ($latest) {
             $newName = "$slug-$latest"
             $dl      = Join-Path $Root 'downloads'
             New-Item -ItemType Directory -Force -Path $dl | Out-Null

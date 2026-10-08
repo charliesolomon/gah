@@ -184,17 +184,6 @@ json() {
 try { const v = new Function("d", `return (${process.argv[2]})`)(JSON.parse(process.argv[1])); if (v != null) process.stdout.write(String(v)); }
 catch { process.stderr.write("GitLab answered with something that is not JSON"); process.exit(1); }' "$1" "$2" 2>"$ERR_FILE"
 }
-# Version order as PowerShell's [version] sees it, so both launchers agree on
-# what "newer" means: digits and dots, two to four parts, a missing part below
-# zero (1.0 < 1.0.0). Anything else is not a version and never wins.
-newer() {
-	node -e '
-const p = (s) => (/^\d+(\.\d+){1,3}$/.test(s) ? s.split(".").map(Number) : null);
-const [a, b] = [p(process.argv[1]), p(process.argv[2])];
-if (!a || !b) process.exit(1);
-for (let i = 0; i < 4; i++) { const x = a[i] ?? -1, y = b[i] ?? -1; if (x !== y) process.exit(x > y ? 0 : 1); }
-process.exit(1);' "$1" "$2"
-}
 unpack_zip() {
 	mkdir -p "$2"
 	if command -v unzip >/dev/null 2>&1; then unzip -q -o "$1" -d "$2"
@@ -271,22 +260,36 @@ fi
 # Newest published version of this package; switch to it and re-launch from it.
 # Any failure here is a warning: the installed version keeps working.
 self_update() {
-	local proj body latest slug new dl zip base want got stage
+	local proj body ids id ver files latest slug new dl zip base want got stage
 	proj="$(enc "$D_PROJECT")"
-	# The newest 100 by publication date, and the highest of those in the order
-	# newer() uses, rather than trusting the registry's own version sort (the
-	# same rule as gah.ps1). Versions that do not parse are skipped.
+	slug="${D_PACKAGE_NAME%-"$D_VERSION"}"
+	# The newest 100 by publication date, highest first in the order
+	# PowerShell's [version] uses, so both launchers agree on "newer": digits
+	# and dots, two to four parts, a missing part below zero (1.0 < 1.0.0).
+	# The registry's own version sort is not trusted. Versions that do not
+	# parse are skipped. Windows and Linux
+	# zips share one registry package, so the update is the highest newer
+	# version that holds this platform's zip: <name>-linux-<version>.zip.
 	body="$(api "projects/$proj/packages?package_name=$(enc "$D_PACKAGE")&order_by=created_at&sort=desc&per_page=100")" || return 1
-	latest="$(json "$body" "(() => {
+	ids="$(json "$body" "(() => {
 		const name = $(node -e 'process.stdout.write(JSON.stringify(process.argv[1]))' "$D_PACKAGE");
 		const parse = (s) => (/^\\d+(\\.\\d+){1,3}\$/.test(s) ? s.split('.').map(Number) : null);
 		const gt = (a, b) => { for (let i = 0; i < 4; i++) { const x = a[i] ?? -1, y = b[i] ?? -1; if (x !== y) return x > y; } return false; };
-		let best = null;
-		for (const p of d) { const v = p.name === name ? parse(String(p.version)) : null; if (v && (!best || gt(v, best.v))) best = { v, s: p.version }; }
-		return best?.s;
+		const cur = parse($(node -e 'process.stdout.write(JSON.stringify(process.argv[1]))' "$D_VERSION"));
+		return d.map((p) => ({ p, v: p.name === name ? parse(String(p.version)) : null }))
+			.filter((x) => x.v && cur && gt(x.v, cur))
+			.sort((a, b) => (gt(a.v, b.v) ? -1 : gt(b.v, a.v) ? 1 : 0))
+			.slice(0, 10).map((x) => x.p.id + ' ' + x.p.version).join('\\n');
 	})()")" || return 1
-	[ -n "$latest" ] && newer "$latest" "$D_VERSION" || return 0
-	slug="${D_PACKAGE_NAME%-"$D_VERSION"}"
+	latest=""
+	while read -r id ver; do
+		[ -n "$id" ] || continue
+		files="$(api "projects/$proj/packages/$id/package_files?per_page=100")" || return 1
+		if [ "$(json "$files" "d.some((f) => f.file_name === $(node -e 'process.stdout.write(JSON.stringify(process.argv[1]))' "$slug-$ver.zip"))")" = true ]; then
+			latest="$ver"; break
+		fi
+	done <<<"$ids"
+	[ -n "$latest" ] || return 0
 	new="$slug-$latest"
 	dl="$ROOT/downloads"; mkdir -p "$dl"
 	zip="$dl/$new.zip"

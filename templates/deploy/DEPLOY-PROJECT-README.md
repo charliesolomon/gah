@@ -13,12 +13,12 @@ configuration.
 
 You need Node.js 22 or newer on the machine (`node --version` in PowerShell).
 
-1. **Download** the latest package: **Deploy -> Package Registry -> gah-windows**,
-   pick the newest version, download `gah-<org>-<version>.zip`.
+1. **Download** the latest package: **Deploy -> Package Registry -> <name>**,
+   pick the newest version, download `<name>-win11-<version>.zip`.
 2. **Unzip** it to a folder of your choice, for example:
    ```powershell
-   Expand-Archive -LiteralPath ~\Downloads\gah-<org>-<version>.zip -DestinationPath ~\gah-install
-   cd ~\gah-install\gah-<org>-<version>
+   Expand-Archive -LiteralPath ~\Downloads\<name>-win11-<version>.zip -DestinationPath ~\gah-install
+   cd ~\gah-install\<name>-win11-<version>
    ```
 3. **Install:**
    ```powershell
@@ -41,12 +41,12 @@ You need Node.js 22 or newer on the machine (`node --version` in PowerShell).
 
 You need Node.js 22 or newer: `sudo dnf module enable nodejs:22 && sudo dnf install nodejs`.
 
-1. **Download** the latest package: **Deploy -> Package Registry -> gah-linux**,
-   pick the newest version, download `gah-<org>-linux-<version>.zip`.
+1. **Download** the latest package: **Deploy -> Package Registry -> <name>**,
+   pick the newest version, download `<name>-linux-<version>.zip`.
 2. **Unzip and install:**
    ```bash
-   unzip gah-<org>-linux-<version>.zip     # or: python3 -m zipfile -e gah-<org>-linux-<version>.zip .
-   bash gah-<org>-linux-<version>/install.sh
+   unzip <name>-linux-<version>.zip     # or: python3 -m zipfile -e <name>-linux-<version>.zip .
+   bash <name>-linux-<version>/install.sh
    ```
    It asks for the same things as on Windows. A client certificate is a PEM
    file here: the installer offers the one git already uses for GitLab.
@@ -106,14 +106,14 @@ only, e.g. `1.0.4` or `1.0.4.1`), then:
 ```powershell
 node scripts\package-windows.mjs --config <path>\gah-deploy.json
 $env:GAH_GITLAB_TOKEN = '<api-scope token>'
-node scripts\publish-gitlab.mjs --config <path>\gah-deploy.json --zip dist-deploy\gah-<org>-<version>.zip --cert "CurrentUser\MY\<thumbprint>"
+node scripts\publish-gitlab.mjs --config <path>\gah-deploy.json --zip dist-deploy\<name>-win11-<version>.zip --cert "CurrentUser\MY\<thumbprint>"
 ```
 
-For the Linux package, at the same version:
+For the Linux package, at the same version (both zips go into the same registry package and version):
 
 ```powershell
 node scripts\package.mjs --config <path>\gah-deploy.json --platform linux
-node scripts\publish-gitlab.mjs --config <path>\gah-deploy.json --zip dist-deploy\gah-<org>-linux-<version>.zip --cert "CurrentUser\MY\<thumbprint>"
+node scripts\publish-gitlab.mjs --config <path>\gah-deploy.json --zip dist-deploy\<name>-linux-<version>.zip --cert "CurrentUser\MY\<thumbprint>"
 ```
 
 Then commit `gah-deploy.json`, so it names the published version. Consumers

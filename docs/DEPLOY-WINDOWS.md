@@ -13,7 +13,7 @@ gah checkout + gah-deploy.json ──► package registry ◄──── Instal
 
 ## What is in the package
 
-`gah-<org>-<version>.zip` unpacks to one folder:
+`<name>-win11-<version>.zip` unpacks to one folder:
 
 | Path | What |
 |---|---|
@@ -44,10 +44,11 @@ Lives in **your** deployment repository, not in this one. Start from
 
 | Field | Meaning |
 |---|---|
-| `org` | Organisation name; slugged into the package name |
+| `org` | Organisation name |
+| `name` | Optional base name of the registry package and the zips, lower-case letters, digits, `.`, `_` and `-` (e.g. `gah-orgname-engineering`). Default `gah-<org>`, slugged. Builds are `<name>-win11-<version>.zip` and `<name>-linux-<version>.zip`. Changing `name` or `gitlab.package` later strands installed copies, which keep looking under the old registry package: each reinstalls once from the new one. |
 | `shortcutName` | Desktop shortcut and window title (default `<org> Assistant`) |
 | `version` | Package version, semantic; the launcher updates when the registry has a higher one |
-| `gitlab.url`, `gitlab.project`, `gitlab.package` | Where packages are published and looked up (generic package registry; `package` defaults to `gah-windows`) |
+| `gitlab.url`, `gitlab.project`, `gitlab.package` | Where packages are published and looked up (generic package registry). `package` defaults to `name`; the Windows and Linux zips of a version share it, and each launcher updates to the highest version that holds its own platform's zip |
 | `gitlab.clientCert` | `"user"` when GitLab sits behind a mutual-TLS front-end: the installer lets the consumer pick a certificate from their Windows store and the launcher presents it on every GitLab call. `null` otherwise. |
 | `gitlab.clientCertIssuer` | Optional substring of the issuing CA's name (e.g. `"Org Issuing CA"`); the installer lists certificates from that CA first. Independently of this, a certificate git already uses for this GitLab is listed first and marked. |
 | `gitlab.proxy` | `null` (default): the consumer machine's `HTTPS_PROXY` / `HTTP_PROXY`, honouring `NO_PROXY`, falling back to the Windows proxy settings, so sites with different proxies need no per-site package. A URL forces that proxy; `"none"` forces a direct connection. |
@@ -60,14 +61,14 @@ Lives in **your** deployment repository, not in this one. Start from
 | `inferenceProxy` | Optional proxy URL that the launcher offers when the inference endpoint is not reachable directly, after the machine's own `HTTPS_PROXY` and system proxy ([first launch](#first-launch-and-setup)). `null` = none. |
 | `setupSkills` | Optional folder, relative to the config, of the deployment's own setup skills: one folder per skill with a `SKILL.md`. A skill with the same name as a built-in one (`setup-skills`, `setup-gitlab`) replaces it. The packager refuses one that looks like it holds a credential, because the zip is downloadable by anyone in the organisation. |
 | `skillsNudge` | Default `true`. `false` hides the /setup-skills line, for a deployment that never uses shared skills. |
-| `gitlab.linuxPackage`, `linuxArch` | The Linux package's registry name (default `gah-linux`) and tool architectures (default `["x64"]`); see [DEPLOY-LINUX.md](DEPLOY-LINUX.md) |
+| `linuxArch` | The Linux package's tool architectures (default `["x64"]`); see [DEPLOY-LINUX.md](DEPLOY-LINUX.md) |
 
 ## Admin: build and publish
 
 ```bash
 make build-all                                             # once per gah version
 node scripts/package-windows.mjs --config ../deploy/gah-deploy.json
-GAH_GITLAB_TOKEN=... node scripts/publish-gitlab.mjs --config ../deploy/gah-deploy.json --zip dist-deploy/gah-<org>-<version>.zip
+GAH_GITLAB_TOKEN=... node scripts/publish-gitlab.mjs --config ../deploy/gah-deploy.json --zip dist-deploy/<name>-win11-<version>.zip
 ```
 
 `make package-windows DEPLOY=../deploy/gah-deploy.json` wraps the first script.
@@ -102,7 +103,7 @@ The consumer launcher and installer talk to GitLab from PowerShell, which uses t
 
 ## Consumer: install
 
-1. Download `gah-<org>-<version>.zip` from the GitLab package registry and unzip it anywhere.
+1. Download `<name>-win11-<version>.zip` from the GitLab package registry and unzip it anywhere.
 2. In PowerShell, inside the unzipped folder: `.\Install-Gah.ps1`
    - checks Node 22+;
    - copies the package to `%LOCALAPPDATA%\gah\<package>`;
@@ -194,8 +195,8 @@ inference host. So does `gah_setup`, which calls back into this script
   same environment variables, with git and a deploy key instead of the archive
   API and a root-owned manifest instead of `deploy.json`.
 - The **Linux per-machine package** (RHEL 9) is built from this same config
-  with `scripts/package.mjs --platform linux` and published to its own
-  registry package, `gah-linux` by default. [DEPLOY-LINUX.md](DEPLOY-LINUX.md)
+  with `scripts/package.mjs --platform linux` and published into the same
+  registry package and version as the Windows zip. [DEPLOY-LINUX.md](DEPLOY-LINUX.md)
   covers what differs.
 - [GITLAB.md](GITLAB.md) describes what the organisation's GitLab holds for
   this package (deployment project, skills project) and why no mirror,

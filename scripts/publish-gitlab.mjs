@@ -3,7 +3,7 @@
  * publish-gitlab.mjs — upload a deployment package to a GitLab generic package
  * registry, where the packaged launcher looks for updates.
  *
- *   GAH_GITLAB_TOKEN=... node scripts/publish-gitlab.mjs --config gah-deploy.json --zip dist-deploy/gah-<org>-<version>.zip [--curl] [--cert <spec>]
+ *   GAH_GITLAB_TOKEN=... node scripts/publish-gitlab.mjs --config gah-deploy.json --zip dist-deploy/<name>-win11-<version>.zip [--curl] [--cert <spec>]
  *
  * --cert (or GAH_GITLAB_CLIENT_CERT): a client certificate for a GitLab behind
  * mutual TLS, in curl's syntax -- on Windows a store reference such as
@@ -12,8 +12,9 @@
  *
  * Uploads <zip> and <zip>.sha256 to
  *   <gitlab.url>/api/v4/projects/<gitlab.project>/packages/generic/<package>/<version>/
- * where <package> is gitlab.package (default gah-windows) for a Windows zip and
- * gitlab.linuxPackage (default gah-linux) for a Linux one, gah-<org>-linux-<version>.zip.
+ * where <package> is gitlab.package (default: the config's name, else
+ * gah-<org slug>). The Windows and Linux zips of one version share it: publish
+ * each with its own run.
  * The token needs `api` scope on that project (write_package_registry). The
  * launcher on consumer machines downloads with read_api, or none if the
  * project is visible to them.
@@ -50,8 +51,9 @@ const cfg = JSON.parse(readFileSync(opt.config, "utf8"));
 // which registry package its launchers look in. A zip of another version than
 // the config's is refused: it would be published under the wrong number.
 if (!basename(opt.zip).endsWith(`-${cfg.version}.zip`)) fail(`${basename(opt.zip)} is not version ${cfg.version} (the config's); rebuild it or point --config at the right file`);
-const isLinux = basename(opt.zip).endsWith(`-linux-${cfg.version}.zip`);
-const pkgName = isLinux ? (cfg.gitlab.linuxPackage ?? "gah-linux") : (cfg.gitlab.package ?? "gah-windows");
+if (!/-(win11|linux)-[^-]+\.zip$/.test(basename(opt.zip))) fail(`${basename(opt.zip)} is not a <name>-win11-<version>.zip or <name>-linux-<version>.zip; rebuild it with scripts/package.mjs`);
+// The same default as scripts/package.mjs.
+const pkgName = cfg.gitlab.package ?? cfg.name ?? `gah-${String(cfg.org).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`;
 const base = `${String(cfg.gitlab.url).replace(/\/$/, "")}/api/v4/projects/${encodeURIComponent(cfg.gitlab.project)}/packages/generic/${pkgName}/${cfg.version}`;
 
 // curl handles corporate proxies and multi-megabyte PUTs more predictably
