@@ -29,7 +29,8 @@ gah checkout + gah-deploy.json ──► package registry ◄──── Instal
 | `deploy.json`, `VERSION` | what the launcher and installer read; package, gah and upstream versions |
 | `shortcut.ico` | the shortcut icon, only when the config names one |
 
-The package is built by `scripts/package-windows.mjs`, which runs the
+The package is built by `scripts/package-windows.mjs` (`scripts/package.mjs`
+with the platform fixed to Windows), which runs the
 tool-surface check (`scripts/check-tool-surface.sh`) against the assembled
 tree before zipping, so every package is known to offer the model exactly the
 policy's tools.
@@ -54,6 +55,7 @@ Lives in **your** deployment repository, not in this one. Start from
 | `systemMd` | Optional path, relative to the config, of a `SYSTEM.md` override |
 | `icon` | Optional path, relative to the config, of a `.ico` for the desktop shortcut (16/32/48/256 sizes). Carried as `shortcut.ico`; the installer keeps it at `%LOCALAPPDATA%\gah\shortcut.ico` across updates. Absent = the stock terminal icon |
 | `windowsArch` | Default `["x64"]`; add `"arm64"` to ship both tool sets |
+| `gitlab.linuxPackage`, `linuxArch` | The Linux package's registry name (default `gah-linux`) and tool architectures (default `["x64"]`); see [DEPLOY-LINUX.md](DEPLOY-LINUX.md) |
 
 ## Admin: build and publish
 
@@ -102,14 +104,18 @@ The consumer launcher and installer talk to GitLab from PowerShell, which uses t
    - verifies the tool archives against the pinned checksums and unpacks `fd.exe`, `rg.exe`;
    - asks for a GitLab token (Enter to skip when the project is visible without one) and stores it as `GAH_GITLAB_TOKEN`;
    - asks for any API key the config collects through an environment variable; names providers that use `/login` instead;
-   - writes `current.txt`, creates the desktop shortcut and a `gg` alias in the PowerShell profile.
+   - writes `current.txt`, creates the desktop shortcut and a `gah` command in the PowerShell profile. A `gah` the profile already defines, such as an admin's wrapper for a gah checkout, is left alone with a warning.
 3. Double-click the shortcut. The first launch fetches the skills repository.
+
+Older packages named the command `gg`. The first automatic update to a package
+with this installer replaces that profile line with `gah`, and says so; the
+change shows in new PowerShell windows.
 
 Re-running the installer repairs an installation. `-NoPrompt` skips the
 questions (RMM use; keys are then set as user environment variables separately).
 
 `%LOCALAPPDATA%\gah\Uninstall-Gah.ps1` reverses all of it: every installed
-package with the skills cache and downloads, the shortcut, the `gg` alias, and
+package with the skills cache and downloads, the shortcut, the `gah` command, and
 the stored GitLab token and API-key variables (`-KeepSecrets` keeps those). The
 agent's own state in `~\.gah` (keys from `/login`, audit log, sessions) stays
 unless `-Purge`.
@@ -133,9 +139,10 @@ inference host. `--help` and `--version` skip steps 1, 2 and 4.
 - The **shared Linux host** (`deploy/host/`) uses the same policy pack and the
   same environment variables, with git and a deploy key instead of the archive
   API and a root-owned manifest instead of `deploy.json`.
-- A **RHEL9 per-machine package** is
-  [#85](https://github.com/charliesolomon/gah/issues/85) and reuses this config
-  schema; nothing in it is Windows-specific except `windowsArch`.
+- The **Linux per-machine package** (RHEL 9) is built from this same config
+  with `scripts/package.mjs --platform linux` and published to its own
+  registry package, `gah-linux` by default. [DEPLOY-LINUX.md](DEPLOY-LINUX.md)
+  covers what differs.
 - [GITLAB.md](GITLAB.md) describes what the organisation's GitLab holds for
   this package (deployment project, skills project) and why no mirror,
   npm registry or GitLab pipeline is involved.

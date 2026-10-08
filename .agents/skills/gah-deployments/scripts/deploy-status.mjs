@@ -89,8 +89,8 @@ if (build === "stale-seed") blockers.push("the model data changed after the last
 if (build === "stale") blockers.push("the source or its dependencies changed after the last build: npm ci --ignore-scripts, then npm run build");
 
 // --- the deployment config -------------------------------------------------------
-const KNOWN = new Set(["$comment", "org", "shortcutName", "icon", "version", "gitlab", "skills", "env", "providers", "systemMd", "windowsArch"]);
-const KNOWN_GITLAB = new Set(["url", "project", "package", "clientCert", "clientCertIssuer", "proxy"]);
+const KNOWN = new Set(["$comment", "org", "shortcutName", "icon", "version", "gitlab", "skills", "env", "providers", "systemMd", "windowsArch", "linuxArch"]);
+const KNOWN_GITLAB = new Set(["url", "project", "package", "linuxPackage", "clientCert", "clientCertIssuer", "proxy"]);
 const KNOWN_ENV = new Set(["GAH_BUILTIN_MODELS", "GAH_ALLOWED_HOSTS", "GAH_ALLOW_TOOLS", "GAH_SECRET_FILES", "GAH_ALLOW_SHARE"]);
 const VERSION_RE = /^\d+(\.\d+){1,3}$/;
 let config, cfg;
@@ -142,6 +142,8 @@ if (opt.config) {
 		config.org = cfg.org;
 		config.version = cfg.version;
 		config.package = gl.package ?? "gah-windows";
+		config.linuxPackage = gl.linuxPackage ?? "gah-linux";
+		if (config.package === config.linuxPackage) blockers.push("config: gitlab.package and gitlab.linuxPackage must differ, or each platform's launcher would install the other's zip");
 		config.gitlab = gl.url && gl.project ? `${gl.url.replace(/\/$/, "")}/${gl.project}` : undefined;
 		config.mutualTls = gl.clientCert === "user";
 		config.skillsProject = cfg.skills?.project;
@@ -204,7 +206,7 @@ if (opt.json) {
 		L();
 		L(`deployment     ${config.path}`);
 		if (cfg) {
-			L(`  org          ${config.org}   package '${config.package}'   version ${config.version}`);
+			L(`  org          ${config.org}   packages '${config.package}' (Windows), '${config.linuxPackage}' (Linux)   version ${config.version}`);
 			L(`  gitlab       ${config.gitlab ?? "?"}${config.mutualTls ? "   (mutual TLS)" : ""}`);
 			L(`  skills       ${config.skillsProject ?? "?"}`);
 			L(`  providers    ${config.providers.join("; ") || "none"}`);

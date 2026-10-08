@@ -6,7 +6,7 @@
 PI_DIR := vendor/pi
 
 .DEFAULT_GOAL := help
-.PHONY: help install install-tools install-hooks build build-all build-offline smoke test-policy add-provider probe-endpoint check-tools check-prompted check-kb check-skills check-live package-windows refresh-model-data patches bundle-policy clean-vendor sync sync-init status patch-new patch-export
+.PHONY: help install install-tools install-hooks build build-all build-offline smoke test-policy add-provider probe-endpoint check-tools check-prompted check-kb check-skills check-live package-windows package-linux refresh-model-data patches bundle-policy clean-vendor sync sync-init status patch-new patch-export
 
 help: ## Show available targets
 	@awk 'BEGIN { FS = ":.*##"; printf "Usage: make <target> [VAR=value]\n\nTargets:\n" } \
@@ -105,6 +105,10 @@ scrub-session: ## Copy a session with environment identifiers replaced, for shar
 package-windows: ## Build a Windows deployment package. Usage: make package-windows DEPLOY=path/to/gah-deploy.json
 	@test -n "$(DEPLOY)" || { echo "usage: make package-windows DEPLOY=<gah-deploy.json>"; exit 2; }
 	node scripts/package-windows.mjs --config "$(DEPLOY)"
+
+package-linux: ## Build a Linux (RHEL 9) deployment package. Usage: make package-linux DEPLOY=path/to/gah-deploy.json
+	@test -n "$(DEPLOY)" || { echo "usage: make package-linux DEPLOY=<gah-deploy.json>"; exit 2; }
+	node scripts/package.mjs --config "$(DEPLOY)" --platform linux
 
 refresh-model-data: ## Re-hydrate the seeded providers from the vendor APIs (network) into packages/policy-pack/model-data
 	@# The one step in this repo that talks to the model vendors. Hydrates every

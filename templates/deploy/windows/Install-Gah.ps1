@@ -6,9 +6,10 @@
 # What it does: copies the package to %LOCALAPPDATA%\gah\<package>, verifies and
 # unpacks the pinned fd/ripgrep archives, stores the GitLab token and any API
 # keys the deployment collects as user environment variables, writes
-# current.txt, creates the desktop shortcut and a `gg` alias in the PowerShell
-# profile. Idempotent: rerun to repair. -Update is what the launcher passes
-# when it has already placed a newer package and only needs it finalised.
+# current.txt, creates the desktop shortcut and a `gah` command in the
+# PowerShell profile (replacing the `gg` of older installers). Idempotent:
+# rerun to repair. -Update is what the launcher passes when it has already
+# placed a newer package and only needs it finalised.
 #
 # Needs: Windows PowerShell 5.1+, node 22+ on PATH.
 param(
@@ -170,6 +171,38 @@ if ($Deploy.icon -and (Test-Path (Join-Path $Dest $Deploy.icon))) {
 }
 Ok "current package: $($Deploy.packageName)"
 
+# --- gah command in the profile ---------------------------------------------------------------
+# Also runs with -Update, so a profile written by an older installer, which
+# named the command gg, moves to gah on the next automatic update. A fresh line
+# is only ever added by a full install.
+$marker = '# gah deployment alias'
+$line = "function gah { & `"$stub`" @args }  $marker"
+$profileLines = if (Test-Path $PROFILE) { @(Get-Content -LiteralPath $PROFILE) } else { @() }
+$ours = @($profileLines | Where-Object { $_ -match [regex]::Escape($marker) })
+# A gah the person defined themselves (an admin's wrapper for a gah checkout)
+# is theirs: a line of ours after it would silently replace it.
+$theirs = @($profileLines | Where-Object { $_ -notmatch [regex]::Escape($marker) -and $_ -match '^\s*(function\s+gah\b|(Set|New)-Alias\s+(-Name\s+)?gah\b)' })
+if ($theirs.Count -gt 0) {
+    Warn "your profile already defines 'gah'; left alone. Start the assistant from the shortcut, or with: & '$stub'"
+} elseif ($ours.Count -gt 0) {
+    if ($ours.Count -eq 1 -and $ours[0] -eq $line) { Ok "'gah' command already in profile" }
+    else {
+        $kept = @($profileLines | Where-Object { $_ -notmatch [regex]::Escape($marker) }) + $line
+        Set-Content -LiteralPath $PROFILE -Value $kept
+        if (($ours -join "`n") -match 'function gg\b') { Ok "the command is now 'gah' (was 'gg'); open a new PowerShell window to use it" }
+        else { Ok "'gah' command updated in $PROFILE" }
+    }
+} elseif (-not $Update) {
+    if (-not (Test-Path $PROFILE)) { New-Item -ItemType File -Force -Path $PROFILE | Out-Null }
+    $profileText = Get-Content -LiteralPath $PROFILE -Raw
+    if ($null -eq $profileText) { $profileText = '' }
+    # Append on a line of its own: a profile that does not end in a newline
+    # would otherwise absorb the function into its last statement.
+    $prefix = if ($profileText.Length -gt 0 -and -not $profileText.EndsWith("`n")) { "`r`n" } else { '' }
+    Add-Content -LiteralPath $PROFILE -Value ($prefix + $line)
+    Ok "'gah' command added to $PROFILE"
+}
+
 if (-not $Update) {
     # --- Desktop shortcut --------------------------------------------------------------------
     $desktop = [Environment]::GetFolderPath('Desktop')
@@ -185,22 +218,8 @@ if (-not $Update) {
     $sc.Save()
     Ok "desktop shortcut: $($Deploy.shortcutName)"
 
-    # --- gg alias in the profile ---------------------------------------------------------------
-    $marker = '# gah deployment alias'
-    $line = "function gg { & `"$stub`" @args }  $marker"
-    if (-not (Test-Path $PROFILE)) { New-Item -ItemType File -Force -Path $PROFILE | Out-Null }
-    $profileText = Get-Content -LiteralPath $PROFILE -Raw
-    if ($null -eq $profileText) { $profileText = '' }
-    if ($profileText -notmatch [regex]::Escape($marker)) {
-        # Append on a line of its own: a profile that does not end in a newline
-        # would otherwise absorb the function into its last statement.
-        $prefix = if ($profileText.Length -gt 0 -and -not $profileText.EndsWith("`n")) { "`r`n" } else { '' }
-        Add-Content -LiteralPath $PROFILE -Value ($prefix + $line)
-        Ok "'gg' alias added to $PROFILE"
-    } else { Ok "'gg' alias already in profile" }
-
     Write-Host ""
-    Write-Host "Done. Double-click '$($Deploy.shortcutName)' on the desktop, or open a new PowerShell window and type gg."
+    Write-Host "Done. Double-click '$($Deploy.shortcutName)' on the desktop, or open a new PowerShell window and type gah."
     Write-Host "The first launch fetches your organisation's skills from $($Deploy.gitlab.url)."
     Write-Host "To remove everything later: $Root\Uninstall-Gah.ps1"
 }

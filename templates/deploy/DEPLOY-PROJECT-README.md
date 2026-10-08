@@ -33,7 +33,30 @@ You need Node.js 22 or newer on the machine (`node --version` in PowerShell).
    - Nothing else. Your API key for the inference service is entered inside the
      assistant on first use, never on the command line.
 4. **Start it** from the desktop shortcut **<Org> Assistant**, or open a new
-   PowerShell window and type `gg`.
+   PowerShell window and type `gah`.
+
+## Install (RHEL 9 and other Linux)
+
+<!-- Drop this section if the deployment publishes no Linux package. -->
+
+You need Node.js 22 or newer: `sudo dnf module enable nodejs:22 && sudo dnf install nodejs`.
+
+1. **Download** the latest package: **Deploy -> Package Registry -> gah-linux**,
+   pick the newest version, download `gah-<org>-linux-<version>.zip`.
+2. **Unzip and install:**
+   ```bash
+   unzip gah-<org>-linux-<version>.zip     # or: python3 -m zipfile -e gah-<org>-linux-<version>.zip .
+   bash gah-<org>-linux-<version>/install.sh
+   ```
+   It asks for the same things as on Windows. A client certificate is a PEM
+   file here: the installer offers the one git already uses for GitLab.
+   Answers are kept in `~/.config/gah/secrets.env`, readable only by you and
+   hidden from the assistant.
+3. **Start it:** open a new terminal and type `gah`, or pick **<Org> Assistant**
+   from the applications menu.
+
+Uninstall with `~/.local/share/gah/uninstall.sh` (`--purge` also removes
+`~/.gah`). The package lives in `~/.local/share/gah`.
 
 ## First steps
 
@@ -42,7 +65,7 @@ You need Node.js 22 or newer on the machine (`node --version` in PowerShell).
 - Try `/rrr` - a one-stanza poem about the folder you are in. It proves the
   assistant can see files and reach the model.
 - Type `what can you do?` for the skills available to you, and `/` for commands.
-- `gg --help` shows what this installation may use: tools, models, network.
+- `gah --help` shows what this installation may use: tools, models, network.
 
 ## Day to day
 
@@ -62,7 +85,7 @@ You need Node.js 22 or newer on the machine (`node --version` in PowerShell).
 | `Node.js 22 or newer is required` | Install Node.js LTS, open a new window, rerun the installer |
 | `update check failed` / `skills update failed` at every launch | GitLab not reachable: proxy not set for this window, wrong certificate, or missing token. Check `$env:HTTPS_PROXY`, and `$env:GAH_GITLAB_CERT_THUMBPRINT` against `Get-ChildItem Cert:\CurrentUser\My` |
 | `No models available` after `/login` | The key was refused; `/login` again |
-| The window closes at once | Start from PowerShell with `gg` to read the message |
+| The window closes at once | Start from PowerShell with `gah` to read the message |
 
 ## For the admin
 
@@ -80,7 +103,14 @@ $env:GAH_GITLAB_TOKEN = '<api-scope token>'
 node scripts\publish-gitlab.mjs --config <path>\gah-deploy.json --zip dist-deploy\gah-<org>-<version>.zip --cert "CurrentUser\MY\<thumbprint>"
 ```
 
+For the Linux package, at the same version:
+
+```powershell
+node scripts\package.mjs --config <path>\gah-deploy.json --platform linux
+node scripts\publish-gitlab.mjs --config <path>\gah-deploy.json --zip dist-deploy\gah-<org>-linux-<version>.zip --cert "CurrentUser\MY\<thumbprint>"
+```
+
 Then commit `gah-deploy.json`, so it names the published version. Consumers
 pick the new version up on their next launch. In a gah session started from
-the gah repository, the `gah-deployments` skill walks through all of this. Reference: `docs/DEPLOY-WINDOWS.md` in the
-gah repository.
+the gah repository, the `gah-deployments` skill walks through all of this. Reference: `docs/DEPLOY-WINDOWS.md` and
+`docs/DEPLOY-LINUX.md` in the gah repository.

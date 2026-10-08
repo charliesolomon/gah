@@ -5,7 +5,7 @@
 #
 # Removes: every installed package under %LOCALAPPDATA%\gah (with the skills
 # cache, downloads, current.txt and the launcher stub), the desktop shortcut,
-# the `gg` alias line from the PowerShell profile, and the GitLab token and any
+# the `gah` (formerly `gg`) line from the PowerShell profile, and the GitLab token and any
 # API-key variables the installer stored (unless -KeepSecrets). Leaves the
 # agent's own state in ~\.gah (auth.json with /login keys, audit log, sessions)
 # unless -Purge. Idempotent: safe to run twice. Lives at %LOCALAPPDATA%\gah\
@@ -44,7 +44,7 @@ $marker = '# gah deployment alias'
 if (Test-Path $PROFILE) {
     $lines = Get-Content -LiteralPath $PROFILE
     $kept = @($lines | Where-Object { $_ -notmatch [regex]::Escape($marker) })
-    if ($kept.Count -ne $lines.Count) { Set-Content -LiteralPath $PROFILE -Value $kept; Ok "removed the gg alias from $PROFILE" }
+    if ($kept.Count -ne $lines.Count) { Set-Content -LiteralPath $PROFILE -Value $kept; Ok "removed the gah command from $PROFILE" }
 }
 
 # --- Stored secrets ------------------------------------------------------------------
@@ -82,4 +82,4 @@ if ($Purge) {
 }
 
 Write-Host ""
-Write-Host "Done. Open a new PowerShell window: the gg alias and the stored variables are gone from new sessions."
+Write-Host "Done. Open a new PowerShell window: the gah command and the stored variables are gone from new sessions."

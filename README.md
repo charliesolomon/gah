@@ -28,7 +28,7 @@ gah/
 ├── deploy/windows/            ← laptop-side shortcut installer: one worked example, for TacticalRMM
 ├── templates/skills-repo/     ← scaffold written by `gah init`: skills, prompts, setup steps
 ├── templates/kb-repo/         ← scaffold written by `gah init-kb`: the optional knowledge base
-├── templates/deploy/          ← gah-deploy.json example + the Windows launcher/installer shipped in packages
+├── templates/deploy/          ← gah-deploy.json example + the Windows and Linux launchers/installers shipped in packages
 ├── .agents/skills/            ← project skills for the gah admin (gah-deployments), loaded in a session started here
 ├── scripts/                   ← sync, patch, build helpers
 ├── ci/scans/                  ← SBOM, CVE, semgrep/CodeQL configs
@@ -40,6 +40,7 @@ gah/
 ├── docs/KB.md                 ← the knowledge base: the context loop, staged capability
 ├── docs/SUPPLY-CHAIN.md       ← what reaches the network, and the fd/ripgrep install
 ├── docs/DEPLOY-WINDOWS.md     ← one zip for consumers: package, install, auto-update, skills sync
+├── docs/DEPLOY-LINUX.md       ← the same package for one person's RHEL 9 machine: what differs
 ├── docs/CONCEPT.html         ← the concept, for a non-technical audience (standalone, offline)
 ├── docs/CONCEPT-revisited.html ← the same paper marked up after five weeks of team use
 └── .github/workflows/         ← CI scans, daily sync-canary, on-demand upstream sync
@@ -96,7 +97,7 @@ See [docs/WORKFLOW.md](docs/WORKFLOW.md) for the full sync ritual and patch hygi
 Running on Windows? See [docs/WINDOWS.md](docs/WINDOWS.md). Building and running
 work normally; only the sync and patch targets stay on Linux/macOS.
 
-Deploying to people who will never clone this repo? [docs/DEPLOY-WINDOWS.md](docs/DEPLOY-WINDOWS.md) builds a self-contained package with the policy pack baked in (`patches/0020-bake-policy.patch`, so no wrapper script is needed) and [docs/GITLAB.md](docs/GITLAB.md) says what an organisation's GitLab holds for it.
+Deploying to people who will never clone this repo? [docs/DEPLOY-WINDOWS.md](docs/DEPLOY-WINDOWS.md) (and [docs/DEPLOY-LINUX.md](docs/DEPLOY-LINUX.md) for RHEL 9) builds a self-contained package with the policy pack baked in (`patches/0020-bake-policy.patch`, so no wrapper script is needed) and [docs/GITLAB.md](docs/GITLAB.md) says what an organisation's GitLab holds for it.
 
 ## Why this shape
 

@@ -223,6 +223,8 @@ PKG_LIST="$(sed -n "s/^\$ScaffoldCommands = @(\(.*\))$/\1/p" templates/deploy/wi
 check "bin/gah publishes a subcommand list" "$([ -n "$BASH_LIST" ] && echo 1 || echo 0)"
 check_eq "bin/gah.ps1 handles the same subcommands" "$BASH_LIST" "$PS_LIST"
 check_eq "the packaged launcher refuses exactly that set" "$BASH_LIST" "$PKG_LIST"
+LINUX_PKG_LIST="$(sed -n 's/^SCAFFOLD_COMMANDS="\(.*\)"$/\1/p' templates/deploy/linux/gah.sh | head -1)"
+check_eq "the Linux packaged launcher refuses exactly that set" "$BASH_LIST" "$LINUX_PKG_LIST"
 
 # Every name the launchers handle needs wording in the renderer, or it ships
 # under the generic fallback, which is a regression the fallback exists to
@@ -255,6 +257,8 @@ done
 # would otherwise make their help advertise commands they refuse.
 check "the packaged launcher clears the list rather than publishing one" \
 	"$(grep -q "GAH_SCAFFOLD_COMMANDS = ''" templates/deploy/windows/gah.ps1 && echo 1 || echo 0)"
+check "the Linux packaged launcher clears it too" \
+	"$(grep -q 'export GAH_SCAFFOLD_COMMANDS=""' templates/deploy/linux/gah.sh && echo 1 || echo 0)"
 check "the shared-host launcher clears it too, having fixed arguments" \
 	"$(grep -q 'export GAH_SCAFFOLD_COMMANDS=""' deploy/host/gah-launch && echo 1 || echo 0)"
 
