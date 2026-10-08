@@ -152,8 +152,18 @@ unpack_zip() {
 self_update() {
 	local proj body latest slug new dl zip base want got stage
 	proj="$(enc "$D_PROJECT")"
-	body="$(api "projects/$proj/packages?package_name=$(enc "$D_PACKAGE")&order_by=version&sort=desc&per_page=5")" || return 1
-	latest="$(json "$body" "d.find((p) => p.name === $(node -e 'process.stdout.write(JSON.stringify(process.argv[1]))' "$D_PACKAGE"))?.version")" || return 1
+	# The newest 100 by publication date, and the highest of those in the order
+	# newer() uses, rather than trusting the registry's own version sort (the
+	# same rule as gah.ps1). Versions that do not parse are skipped.
+	body="$(api "projects/$proj/packages?package_name=$(enc "$D_PACKAGE")&order_by=created_at&sort=desc&per_page=100")" || return 1
+	latest="$(json "$body" "(() => {
+		const name = $(node -e 'process.stdout.write(JSON.stringify(process.argv[1]))' "$D_PACKAGE");
+		const parse = (s) => (/^\\d+(\\.\\d+){1,3}\$/.test(s) ? s.split('.').map(Number) : null);
+		const gt = (a, b) => { for (let i = 0; i < 4; i++) { const x = a[i] ?? -1, y = b[i] ?? -1; if (x !== y) return x > y; } return false; };
+		let best = null;
+		for (const p of d) { const v = p.name === name ? parse(String(p.version)) : null; if (v && (!best || gt(v, best.v))) best = { v, s: p.version }; }
+		return best?.s;
+	})()")" || return 1
 	[ -n "$latest" ] && newer "$latest" "$D_VERSION" || return 0
 	slug="${D_PACKAGE_NAME%-"$D_VERSION"}"
 	new="$slug-$latest"
