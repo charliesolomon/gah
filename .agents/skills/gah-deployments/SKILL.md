@@ -1,7 +1,7 @@
 ---
 name: gah-deployments
-description: Create, upgrade and republish GAH deployment packages (the Windows zip consumers install from an organisation's GitLab). Use when the admin says "update the <name> deployment to the latest gah", "upgrade gah-deploy-engineering to 1.0.4", "republish the package", "I changed the deploy config", "create a new gah deployment", "set up gah for another team", or "what version is <deployment> on".
-allowed-tools: Read, Grep, Find, Ls, Edit, Write, Bash(node .agents/skills/gah-deployments/scripts/deploy-status.mjs:*), Bash(node scripts/package-windows.mjs:*), Bash(node scripts/probe-endpoint.mjs:*), Bash(git:*)
+description: Create, upgrade and republish GAH deployment packages (the Windows and Linux zips consumers install from an organisation's GitLab). Use when the admin says "update the <name> deployment to the latest gah", "upgrade gah-deploy-engineering to 1.0.4", "republish the package", "I changed the deploy config", "create a new gah deployment", "set up gah for another team", or "what version is <deployment> on".
+allowed-tools: Read, Grep, Find, Ls, Edit, Write, Bash(node .agents/skills/gah-deployments/scripts/deploy-status.mjs:*), Bash(node scripts/package-windows.mjs:*), Bash(node scripts/package.mjs:*), Bash(node scripts/probe-endpoint.mjs:*), Bash(git:*)
 ---
 
 # GAH deployments
@@ -14,7 +14,8 @@ machine, holding `gah-deploy.json` and a `README.md`; the package is built from
 package registry, where every installed launcher looks for updates.
 
 Reference, in this repo: `docs/DEPLOY-WINDOWS.md` (config schema, what is in
-the package, certificates and proxies), `docs/GITLAB.md` (the two GitLab
+the package, certificates and proxies), `docs/DEPLOY-LINUX.md` (what differs
+for the Linux package), `docs/GITLAB.md` (the two GitLab
 projects, versioning), `templates/deploy/` (example config, README template).
 Read the relevant section rather than guessing a field.
 
@@ -23,6 +24,23 @@ folder with `$env:GAH_ALLOW_TOOLS='powershell'; .\bin\gah.ps1`; on Linux,
 `GAH_ALLOW_TOOLS=bash bin/gah`. The first launch asks to trust the project,
 because this skill lives in `.agents/skills/`. If no shell tool is available,
 say so and give the commands for the admin to run instead.
+
+## Which platforms
+
+One config builds both packages. The Windows zip is `gah-<org>-<version>.zip`
+in registry package `gitlab.package` (default `gah-windows`); the Linux zip is
+`gah-<org>-linux-<version>.zip` in `gitlab.linuxPackage` (default
+`gah-linux`). Ask which platforms the deployment serves if you cannot tell:
+the registry page lists the packages that exist. Build and publish each one it
+serves, at the same version; every step below that names the Windows package
+applies to the Linux one with the names above. A deployment that has never had
+a Linux package needs nothing in the config to start one; the defaults apply.
+
+The admin's own machine may be Linux. Then the commands below are the same with
+`/` paths, `bin/gah` for the launcher, and for the token in step 6:
+`read -rs GAH_GITLAB_TOKEN && export GAH_GITLAB_TOKEN`, then `unset
+GAH_GITLAB_TOKEN` after publishing. The client certificate for `--cert` is a
+PEM path, the one `git config --get-urlmatch http.sslcert <url>` names.
 
 ## Always start with the status
 
@@ -93,6 +111,7 @@ For "update gah-deploy-engineering to 1.0.4" and the like.
 5. **Build.**
    ```
    node scripts/package-windows.mjs --config <folder>/gah-deploy.json
+   node scripts/package.mjs --config <folder>/gah-deploy.json --platform linux   # when it serves Linux
    ```
    It assembles the package, runs the tool-surface check against it (Git Bash
    is needed for that on Windows), and writes
@@ -117,20 +136,23 @@ For "update gah-deploy-engineering to 1.0.4" and the like.
      node scripts\publish-gitlab.mjs --config <folder>\gah-deploy.json --zip dist-deploy\gah-<org>-<version>.zip --cert "CurrentUser\MY\<thumbprint>"
      Remove-Item Env:GAH_GITLAB_TOKEN
      ```
-     Drop `--cert` without mutual TLS. Behind a proxy, the variables in
+     For the Linux package, the same command with
+     `--zip dist-deploy\gah-<org>-linux-<version>.zip`; the script reads the
+     platform from the name. Drop `--cert` without mutual TLS. Behind a proxy, the variables in
      docs/DEPLOY-WINDOWS.md "Certificates and proxies" apply. (Windows
      PowerShell 5.1 has no `-AsPlainText`; there, paste the token into
      `$env:GAH_GITLAB_TOKEN = '...'` and clear it afterwards.)
    - **Check it landed:** the deployment project → *Deploy* → *Package
-     registry* → the package (default `gah-windows`) → the new version, with
-     both the `.zip` and the `.sha256`.
+     registry* → the package (`gah-windows`, `gah-linux` by default) → the new
+     version, with both the `.zip` and the `.sha256`.
 7. **Commit the deployment change.** Show `git -C <folder> diff`, then commit
    with a message naming the gah version, e.g. `Package 1.0.4: gah 1.0.4 (pi
    v1.0.4)`. Push only when the admin says to; if the default branch is
    protected, push a branch and walk them through *Merge requests* → *New*.
 8. **Prove the rollout on the admin's own machine.** Close any open session,
-   start from the desktop shortcut: the launcher should report the update and
-   relaunch on the new version; `gg --version` names it. Installed consumers
+   start from the desktop shortcut (on Linux, `gg` in a new terminal): the
+   launcher should report the update and relaunch on the new version;
+   `gg --version` names it. Installed consumers
    switch on their next launch, with no action. If the admin's own launch did
    not update: the publish went to a different project or package name, or
    the version is not higher; re-read the status and the registry page.
@@ -178,7 +200,8 @@ config cannot tell you.
    before writing them.
 5. **Status, build, publish, commit**: Flow A from step 1, skipping step 3.
 6. **Install it yourself first.** The admin downloads the zip from the package
-   registry, unzips it, runs `.\Install-Gah.ps1`, starts the shortcut, runs
+   registry, unzips it, runs `.\Install-Gah.ps1` (Linux: `bash install.sh`),
+   starts the shortcut (Linux: `gg`), runs
    `/rrr` and `what can you do?`. Only then does the README go to the team.
 
 ## Flow C: republish after a config change

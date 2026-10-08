@@ -1,5 +1,5 @@
 {
-  "$comment": "GAH deployment config. Copy into your organisation's deployment repo, fill in, then: node scripts/package-windows.mjs --config <this file>. Schema: docs/DEPLOY-WINDOWS.md.",
+  "$comment": "GAH deployment config. Copy into your organisation's deployment repo, fill in, then: node scripts/package.mjs --config <this file> [--platform linux]. Schema: docs/DEPLOY-WINDOWS.md (Linux additions: docs/DEPLOY-LINUX.md).",
   "org": "Example Corp",
   "shortcutName": "Example Assistant",
   "icon": null,
@@ -8,6 +8,7 @@
     "url": "https://gitlab.example.com",
     "project": "it/gah-deploy",
     "package": "gah-windows",
+    "linuxPackage": "gah-linux",
     "clientCert": null,
     "clientCertIssuer": null,
     "proxy": null
@@ -34,5 +35,7 @@
       }
     ]
   },
-  "systemMd": null
+  "systemMd": null,
+  "windowsArch": ["x64"],
+  "linuxArch": ["x64"]
 }

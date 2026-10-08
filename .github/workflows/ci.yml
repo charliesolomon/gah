@@ -104,10 +104,16 @@ jobs:
         # Tool use through a gateway that refuses native tool calls (issue #42).
         run: make check-prompted
 
-      - name: Deployment package
-        # Assemble the example Windows package from this build and run the
-        # tool-surface check against the assembled tree (docs/DEPLOY-WINDOWS.md).
-        run: node scripts/package-windows.mjs --config templates/deploy/gah-deploy.example.json --out /tmp/gah-package
+      - name: Deployment packages
+        # Assemble the example Windows and Linux packages from this build and
+        # run the tool-surface check against each assembled tree
+        # (docs/DEPLOY-WINDOWS.md, docs/DEPLOY-LINUX.md). The Linux launcher
+        # scripts are syntax-checked too; the full install-update-launch path
+        # is exercised by hand on RHEL 9 (docs/DEPLOY-LINUX.md).
+        run: |
+          node scripts/package-windows.mjs --config templates/deploy/gah-deploy.example.json --out /tmp/gah-package
+          node scripts/package.mjs --config templates/deploy/gah-deploy.example.json --platform linux --out /tmp/gah-package
+          for f in templates/deploy/linux/*.sh; do bash -n "$f"; done
 
   scan-deps:
     name: dependency CVEs (npm audit + trivy)

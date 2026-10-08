@@ -35,6 +35,29 @@ You need Node.js 22 or newer on the machine (`node --version` in PowerShell).
 4. **Start it** from the desktop shortcut **<Org> Assistant**, or open a new
    PowerShell window and type `gg`.
 
+## Install (RHEL 9 and other Linux)
+
+<!-- Drop this section if the deployment publishes no Linux package. -->
+
+You need Node.js 22 or newer: `sudo dnf module enable nodejs:22 && sudo dnf install nodejs`.
+
+1. **Download** the latest package: **Deploy -> Package Registry -> gah-linux**,
+   pick the newest version, download `gah-<org>-linux-<version>.zip`.
+2. **Unzip and install:**
+   ```bash
+   unzip gah-<org>-linux-<version>.zip     # or: python3 -m zipfile -e gah-<org>-linux-<version>.zip .
+   bash gah-<org>-linux-<version>/install.sh
+   ```
+   It asks for the same things as on Windows. A client certificate is a PEM
+   file here: the installer offers the one git already uses for GitLab.
+   Answers are kept in `~/.config/gah/secrets.env`, readable only by you and
+   hidden from the assistant.
+3. **Start it:** open a new terminal and type `gg`, or pick **<Org> Assistant**
+   from the applications menu.
+
+Uninstall with `~/.local/share/gah/uninstall.sh` (`--purge` also removes
+`~/.gah`). The package lives in `~/.local/share/gah`.
+
 ## First steps
 
 - The first start fetches our skills; you will see `gah: skills updated to ...`.
@@ -80,7 +103,14 @@ $env:GAH_GITLAB_TOKEN = '<api-scope token>'
 node scripts\publish-gitlab.mjs --config <path>\gah-deploy.json --zip dist-deploy\gah-<org>-<version>.zip --cert "CurrentUser\MY\<thumbprint>"
 ```
 
+For the Linux package, at the same version:
+
+```powershell
+node scripts\package.mjs --config <path>\gah-deploy.json --platform linux
+node scripts\publish-gitlab.mjs --config <path>\gah-deploy.json --zip dist-deploy\gah-<org>-linux-<version>.zip --cert "CurrentUser\MY\<thumbprint>"
+```
+
 Then commit `gah-deploy.json`, so it names the published version. Consumers
 pick the new version up on their next launch. In a gah session started from
-the gah repository, the `gah-deployments` skill walks through all of this. Reference: `docs/DEPLOY-WINDOWS.md` in the
-gah repository.
+the gah repository, the `gah-deployments` skill walks through all of this. Reference: `docs/DEPLOY-WINDOWS.md` and
+`docs/DEPLOY-LINUX.md` in the gah repository.

@@ -11,7 +11,9 @@
  * path. Uploads then go through curl, since fetch cannot use a store cert.
  *
  * Uploads <zip> and <zip>.sha256 to
- *   <gitlab.url>/api/v4/projects/<gitlab.project>/packages/generic/<gitlab.package>/<version>/
+ *   <gitlab.url>/api/v4/projects/<gitlab.project>/packages/generic/<package>/<version>/
+ * where <package> is gitlab.package (default gah-windows) for a Windows zip and
+ * gitlab.linuxPackage (default gah-linux) for a Linux one, gah-<org>-linux-<version>.zip.
  * The token needs `api` scope on that project (write_package_registry). The
  * launcher on consumer machines downloads with read_api, or none if the
  * project is visible to them.
@@ -44,7 +46,13 @@ if (!token) fail("GAH_GITLAB_TOKEN is not set (needs api scope on the deployment
 if (!existsSync(opt.zip) || !existsSync(`${opt.zip}.sha256`)) fail(`zip or its .sha256 not found: ${opt.zip}`);
 
 const cfg = JSON.parse(readFileSync(opt.config, "utf8"));
-const base = `${String(cfg.gitlab.url).replace(/\/$/, "")}/api/v4/projects/${encodeURIComponent(cfg.gitlab.project)}/packages/generic/${cfg.gitlab.package ?? "gah-windows"}/${cfg.version}`;
+// The zip's name says which platform it is for (scripts/package.mjs), and so
+// which registry package its launchers look in. A zip of another version than
+// the config's is refused: it would be published under the wrong number.
+if (!basename(opt.zip).endsWith(`-${cfg.version}.zip`)) fail(`${basename(opt.zip)} is not version ${cfg.version} (the config's); rebuild it or point --config at the right file`);
+const isLinux = basename(opt.zip).endsWith(`-linux-${cfg.version}.zip`);
+const pkgName = isLinux ? (cfg.gitlab.linuxPackage ?? "gah-linux") : (cfg.gitlab.package ?? "gah-windows");
+const base = `${String(cfg.gitlab.url).replace(/\/$/, "")}/api/v4/projects/${encodeURIComponent(cfg.gitlab.project)}/packages/generic/${pkgName}/${cfg.version}`;
 
 // curl handles corporate proxies and multi-megabyte PUTs more predictably
 // than Node's fetch; Windows 10+ and every Linux ship it. Used when asked
@@ -132,5 +140,5 @@ function hints(code, message = "") {
 	}
 	return lines.map((l) => `  ${l}`).join("\n");
 }
-console.log(`\n✓ published ${basename(opt.zip)} as ${cfg.gitlab.package ?? "gah-windows"} ${cfg.version} in ${cfg.gitlab.project}`);
+console.log(`\n✓ published ${basename(opt.zip)} as ${pkgName} ${cfg.version} in ${cfg.gitlab.project}`);
 console.log("Consumers pick it up on their next launch; new installs download it from the same registry.");
