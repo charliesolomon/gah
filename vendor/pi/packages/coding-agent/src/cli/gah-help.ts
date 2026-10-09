@@ -33,6 +33,8 @@ interface HelpExtensionFlag {
 
 export interface GahHelpOptions {
 	env?: NodeJS.ProcessEnv;
+	/** The command line, for the --skill paths a launcher passed. */
+	argv?: readonly string[];
 	extensionFlags?: readonly HelpExtensionFlag[];
 	/** Home directory used to describe default paths. */
 	home?: string;
@@ -96,6 +98,13 @@ function scaffoldUsage(app: string, value: string | undefined): string {
 		.join("\n");
 }
 
+/** The --skill paths on a command line, in order. */
+function skillArgs(argv: readonly string[]): string[] {
+	const out: string[] = [];
+	for (let i = 0; i < argv.length - 1; i++) if (argv[i] === "--skill") out.push(argv[i + 1]!);
+	return out;
+}
+
 /** Render the page. Pure: everything it reports comes from `options`. */
 export function renderGahHelp(options: GahHelpOptions = {}): string {
 	const env = options.env ?? process.env;
@@ -118,7 +127,10 @@ export function renderGahHelp(options: GahHelpOptions = {}): string {
 			: env.GAH_ALLOWED_HOSTS.trim() === "*"
 				? "any (no restriction)"
 				: describeList(env.GAH_ALLOWED_HOSTS, "none");
-	const skills = env.GAH_SKILLS_DIR ? env.GAH_SKILLS_DIR : "none configured";
+	// A checkout names its skills with GAH_SKILLS_DIR; the packaged launchers and
+	// the shared host pass them as --skill. Either way this is what loads.
+	const skillPaths = [...new Set([...(env.GAH_SKILLS_DIR ? [env.GAH_SKILLS_DIR] : []), ...skillArgs(options.argv ?? [])])];
+	const skills = skillPaths.length > 0 ? skillPaths.join(", ") : "none (your team's skills are not loaded)";
 	const providers = existsSync(providersFile) ? providersFile : `${providersFile} (absent)`;
 
 	const scaffoldLines = scaffoldUsage(app, env.GAH_SCAFFOLD_COMMANDS);
@@ -153,7 +165,7 @@ ${row("", `GAH_PROVIDERS_FILE; approved endpoints your deployment registered`)}
 ${row("Network", hosts)}
 ${row("", `GAH_ALLOWED_HOSTS; nothing else is reachable, including the tools`)}
 ${row("Skills", skills)}
-${row("", `GAH_SKILLS_DIR; --skill <path> for a single run`)}
+${row("", `your team's skills repository; GAH_SKILLS_DIR, or --skill <path> for one run`)}
 ${row("Audit log", auditLog)}
 
 ${chalk.bold("Options:")}
@@ -178,8 +190,8 @@ ${row("--help, -h", "This page")}
 ${row("--version, -v", "Show the version")}
 ${extensionSection}
 ${chalk.bold("Environment:")}
-${row("GAH_SKILLS_DIR", "Skills directory to load (a session needs one)")}
-${row("GAH_ALLOW_NO_SKILLS", "Set to 1 to hide the /setup-skills nudge (checks, CI)")}
+${row("GAH_SKILLS_DIR", "The skills/ folder of your team's skills repository")}
+${row("GAH_ALLOW_NO_SKILLS", "Set to 1 to hide the line about missing team skills (checks, CI)")}
 ${row("GAH_BUILTIN_MODELS", "provider/model globs allowed from the built-in catalogue; unset = none")}
 ${row("GAH_ALLOWED_HOSTS", "Hostname globs the process may connect to; unset = none, * = any")}
 ${row("GAH_PROVIDERS_FILE", `Approved-endpoints file (default ${join(gahDir, "providers.json")})`)}
@@ -202,6 +214,7 @@ ${chalk.bold("Examples:")}
   ${app} --list-models                               See what this session may use
 
 Full upstream option reference: ${app} --help --verbose
+Documentation: https://github.com/charliesolomon/gah#readme
 `;
 }
 
@@ -211,6 +224,6 @@ Full upstream option reference: ${app} --help --verbose
  */
 export function printGahHelp(extensionFlags?: readonly HelpExtensionFlag[]): boolean {
 	if (process.argv.includes("--verbose")) return false;
-	console.log(renderGahHelp({ extensionFlags }));
+	console.log(renderGahHelp({ extensionFlags, argv: process.argv }));
 	return true;
 }

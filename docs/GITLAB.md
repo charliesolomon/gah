@@ -1,82 +1,64 @@
-# GitLab's role in a deployment
+# GitLab in a package deployment
 
-GitHub stays the development home: patches, upstream syncs, CI scans, and the
-organisation-neutral code. An organisation's GitLab holds what its consumers
-touch, and nothing else. There is **no mirror of this repository on GitLab, no
-npm publish, and no GitLab pipeline**; an earlier design had all three, and
-this page replaces it.
+GitLab is the team forge gah supports today. The per-person packages
+([Windows](DEPLOY-WINDOWS.md), [Linux](DEPLOY-LINUX.md)) use it for updates,
+the team's skills and in-session setup. The shared Linux host and gah
+checkouts use plain git, so they don't need GitLab. Adding another forge is
+described in [DEPLOY.md](DEPLOY.md#the-team-forge).
 
-## Two projects, and what each holds
+This page says what the team's GitLab holds and how a package moves through
+it. This repository stays on GitHub; GitLab holds only what the team's people
+touch.
+
+## Two projects
 
 | Project | Holds | Who reads it |
 |---|---|---|
-| **Deployment project** (e.g. `it/gah-deploy`) | The organisation's `gah-deploy.json`, its `SYSTEM.md` and icon if any, a README for consumers, and the **generic package registry** where each package version's zip and `.sha256` are published | The admin publishes; the packaged launcher checks it for updates at every start |
-| **Skills project** (e.g. `it/it-skills`) | The skills repository: `skills/`, `prompts/`, `setup/`, `context/`, `bin/` | The launcher fetches the branch head through the repository archive API at every start |
+| **Deployment project** (e.g. `it/gah-deploy`) | `gah-deploy.json`, any `SYSTEM.md` and icon, a README for people ([template](../templates/deploy/DEPLOY-PROJECT-README.md)), and the **generic package registry** with each version's zips and `.sha256` files | The admin publishes; every launcher checks it for updates |
+| **Skills project** (e.g. `it/it-skills`) | The skills repository: `skills/`, `prompts/`, `setup/`, `context/`, `bin/` ([SKILLS.md](SKILLS.md)) | Every launcher fetches the branch head through the repository archive API |
 
-Both are ordinary GitLab projects. Nothing in them is built by GitLab.
+Both are ordinary projects. GitLab builds nothing: there is no mirror of this
+repository, no npm registry and no pipeline. (A pipeline that runs the
+package build is tracked in [#84](https://github.com/charliesolomon/gah/issues/84).)
 
-## The flow
+## How a package moves
 
-1. **Build on the admin's machine.** From a checkout of this repository on any
-   OS with Node: `node scripts/package.mjs --config gah-deploy.json [--platform linux]`
-   assembles the zip, runs the tool-surface check against a mock endpoint, and
-   writes the checksum ([DEPLOY-WINDOWS.md](DEPLOY-WINDOWS.md),
-   [DEPLOY-LINUX.md](DEPLOY-LINUX.md)). Both zips of a version go into one
-   registry package, named by the config's `name` (default `gah-<org>`):
+1. **Build** on the admin's machine, from a gah checkout:
+   `node scripts/package.mjs --config gah-deploy.json [--platform linux]`.
+   Both zips of a version go into one registry package named by `name`:
    `<name>-win11-<version>.zip` and `<name>-linux-<version>.zip`.
-2. **Publish to the deployment project.** `scripts/publish-gitlab.mjs` uploads
-   the zip and its checksum to
+2. **Publish** with `scripts/publish-gitlab.mjs`, which uploads the zip and its
+   checksum to
    `<gitlab>/api/v4/projects/<deployment project>/packages/generic/<package>/<version>/`.
-   It needs a token with `api` scope on that project. Behind mutual TLS, pass
-   the client certificate with `--cert` and the upload goes through curl.
-3. **Consumers install once** from the zip and the deployment project's README
-   ([the template](../templates/deploy/DEPLOY-PROJECT-README.md)). From then on
-   the launcher self-updates from the registry and re-syncs skills from the
-   skills project on every launch.
+   It needs a token with `api` scope. Behind mutual TLS, pass the client
+   certificate with `--cert`; the upload then goes through curl.
+3. **People install once.** From then on the launcher updates itself from the
+   registry and fetches the skills on every launch.
 
 ## Access
 
-- **Public-to-the-organisation projects** need no token on the consumer side.
-  Otherwise each consumer needs a personal access token with `read_api`,
-  which the installer asks for and stores as a user environment variable.
-- **Mutual TLS** in front of GitLab: the installer offers the consumer's
-  certificates, ranked by what git already uses for that host; the launcher
-  presents the chosen one. **Proxies** come from the machine's environment
-  unless the config says otherwise. Details in
-  [DEPLOY-WINDOWS.md](DEPLOY-WINDOWS.md#certificates-and-proxies).
-- The agent process itself never talks to GitLab. Updates and skills sync run
-  in the launcher before the agent starts, so the agent's egress allowlist
-  still names only the inference host.
+- **Projects visible to the whole organisation** need no token on people's
+  machines. Otherwise each person needs a personal access token with
+  `read_api`, which the installer or `/setup-skills` asks for.
+- **Mutual TLS and proxies:** see
+  [DEPLOY-WINDOWS.md](DEPLOY-WINDOWS.md#certificates-and-proxies) and
+  [DEPLOY-LINUX.md](DEPLOY-LINUX.md#certificates-and-proxies).
+- **The agent never talks to GitLab.** Updates and the skills fetch run in the
+  launcher before the agent starts, so the agent's egress allowlist names only
+  the inference host.
 
 ## Versioning
 
-Two version numbers, deliberately independent:
+There are two version numbers, and they move independently:
 
-- **gah's version** is upstream's: the pi release the build was synced to (`.sync-state` names it),
+- **gah's version** is the pi release the build was synced to (`.sync-state`),
   plus the gah commit it was built from. Both are recorded in the package's
-  `VERSION` file and in `deploy.json`. This repository does not cut release
-  tags of its own; a package is built from a commit on `main`.
-- **The package version** is `version` in `gah-deploy.json` and is the
-  organisation's: it moves when the organisation changes anything in its
-  package, a new gah build, a config change, a new icon. The launcher updates
-  a consumer when the registry holds a higher one. Semantic versioning, so
-  `1.2.0` follows `1.1.9`.
+  `VERSION` file and `deploy.json`. gah has no release tags of its own; a
+  package is built from a commit on `main`.
+- **The package version** is `version` in `gah-deploy.json`, and it belongs to
+  the team. Raise it for any change: a new gah build, a config change, a new
+  icon. Launchers update when the registry holds a higher one. Digits and
+  dots, two to four parts, so `1.2.0` follows `1.1.9`.
 
-Bumping the package version without a new gah build is normal; shipping a new
-gah build without bumping the package version means nobody updates.
-
-## What the old design needed and this one does not
-
-- A GitLab mirror of this repository: only a GitLab pipeline needed the source
-  there. Deleted along with `.gitlab-ci.yml`.
-- The project npm registry and `npm install -g` on consumer machines: consumers
-  needed npm and registry access, and got a bare CLI with no providers, no
-  allowlist environment, no skills sync, no `fd`/`ripgrep`, and no updates.
-  The zip carries all of that.
-- Git for Windows on consumer machines: Node is the only prerequisite. Git
-  Bash matters only when a deployment grants the `bash` tool.
-
-If a deployment wants GitLab to run the package build, that is a pipeline in
-the **deployment project**, running the two steps above with a checkout of
-this repository as a build input; it still needs no mirror. A template for
-that pipeline is [#84](https://github.com/charliesolomon/gah/issues/84).
+Raising the package version without a new gah build is normal. A new gah build
+without a higher package version reaches nobody.

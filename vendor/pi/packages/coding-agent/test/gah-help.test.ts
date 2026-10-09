@@ -34,6 +34,15 @@ describe("GAH help page", () => {
 		}
 	});
 
+	it("reports skills a launcher passed with --skill, and says plainly when there are none", () => {
+		const { GAH_SKILLS_DIR: _, ...noDir } = base;
+		const passed = renderGahHelp({ env: noDir, home: "/home/u", argv: ["node", "cli.js", "--skill", "/cache/abc/skills"] });
+		expect(passed).toContain("/cache/abc/skills");
+		const none = renderGahHelp({ env: noDir, home: "/home/u", argv: ["node", "cli.js"] });
+		expect(none).toContain("none (your team's skills are not loaded)");
+		expect(none).not.toContain("a session needs one");
+	});
+
 	it("hides options the policy makes inert and points at the upstream reference", () => {
 		const page = renderGahHelp({ env: base, home: "/home/u" });
 		for (const flag of ["--provider", "--api-key", "--system-prompt", "--extension", "--no-tools", "--offline", "install <source>"]) {

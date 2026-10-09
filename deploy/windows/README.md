@@ -1,9 +1,10 @@
-# Laptop-side shortcut installer
+# Laptop shortcut installer (shared host)
 
-Staff reach the [shared agent host](../host/README.md) through a desktop
-shortcut that opens `wt.exe ssh <user>@<host>`. Getting that shortcut, and the
-SSH key behind it, onto a laptop is the one part of the deployment that
-depends on tools GAH does not own.
+People reach the [shared agent host](../host/README.md) through a desktop
+shortcut that opens `wt.exe ssh <user>@<host>`. This page is for the admin who
+puts that shortcut, and the SSH key behind it, on each laptop: the one part of
+a shared-host deployment that depends on tools gah does not own (your
+endpoint-management tool).
 
 ## The pattern
 
@@ -41,4 +42,4 @@ body at upload time instead of passing them.
 The script that pushes this file into an RMM library and runs it against an
 endpoint — with the organisation's host name, shortcut name and API
 credentials — belongs in that organisation's own ops repository, not here.
-GAH stays organisation-neutral; the wrapper is where the organisation lives.
+gah stays organisation-neutral; the wrapper is where the organisation lives.

@@ -1,6 +1,17 @@
 # @gah/policy-pack
 
-The GAH policy layer, packaged as a [pi-package](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/packages.md). All harness-level behavior — tool allowlists, audit logging, system prompt overrides, branding, approved providers — lives here. Skills and prompt templates do not: they are organisation content and live in the skills repository (`docs/SKILLS.md`).
+gah's policy layer, packaged as a [pi-package](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/packages.md).
+Everything gah adds to pi without a patch lives here: the tool allowlist, the
+audit log, the system prompt, approved providers, onboarding. This page is for
+maintainers; it lists what is here, then documents the parts with behaviour
+worth knowing in detail.
+
+Skills and prompt templates are not here: they are each organisation's own
+content, in its skills repository ([SKILLS.md](../../docs/SKILLS.md)).
+
+**Why everything possible lives here:** none of it conflicts with an upstream
+sync. Patches (`../../patches/`) hold only what an extension cannot do
+([WORKFLOW.md](../../docs/WORKFLOW.md#the-rule-extension-first-patch-last)).
 
 ## Contents
 
@@ -11,10 +22,13 @@ The GAH policy layer, packaged as a [pi-package](https://github.com/earendil-wor
 | `extensions/providers.ts` | Approved inference endpoints from `providers.json` |
 | `extensions/skills-freshness.ts` | Skills behind in-session, what changed at startup, `/skills-changelog`, `/skills-seen reset` (#91) |
 | `extensions/whats-new.ts` | The deployment's own release notes (`GAH_WHATS_NEW`), shown once at startup; `/whats-new`, `/whats-new-seen reset` (#117) |
+| `extensions/onboarding.ts` | Starting without shared skills: the line above the input box, `/setup-skills` and the `gah_setup` tool, offered only while setup can help (#135, #138; [SKILLS.md](../../docs/SKILLS.md)) |
+| `setup-skills/` | The built-in setup skills (`setup-skills`, `setup-gitlab`), started only by the person |
 | `extensions/lib/last-model.ts` | The last model picked becomes the next session's default (#77) |
 | `extensions/lib/prompted-tools.ts` | Tool calling as a text protocol, for a provider marked `"tools": "prompted"` (a gateway that refuses native tool calls, #42) |
 | `model-data/` | The only built-in model data a build ships (`model-data/README.md`) |
 | `SYSTEM.md` | System-prompt override (loaded by `branding.ts`) |
+| `test/` | Unit tests: `make test-policy` |
 
 ## The audit log
 
@@ -31,6 +45,7 @@ by session without parsing the transcript tree. Line `kind`s:
 | `turn` | each assistant turn | `model`, `provider`, `input`, `output`, `cacheRead`, `cacheWrite`, `totalTokens`, `cost` |
 | `prompt` | a `/template` invocation | `name`, `source` |
 | `skills` | session start / an update noticed | `reason` (`loaded`: `repos[]` of `path`, `sha`, `branch`; `behind`: `path`, `commits`) |
+| `provider_registered`, `providers_config_absent`, `providers_config_error`, `oauth_removed` | session start (`providers.ts`) | the approved endpoints registered from `providers.json`, or why none were; built-in `/login` flows removed because `providers.json` does not list them in `keepOAuth` |
 
 **Rotation.** The log is date-rotated by the extension itself (it is user-owned,
 so no root logrotate is needed and the same mechanism covers the host, the
@@ -50,18 +65,11 @@ provider reported, in the provider's units.
 
 ## Today's date
 
-The harness tells the model its working directory, its tools and its skills, and
-never what day it is. A model asked to record a date therefore has nothing but
-its training prior, and writes one that is months or years stale — seen in a
-knowledge base article stamped over a year early, which then read as overdue for
-review the day it was written. Nothing downstream catches that: a wrong date is
-a plausible date.
-
-`branding.ts` appends one line (`lib/today.ts`) giving the local date and
-weekday, and saying not to infer it from memory. Appended rather than templated
-into `SYSTEM.md`, so a deployment shipping its own system prompt still gets it.
-Local time, not UTC, so the model agrees with the `date` and `Get-Date` its own
-wrapper scripts call.
+pi never tells the model what day it is, so a model asked to write a date
+guesses from its training data, often by years. `branding.ts` appends one line
+(`lib/today.ts`) with the local date and weekday. It is appended rather than
+templated into `SYSTEM.md`, so a deployment's own system prompt still gets it,
+and it is local time so it agrees with `date` and `Get-Date` in skill scripts.
 
 ## Skills freshness
 
@@ -111,9 +119,3 @@ last line of defence:
 Every refusal and redaction is an audit line (`blocked`/`secret_file`,
 `redacted`). None of this touches subprocess file access: the skills' own
 scripts source the files as before. Tests: `make test-policy`.
-
-## Why everything is here
-
-Every line in this package has **zero merge conflict cost** when we sync upstream PI. The patch series in `../../patches/` only contains things that genuinely cannot be expressed as extensions (branding strings baked into binaries, hard removal of provider source files).
-
-Rule of thumb: if you're tempted to write a patch, first check whether the [PI extension API](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/extensions.md) has a hook for it. It almost always does.

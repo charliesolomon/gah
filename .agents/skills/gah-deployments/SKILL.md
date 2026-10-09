@@ -13,6 +13,11 @@ machine, holding `gah-deploy.json` and a `README.md`; the package is built from
 *this* checkout plus that config, and published to the deployment project's
 package registry, where every installed launcher looks for updates.
 
+Packages need GitLab: it is the only team forge they support today. A team on
+GitHub, Bitbucket or another git host uses the shared Linux host
+(`deploy/host/`) or gah checkouts instead; say so rather than improvising a
+package for it (docs/DEPLOY.md#the-team-forge).
+
 Reference, in this repo: `docs/DEPLOY-WINDOWS.md` (config schema, what is in
 the package, certificates and proxies), `docs/DEPLOY-LINUX.md` (what differs
 for the Linux package), `docs/GITLAB.md` (the two GitLab
@@ -184,7 +189,9 @@ config cannot tell you.
      `setup-gitlab` with who issues certificates and internal links, or
      `false` when the administrator configures everything and people never
      set up in-session), and whether to show the /setup-skills line at all
-     (`skillsNudge`).
+     (`skillsNudge`). Either way, setup appears only while a person has no
+     shared skills or the last skills update failed; once the skills load it
+     is gone from the session (#138).
 2. **Probe the endpoint** so the models and tool-call support are facts, not
    guesses: `node scripts/probe-endpoint.mjs <baseUrl> --key-env <VAR>`. The
    key must already be in that environment variable *before* this session

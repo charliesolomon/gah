@@ -166,7 +166,7 @@ if [ "$UPDATE" -eq 0 ]; then
 		else warn "$provider: no key given; put $var=<key> in $SECRETS later"; fi
 		unset k
 	done
-	for p in $D_LOGIN_PROVIDERS; do ok "$p: run /login in the agent on first start and paste your API key"; done
+	for p in $D_LOGIN_PROVIDERS; do ok "$p: gah asks for your API key the first time it starts"; done
 fi
 
 # --- Make this the current package -------------------------------------------------------

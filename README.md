@@ -4,110 +4,82 @@
 [![pi pinned](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/charliesolomon/gah/main/.github/badges/pi-pinned.json)](.sync-state)
 [![pi latest](https://img.shields.io/github/v/release/earendil-works/pi?label=pi%20latest&color=lightgrey)](https://github.com/earendil-works/pi/releases)
 
-A branded, policy-hardened distribution of the [PI coding agent](https://github.com/earendil-works/pi).
+gah runs your team's skills with an AI agent, under a policy you control. It
+is a branded, locked-down distribution of the
+[pi coding agent](https://github.com/earendil-works/pi):
 
-GAH is structured as **two layers** so that customization survives upstream churn:
+- **Your team's skills.** Procedures your team writes and reviews like code,
+  kept in one shared repository ([SKILLS.md](docs/SKILLS.md)).
+- **Policy.** No shell by default, approved models and network hosts only, and
+  every tool call audit-logged ([PROVIDERS.md](docs/PROVIDERS.md),
+  [policy pack](packages/policy-pack/README.md)).
+- **Easy to roll out.** A self-updating package for each person's machine, or
+  one shared Linux host ([DEPLOY.md](docs/DEPLOY.md)).
 
-1. **`packages/policy-pack/`** — a [pi-package](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/packages.md) we own outright. All policy, branding, default skills/prompts/tools live here as extensions. Zero merge conflicts when upstream changes.
-2. **`vendor/pi/`** — upstream PI sources as a git subtree. Modified only via `patches/` — small, named, atomic patches re-applied after every upstream sync.
+## Where to start
 
-Anything we *can* express as an extension goes in (1). Edits to upstream code only happen when (1) is genuinely insufficient.
+| You want to… | Read |
+|---|---|
+| Use gah your team gave you | your team's own install page; gah itself points you to `/setup-skills` if anything is missing |
+| Deploy gah to a team | [docs/DEPLOY.md](docs/DEPLOY.md): prerequisites, four steps, and which shape to choose |
+| Try gah or write skills on your own machine | [Quick start](#quick-start) below |
+| Maintain gah (upstream syncs, patches) | [docs/WORKFLOW.md](docs/WORKFLOW.md) |
 
-## Layout
-
-```
-gah/
-├── packages/policy-pack/      ← our IP — extensions, skills, prompts, branding
-│   ├── extensions/
-│   ├── model-data/            ← the only built-in model data a build ships
-│   ├── SYSTEM.md              ← system-prompt override
-│   └── package.json
-├── patches/                   ← discrete patches against vendor/pi
-├── vendor/pi/                 ← upstream PI (managed by scripts/sync-upstream.sh)
-├── deploy/host/               ← shared SSH agent host (tmux launcher, per-user manifests)
-├── deploy/windows/            ← laptop-side shortcut installer: one worked example, for TacticalRMM
-├── templates/skills-repo/     ← scaffold written by `gah init`: skills, prompts, setup steps
-├── templates/kb-repo/         ← scaffold written by `gah init-kb`: the optional knowledge base
-├── templates/deploy/          ← gah-deploy.json example + the Windows and Linux launchers/installers shipped in packages
-├── .agents/skills/            ← project skills for the gah admin (gah-deployments), loaded in a session started here
-├── scripts/                   ← sync, patch, build helpers
-├── ci/scans/                  ← SBOM, CVE, semgrep/CodeQL configs
-├── docs/WORKFLOW.md           ← upstream sync + patch hygiene
-├── docs/WINDOWS.md            ← running on Windows (PowerShell)
-├── docs/GITLAB.md             ← what an organisation's GitLab holds in a deployment
-├── docs/PROVIDERS.md          ← inference-provider restriction + approved endpoints
-├── docs/SKILLS.md             ← the skills repository: gah init, layout, rollout
-├── docs/KB.md                 ← the knowledge base: the context loop, staged capability
-├── docs/SUPPLY-CHAIN.md       ← what reaches the network, and the fd/ripgrep install
-├── docs/DEPLOY-WINDOWS.md     ← one zip for consumers: package, install, auto-update, skills sync
-├── docs/DEPLOY-LINUX.md       ← the same package for one person's RHEL 9 machine: what differs
-├── docs/CONCEPT.html         ← the concept, for a non-technical audience (standalone, offline)
-├── docs/CONCEPT-revisited.html ← the same paper marked up after five weeks of team use
-└── .github/workflows/         ← CI scans, daily sync-canary, on-demand upstream sync
-```
+gah supports one team forge today, GitLab, for its per-person packages. The
+shared host and checkouts work with any git host. See
+[The team forge](docs/DEPLOY.md#the-team-forge).
 
 ## Quick start
 
-**Building and running needs only Node and npm — on any platform.** The vendored
-tree is committed with patches applied, so a fresh clone builds directly, and
-nothing after the install touches the network: the model catalogue is seeded
-from [`packages/policy-pack/model-data/`](packages/policy-pack/model-data/README.md)
-(patch 0030) instead of being fetched from vendor APIs.
+Build and run gah from a clone. **You need:** Node 22+ and npm, on Linux,
+macOS or Windows. Four steps:
 
 ```bash
-cd vendor/pi && npm ci --ignore-scripts && npm run build   # ci installs the lockfile exactly, never rewrites it
-cd ../..
-node scripts/install-tools.mjs                   # fd + ripgrep, pinned and verified (or: apt install fd-find ripgrep)
-./bin/gah init ../my-org-skills                  # once per organization
-GAH_SKILLS_DIR=../my-org-skills/skills ./bin/gah # bin\gah.ps1 on Windows
+cd vendor/pi && npm ci --ignore-scripts && npm run build && cd ../..   # 1. build
+node scripts/install-tools.mjs                     # 2. fd + ripgrep, pinned and verified
+./bin/gah init ../my-team-skills                   # 3. a starter skills repository
+GAH_SKILLS_DIR=../my-team-skills/skills ./bin/gah  # 4. start (bin\gah.ps1 on Windows)
 ```
 
-**GAH works with your organization's shared agents and skills.** It starts
-without them, but says so: until they are loaded, a line above the input box
-points at `/setup-skills`, which works out what is missing and sets it up.
-`gah init` scaffolds the repository the skills live in; put it under source
-control and share it with the team. See [docs/SKILLS.md](docs/SKILLS.md).
+- The build needs no network after `npm ci`: the patches are already applied
+  and the model catalogue ships in the repository.
+- gah starts without team skills too, and says how to add them.
+- `./bin/gah --help` shows what this session may use: tools, models, network
+  hosts and skills.
+- On Windows, see [docs/WINDOWS.md](docs/WINDOWS.md), including corporate
+  proxies.
 
-`npm run build` is what `make build-all` invokes. Prefer it: it comes from the
-vendored tree, so it cannot fall out of step with upstream the way a hand-kept
-package list does.
+## How gah is built
 
-`./bin/gah --help` is GAH's own page: what this session may use (tools, models,
-hosts, skills) and the options that still mean something under policy. Upstream's
-full reference is `--help --verbose`.
+Two layers, so changes to gah survive upstream releases:
 
-The agent's find and grep tools need `fd` and `ripgrep`, and GAH never downloads
-them at runtime (patch 0013). Install them from your package manager, or pinned
-and checksum-verified with `node scripts/install-tools.mjs` — offline variants
-included. See [docs/SUPPLY-CHAIN.md](docs/SUPPLY-CHAIN.md).
+1. **`packages/policy-pack/`**: gah's own extensions (policy, branding,
+   onboarding), system prompt and setup skills. Most of gah lives here.
+2. **`vendor/pi/`**: upstream pi, changed only through small patches in
+   [`patches/`](patches/README.md) that are re-applied on every upstream sync.
 
-**Maintaining the fork uses make, and is bash-only** (Linux/macOS). This is the
-part make actually earns — REF validation, the patch series, git hooks, policy
-bundling:
+If something can be an extension, it is one. A patch is the last resort.
+Syncing, patching and CI are in [docs/WORKFLOW.md](docs/WORKFLOW.md); what
+reaches the network is in [docs/SUPPLY-CHAIN.md](docs/SUPPLY-CHAIN.md).
 
-```bash
-make sync-init REF=<tag>     # first-time vendor + install + build (the current pin is in .sync-state)
-make sync REF=<tag>          # pull upstream, re-apply patches, rebuild
-make patches                 # re-apply patches/
-make install-hooks           # one-time per clone
-make                         # see all targets
+### Repository layout
+
 ```
-
-See [docs/WORKFLOW.md](docs/WORKFLOW.md) for the full sync ritual and patch hygiene rules.
-
-Running on Windows? See [docs/WINDOWS.md](docs/WINDOWS.md). Building and running
-work normally; only the sync and patch targets stay on Linux/macOS.
-
-Deploying to people who will never clone this repo? [docs/DEPLOY-WINDOWS.md](docs/DEPLOY-WINDOWS.md) (and [docs/DEPLOY-LINUX.md](docs/DEPLOY-LINUX.md) for RHEL 9) builds a self-contained package with the policy pack baked in (`patches/0020-bake-policy.patch`, so no wrapper script is needed) and [docs/GITLAB.md](docs/GITLAB.md) says what an organisation's GitLab holds for it.
-
-## Why this shape
-
-Three concerns drove the design:
-
-- **Blast radius** — disabled features should not be reachable. Policy-pack extensions enforce a tool allowlist (no shell by default: neither `bash` nor `powershell`), offer the model exactly that set, gate writes to protected paths, and audit-log every tool call. Code-level removals of unwanted providers/tools are done as patches.
-- **Vulnerability assessment** — `ci/scans/` runs SBOM generation, dependency CVE checks, and source scans on every PR and nightly. CI fails loudly so audits aren't a project.
-- **Upstream sync** — additive customization in `packages/policy-pack/` has zero conflict surface. Patches in `patches/` are small and rebaseable individually. Sync ritual is `pull → apply → test → ship`.
+packages/policy-pack/   extensions, SYSTEM.md, setup skills, model data
+patches/                the patch series against vendor/pi
+vendor/pi/              upstream pi (git subtree), patches applied
+bin/                    gah and gah.ps1: the launchers for a checkout
+templates/skills-repo/  what `gah init` writes
+templates/kb-repo/      what `gah init-kb` writes
+templates/deploy/       gah-deploy.json example, package launchers and installers
+deploy/host/            the shared Linux host
+deploy/windows/         an example laptop shortcut for the shared host
+.agents/skills/         skills for gah admins, loaded in a session started here
+scripts/                build, package, check and sync helpers
+ci/scans/               SBOM, CVE and source-scan configuration
+docs/                   the guides linked above
+```
 
 ## License
 
-MIT (inherits from upstream PI). See `vendor/pi/LICENSE` once vendored.
+MIT, as upstream pi. See `vendor/pi/LICENSE`.

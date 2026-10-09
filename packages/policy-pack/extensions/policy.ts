@@ -17,6 +17,7 @@
 import { appendFileSync, mkdirSync, readdirSync, renameSync, statSync, unlinkSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	commandReferencesSecret,
@@ -30,6 +31,7 @@ import {
 } from "./lib/secrets.ts";
 import { promptTemplateName, turnUsage } from "./lib/usage.ts";
 import { datedPath, datedPattern, parseRetentionDays, rotationPlan, ymd } from "./lib/audit-rotate.ts";
+import { guidedSetupOffered, setupSkillDirs } from "./lib/onboarding.ts";
 
 // --- Policy knobs ------------------------------------------------------------
 
@@ -50,7 +52,10 @@ const EXTRA_ALLOWED_TOOLS = (process.env.GAH_ALLOW_TOOLS ?? "")
 const ALLOWED_TOOLS = new Set<string>([...DEFAULT_ALLOWED_TOOLS, ...EXTRA_ALLOWED_TOOLS]);
 // The binary's --help page reports the tools this policy actually enforces.
 // Extensions load before help prints, so this single source reaches it.
-process.env.GAH_EFFECTIVE_TOOLS = [...ALLOWED_TOOLS].join(",");
+// gah_setup is registered only while a package offers guided setup (#138).
+process.env.GAH_EFFECTIVE_TOOLS = [...ALLOWED_TOOLS]
+	.filter((t) => t !== "gah_setup" || guidedSetupOffered(process.argv, setupSkillDirs(join(dirname(fileURLToPath(import.meta.url)), ".."))))
+	.join(",");
 
 /** Write/edit operations targeting these paths are blocked outright. */
 const PROTECTED_PATH_FRAGMENTS = [
