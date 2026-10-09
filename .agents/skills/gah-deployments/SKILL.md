@@ -27,11 +27,15 @@ say so and give the commands for the admin to run instead.
 
 ## Which platforms
 
-One config builds both packages. The Windows zip is `gah-<org>-<version>.zip`
-in registry package `gitlab.package` (default `gah-windows`); the Linux zip is
-`gah-<org>-linux-<version>.zip` in `gitlab.linuxPackage` (default
-`gah-linux`). Ask which platforms the deployment serves if you cannot tell:
-the registry page lists the packages that exist. Build and publish each one it
+One config builds both packages: `<name>-win11-<version>.zip` and
+`<name>-linux-<version>.zip`, where `<name>` is the config's `name` (default
+`gah-<org>`, slugged; the status prints it). Both go into one registry
+package, `gitlab.package` (default `<name>`), under the same version. Ask
+which platforms the deployment serves if you cannot tell: the registry's
+newest version lists the zips that exist. A config with `gitlab.linuxPackage`
+predates this and is refused: remove the key, and tell the admin that every
+installed copy reinstalls once from the new package, because installed
+launchers look for updates under the old registry package name. Build and publish each one it
 serves, at the same version; every step below that names the Windows package
 applies to the Linux one with the names above. A deployment that has never had
 a Linux package needs nothing in the config to start one; the defaults apply.
@@ -80,7 +84,7 @@ For "update gah-deploy-engineering to 1.0.4" and the like.
    "continue". Run the status again; continue only when nothing is ✗.
 3. **Say what changes for consumers.** The last package records the gah
    commit it was built from, as `gahRev` in its `VERSION` file. Look first in
-   this repo's `dist-deploy\gah-<org>-<version>\VERSION` from the last
+   this repo's `dist-deploy\<name>-win11-<version>\VERSION` from the last
    build (the admin's build machine often has no installed copy); otherwise,
    where the package is installed, `%LOCALAPPDATA%\gah\current.txt` names the
    package folder. With that commit:
@@ -115,7 +119,7 @@ For "update gah-deploy-engineering to 1.0.4" and the like.
    ```
    It assembles the package, runs the tool-surface check against it (Git Bash
    is needed for that on Windows), and writes
-   `dist-deploy/gah-<org>-<version>.zip` (`<org>` slugged) and `.sha256`. The check
+   `dist-deploy/<name>-win11-<version>.zip` (or `-linux-`) and `.sha256`. The check
    sets its own tool allowlist, so the shell this session was started with
    does not leak into it. Report the `✓` line:
    path, sha256, gah and upstream versions. If the check fails, stop and show
@@ -133,18 +137,18 @@ For "update gah-deploy-engineering to 1.0.4" and the like.
    - **The command**, in their own PowerShell window from this repo:
      ```powershell
      $env:GAH_GITLAB_TOKEN = Read-Host -AsSecureString 'GitLab token' | ConvertFrom-SecureString -AsPlainText
-     node scripts\publish-gitlab.mjs --config <folder>\gah-deploy.json --zip dist-deploy\gah-<org>-<version>.zip --cert "CurrentUser\MY\<thumbprint>"
+     node scripts\publish-gitlab.mjs --config <folder>\gah-deploy.json --zip dist-deploy\<name>-win11-<version>.zip --cert "CurrentUser\MY\<thumbprint>"
      Remove-Item Env:GAH_GITLAB_TOKEN
      ```
      For the Linux package, the same command with
-     `--zip dist-deploy\gah-<org>-linux-<version>.zip`; the script reads the
-     platform from the name. Drop `--cert` without mutual TLS. Behind a proxy, the variables in
+     `--zip dist-deploy\<name>-linux-<version>.zip`; it lands in the same
+     registry package and version. Drop `--cert` without mutual TLS. Behind a proxy, the variables in
      docs/DEPLOY-WINDOWS.md "Certificates and proxies" apply. (Windows
      PowerShell 5.1 has no `-AsPlainText`; there, paste the token into
      `$env:GAH_GITLAB_TOKEN = '...'` and clear it afterwards.)
    - **Check it landed:** the deployment project → *Deploy* → *Package
-     registry* → the package (`gah-windows`, `gah-linux` by default) → the new
-     version, with both the `.zip` and the `.sha256`.
+     registry* → `<name>` → the new version, with each platform's `.zip` and
+     `.sha256`.
 7. **Commit the deployment change.** Show `git -C <folder> diff`, then commit
    with a message naming the gah version, e.g. `Package 1.0.4: gah 1.0.4 (pi
    v1.0.4)`. Push only when the admin says to; if the default branch is
@@ -173,7 +177,12 @@ config cannot tell you.
      (`"$VAR"` collected by the installer, or `/login` on first run);
    - whether consumers may have a shell (`GAH_ALLOW_TOOLS=powershell`; default
      no), and credential files they must never see (`GAH_SECRET_FILES`);
-   - optional: an icon (`.ico`), a `SYSTEM.md` override.
+   - optional: an icon (`.ico`), a `SYSTEM.md` override;
+   - optional, for onboarding (#135): a proxy to suggest when the inference
+     endpoint is not reachable directly (`inferenceProxy`), the deployment's
+     own setup skills (`setupSkills`, a folder of skills such as a
+     `setup-gitlab` with who issues certificates and internal links), and
+     whether to show the /setup-skills line at all (`skillsNudge`).
 2. **Probe the endpoint** so the models and tool-call support are facts, not
    guesses: `node scripts/probe-endpoint.mjs <baseUrl> --key-env <VAR>`. The
    key must already be in that environment variable *before* this session
@@ -189,7 +198,8 @@ config cannot tell you.
      project features, permissions* → *Package registry* enabled.
    - **Skills project**, if new: create it the same way, then from this repo
      `.\bin\gah.ps1 init <folder>` scaffolds it locally; commit and push it.
-     It needs at least one skill, or the launcher refuses to start.
+     It needs at least one skill, or consumers see the /setup-skills line
+     with nothing to fetch.
    - Clone the empty deployment project next to the others.
 4. **Scaffold the deployment folder** from the answers:
    `gah-deploy.json` from `templates/deploy/gah-deploy.example.json` (keep its

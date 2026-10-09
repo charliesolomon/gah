@@ -77,7 +77,7 @@ foreach ($line in (Get-Content -LiteralPath (Join-Path $Dest 'tools\SHA256SUMS')
 # --- GitLab token (skippable: an internal-visible project needs none) -----------------------
 if (-not $Update) {
     if (-not $GitLabToken -and -not $NoPrompt) {
-        $secure = Read-Host "  GitLab token for $($Deploy.gitlab.url) (read_api; Enter to skip)" -AsSecureString
+        $secure = Read-Host "  GitLab token for $($Deploy.gitlab.url) (read_api; Enter to skip and set it up later with /setup-skills in gah)" -AsSecureString
         $GitLabToken = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure))
     }
     if ($GitLabToken) {

@@ -212,9 +212,10 @@ variables are not affected, since `$env:X = 'a,b'` is already a string.
 
 ## Run
 
-GAH will not start without your organization's skills. If someone has already
-set up a skills repository, clone it and point at it; if you are the first,
-create one:
+GAH starts without your organization's skills, but it is built around them:
+until they are loaded, a line above the input box points at `/setup-skills`.
+If someone has already set up a skills repository, clone it and point at it; if
+you are the first, create one:
 
 ```powershell
 cd ..\..
@@ -261,7 +262,7 @@ Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 The equivalent of `make smoke`:
 
 ```powershell
-$env:GAH_ALLOW_NO_SKILLS = '1'   # this checks the harness, not your skills repo
+$env:GAH_ALLOW_NO_SKILLS = '1'   # checks the harness, not your skills repo; hides the /setup-skills line
 .\bin\gah.ps1 --version
 .\bin\gah.ps1 --list-models | Out-Null; if ($?) { "list-models OK" }
 ```

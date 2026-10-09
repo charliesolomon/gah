@@ -108,7 +108,12 @@ Then per component:
    off, one `--skill` per approved skill directory. Personal skills
    (`~/.gah/my-skills`, optional `MY_SKILLS_REPO`) take precedence over shared
    ones of the same name and the launcher warns when that happens; see
-   `docs/SKILLS.md` and `gah-launch` for the rules.
+   `docs/SKILLS.md` and `gah-launch` for the rules. With no shared skills at
+   all (the clone failed, or the repo is empty) the session still starts, with
+   a warning in the terminal and the /setup-skills line above the input box;
+   on this host `/setup-skills` tells the person to contact you (#135). Setup
+   skills of the host's own in `/etc/gah/setup-skills/` (or `SETUP_SKILLS_DIR`
+   in the manifest) replace the built-in ones by name.
 
 When gah exits, tmux and the SSH connection close.
 

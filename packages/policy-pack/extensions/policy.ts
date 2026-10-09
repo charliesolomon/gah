@@ -34,7 +34,9 @@ import { datedPath, datedPattern, parseRetentionDays, rotationPlan, ymd } from "
 // --- Policy knobs ------------------------------------------------------------
 
 /** Tools the agent may call. Built-ins not in this list are blocked. */
-const DEFAULT_ALLOWED_TOOLS = ["read", "grep", "find", "ls", "edit", "write"];
+const DEFAULT_ALLOWED_TOOLS = ["read", "grep", "find", "ls", "edit", "write", "gah_setup"];
+// gah_setup (onboarding.ts) only reports setup status and opens dialogs where
+// the person types; it runs nothing the model chooses and never returns a secret.
 // Notably absent: the shells -- "bash", and "powershell" on Windows.
 // Deployments opt in via GAH_ALLOW_TOOLS — a comma-separated list of extra
 // tools set by a root-owned launcher (see deploy/host/gah-launch), never by

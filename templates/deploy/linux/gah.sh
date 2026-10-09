@@ -4,10 +4,14 @@
 # <root>/gah-launch (which reads current.txt, so updates survive) by the `gah`
 # command and the desktop entry the installer writes.
 #
-# The bash twin of gah.ps1, step for step. On every launch: check the GitLab
-# package registry for a newer package and switch to it; fetch the skills
-# repository as an archive when its branch head moved; run the repository's
-# setup/NN-*.sh steps; export the deployment's environment; start the agent. The
+# The bash twin of gah.ps1, step for step. On every launch: make sure Node is
+# there; check the GitLab package registry for a newer package and switch to it;
+# fetch the skills repository as an archive when its branch head moved; export
+# the deployment's environment; make sure a model is reachable with a working
+# key (preflight.mjs, which also finds the proxy); run the repository's
+# setup/NN-*.sh steps; start the agent. Neither GitLab nor skills is required to
+# start (#135): without them the session shows the /setup-skills nudge, and the
+# gah_setup tool calls back into this script (--gah-internal <op>). The
 # launcher carries no policy of its own -- the policy pack baked into
 # gah-policy/ is force-loaded by the binary (patch 0020) and the environment
 # below only says what the admin decided in gah-deploy.json.
@@ -60,6 +64,31 @@ for arg in "$@"; do
 	case "$arg" in --help | -h | --version | -v) info_only=1 ;; esac
 done
 
+# `--gah-internal <op>`: the onboarding extension's gah_setup tool calling back
+# (status, sync-skills, store). Prints one JSON line; starts nothing.
+internal=""
+[ "${1:-}" = "--gah-internal" ] && internal="${2:-}"
+
+# --- Node: everything below needs it ---------------------------------------------
+node_ok() {
+	local v
+	v="$(node --version 2>/dev/null)" || return 1
+	v="${v#v}"
+	[ "${v%%.*}" -ge 22 ] 2>/dev/null
+}
+if ! node_ok; then
+	warn "Node.js 22 or newer is needed to run gah, and was not found."
+	if [ -t 0 ] && command -v dnf >/dev/null 2>&1 && command -v sudo >/dev/null 2>&1; then
+		read -r -p "Install it now (sudo dnf module enable nodejs:22, then install nodejs)? [y/N] " a
+		case "$a" in [yY]*) sudo dnf -y module enable nodejs:22 && sudo dnf -y install nodejs ;; esac
+	fi
+	if ! node_ok; then
+		echo "On RHEL 9:  sudo dnf module enable nodejs:22 && sudo dnf install nodejs" >&2
+		echo "Elsewhere: Node.js 22 LTS from your distribution or https://nodejs.org. Then start gah again." >&2
+		exit 1
+	fi
+fi
+
 # --- deploy.json, read once by node (which the agent needs anyway) -------------
 # Prints shell assignments with every value single-quoted, so nothing in the
 # file is ever evaluated as code.
@@ -74,6 +103,8 @@ const out = {
 	D_PROJECT: d.gitlab?.project,
 	D_PACKAGE: d.gitlab?.package,
 	D_PROXY: d.gitlab?.proxy,
+	D_CLIENT_CERT: d.gitlab?.clientCert,
+	D_CLIENT_CERT_ISSUER: d.gitlab?.clientCertIssuer,
 	D_SKILLS_PROJECT: d.skills?.project,
 	D_SKILLS_BRANCH: d.skills?.branch ?? "main",
 };
@@ -92,36 +123,60 @@ eval "$assignments"
 # A variable already set in the environment wins. Read as KEY=value lines, never
 # sourced. The policy is told to hide the file from the model below.
 SECRETS="${XDG_CONFIG_HOME:-$HOME/.config}/gah/secrets.env"
-if [ -f "$SECRETS" ]; then
+load_secrets() {
+	[ -f "$SECRETS" ] || return 0
+	local line k v
 	while IFS= read -r line || [ -n "$line" ]; do
 		case "$line" in '' | '#'*) continue ;; esac
 		k="${line%%=*}"; v="${line#*=}"
 		[[ "$k" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
 		[ -n "${!k:-}" ] || export "$k=$v"
 	done <"$SECRETS"
-fi
+}
+load_secrets
 
 # --- GitLab access: curl with the token, proxy and client certificate ------------
 # Proxy: gitlab.proxy forces a URL, "none" forces a direct connection, null
 # leaves it to curl, which honours HTTPS_PROXY / https_proxy and NO_PROXY.
 # Trust: curl uses the system store (/etc/pki on RHEL), where a managed
 # machine's corporate CA already is.
-CURL=(curl --silent --show-error --fail --location --connect-timeout 20)
-[ -n "${GAH_GITLAB_TOKEN:-}" ] && CURL+=(--header "PRIVATE-TOKEN: $GAH_GITLAB_TOKEN")
+CURL_BASE=(curl --silent --show-error --location --connect-timeout 20)
 case "$D_PROXY" in
 	"") ;;
-	none) CURL+=(--noproxy '*') ;;
-	*) CURL+=(--proxy "$D_PROXY") ;;
+	none) CURL_BASE+=(--noproxy '*') ;;
+	*) CURL_BASE+=(--proxy "$D_PROXY") ;;
 esac
-[ -n "${GAH_GITLAB_CLIENT_CERT:-}" ] && CURL+=(--cert "$GAH_GITLAB_CLIENT_CERT")
-[ -n "${GAH_GITLAB_CLIENT_KEY:-}" ] && CURL+=(--key "$GAH_GITLAB_CLIENT_KEY")
+[ -n "${GAH_GITLAB_CLIENT_CERT:-}" ] && CURL_BASE+=(--cert "$GAH_GITLAB_CLIENT_CERT")
+[ -n "${GAH_GITLAB_CLIENT_KEY:-}" ] && CURL_BASE+=(--key "$GAH_GITLAB_CLIENT_KEY")
+CURL_ANON=("${CURL_BASE[@]}" --fail)
+CURL=("${CURL_ANON[@]}")
+[ -n "${GAH_GITLAB_TOKEN:-}" ] && CURL+=(--header "PRIVATE-TOKEN: $GAH_GITLAB_TOKEN")
 enc() { node -e 'process.stdout.write(encodeURIComponent(process.argv[1]))' "$1"; }
 # curl's one-line reason for the last failure, for the warning that follows it.
 ERR_FILE="$(mktemp)"
 trap 'rm -f "$ERR_FILE"' EXIT
 why() { tr '\n' ' ' <"$ERR_FILE" | sed 's/ *$//'; }
-api() { "${CURL[@]}" --max-time 20 "$D_GITLAB/api/v4/$1" 2>"$ERR_FILE"; }
-fetch() { "${CURL[@]}" --max-time 300 --output "$2" "$1" 2>"$ERR_FILE"; }
+# With a token, and once more without it when GitLab answers 401: a public
+# project answers anonymously, and an expired or mistyped token would otherwise
+# turn that answer into a refusal.
+refused() { [ -n "${GAH_GITLAB_TOKEN:-}" ] && grep -q "error: 401" "$ERR_FILE"; }
+api() {
+	"${CURL[@]}" --max-time 20 "$D_GITLAB/api/v4/$1" 2>"$ERR_FILE" ||
+		{ refused && "${CURL_ANON[@]}" --max-time 20 "$D_GITLAB/api/v4/$1" 2>"$ERR_FILE"; }
+}
+fetch() {
+	"${CURL[@]}" --max-time 300 --output "$2" "$1" 2>"$ERR_FILE" ||
+		{ refused && "${CURL_ANON[@]}" --max-time 300 --output "$2" "$1" 2>"$ERR_FILE"; }
+}
+# HTTP status of one GitLab call, with the token ("token") or without; for
+# gah_setup's status. A network failure prints curl's reason instead.
+probe() {
+	local code
+	local -a c=("${CURL_BASE[@]}")
+	[ "${2:-}" = token ] && c+=(--header "PRIVATE-TOKEN: ${GAH_GITLAB_TOKEN:-}")
+	code="$("${c[@]}" --max-time 15 --output /dev/null --write-out '%{http_code}' "$D_GITLAB/api/v4/$1" 2>"$ERR_FILE")"
+	if [ "${code:-000}" = "000" ]; then printf 'error: %s' "$(why)"; else printf '%s' "$code"; fi
+}
 # Evaluates a JS expression over the JSON in $1, bound to d; prints the result.
 # A body that is not JSON (a proxy's error page) is a failure with a reason.
 json() {
@@ -129,43 +184,112 @@ json() {
 try { const v = new Function("d", `return (${process.argv[2]})`)(JSON.parse(process.argv[1])); if (v != null) process.stdout.write(String(v)); }
 catch { process.stderr.write("GitLab answered with something that is not JSON"); process.exit(1); }' "$1" "$2" 2>"$ERR_FILE"
 }
-# Version order as PowerShell's [version] sees it, so both launchers agree on
-# what "newer" means: digits and dots, two to four parts, a missing part below
-# zero (1.0 < 1.0.0). Anything else is not a version and never wins.
-newer() {
-	node -e '
-const p = (s) => (/^\d+(\.\d+){1,3}$/.test(s) ? s.split(".").map(Number) : null);
-const [a, b] = [p(process.argv[1]), p(process.argv[2])];
-if (!a || !b) process.exit(1);
-for (let i = 0; i < 4; i++) { const x = a[i] ?? -1, y = b[i] ?? -1; if (x !== y) process.exit(x > y ? 0 : 1); }
-process.exit(1);' "$1" "$2"
-}
 unpack_zip() {
 	mkdir -p "$2"
 	if command -v unzip >/dev/null 2>&1; then unzip -q -o "$1" -d "$2"
 	else python3 -m zipfile -e "$1" "$2"; fi
 }
 
+# --- Skills: the repository as an archive at its branch head ----------------------
+SKILLS_ROOT="$ROOT/skills"
+CURRENT_FILE="$SKILLS_ROOT/current.txt"
+CURRENT="$(cat "$CURRENT_FILE" 2>/dev/null | tr -d '[:space:]')"
+sync_skills() {
+	local sproj body head tmp top
+	sproj="$(enc "$D_SKILLS_PROJECT")"
+	body="$(api "projects/$sproj/repository/branches/$(enc "$D_SKILLS_BRANCH")")" || return 1
+	head="$(json "$body" 'd.commit?.id')" || return 1
+	[ -n "$head" ] && [ "$head" != "$CURRENT" ] || return 0
+	tmp="$SKILLS_ROOT/tmp-$head"
+	mkdir -p "$SKILLS_ROOT"
+	rm -rf "$tmp"; mkdir -p "$tmp/x"
+	fetch "$D_GITLAB/api/v4/projects/$sproj/repository/archive.tar.gz?sha=$head" "$tmp/repo.tar.gz" || return 1
+	tar -xzf "$tmp/repo.tar.gz" -C "$tmp/x" 2>"$ERR_FILE" || return 1
+	top="$(find "$tmp/x" -mindepth 1 -maxdepth 1 -type d)"
+	[ "$(printf '%s\n' "$top" | grep -c .)" -eq 1 ] || { echo "unexpected archive layout" >"$ERR_FILE"; return 1; }
+	rm -rf "${SKILLS_ROOT:?}/$head"
+	mv "$top" "$SKILLS_ROOT/$head" || return 1
+	rm -rf "$tmp"
+	printf '%s' "$head" >"$CURRENT_FILE"
+	[ -n "$CURRENT" ] && [ -d "$SKILLS_ROOT/$CURRENT" ] && rm -rf "${SKILLS_ROOT:?}/$CURRENT"
+	CURRENT="$head"
+	[ -n "$internal" ] || echo "gah: skills updated to ${head:0:8}"
+}
+# --- Internal operations for gah_setup (onboarding extension) ----------------------
+# Values reach node as arguments and are JSON-encoded there; none is a secret.
+out_json() { node -e 'const a = process.argv.slice(1); const o = {}; for (let i = 0; i < a.length; i += 2) { let v = a[i + 1]; if (v === "true" || v === "false") v = v === "true"; else if (v === "") v = null; else if (/^\d{3}$/.test(v)) v = Number(v); o[a[i]] = v; } console.log(JSON.stringify(o));' "$@"; exit 0; }
+if [ "$internal" = status ]; then
+	proj="$(enc "$D_PROJECT")"; sproj="$(enc "$D_SKILLS_PROJECT")"
+	branch_path="projects/$sproj/repository/branches/$(enc "$D_SKILLS_BRANCH")"
+	p_pkg="$(probe "projects/$proj/packages?package_name=$(enc "$D_PACKAGE")&per_page=1")"
+	p_anon="$(probe "$branch_path")"
+	p_tok=""; [ -n "${GAH_GITLAB_TOKEN:-}" ] && p_tok="$(probe "$branch_path" token)"
+	node -e '
+const [pkg, ver, url, project, pkgName, sproj, branch, certReq, issuer, proxy, tok, cert, pPkg, pAnon, pTok, cur] = process.argv.slice(1);
+const n = (v) => (/^\d{3}$/.test(v) ? Number(v) : v || null);
+console.log(JSON.stringify({ ok: true, package: pkg, version: ver,
+	gitlab: { url, project, package: pkgName, skillsProject: sproj, skillsBranch: branch, clientCertRequired: certReq === "user", clientCertIssuer: issuer || null, proxy: proxy || "environment (HTTPS_PROXY) or none", tokenConfigured: tok === "1", certConfigured: cert === "1" },
+	probes: { packagesAnonymous: n(pPkg), skillsAnonymous: n(pAnon), skillsWithToken: n(pTok) },
+	skills: { current: cur || null } }));' \
+		"$D_PACKAGE_NAME" "$D_VERSION" "$D_GITLAB" "$D_PROJECT" "$D_PACKAGE" "$D_SKILLS_PROJECT" "$D_SKILLS_BRANCH" "$D_CLIENT_CERT" "$D_CLIENT_CERT_ISSUER" "$D_PROXY" \
+		"$([ -n "${GAH_GITLAB_TOKEN:-}" ] && echo 1)" "$([ -n "${GAH_GITLAB_CLIENT_CERT:-}" ] && echo 1)" "$p_pkg" "$p_anon" "$p_tok" "$CURRENT"
+	exit 0
+fi
+if [ "$internal" = sync-skills ]; then
+	if sync_skills && [ -n "$CURRENT" ]; then out_json ok true path "$SKILLS_ROOT/$CURRENT" head "$CURRENT"
+	else out_json ok false error "$(why)"; fi
+fi
+if [ "$internal" = store ]; then
+	name="${3:-}"
+	case "$name" in GAH_GITLAB_TOKEN | GAH_GITLAB_CLIENT_CERT | GAH_GITLAB_CLIENT_KEY) ;; *) out_json ok false error "not a setting this launcher stores: $name" ;; esac
+	value="$(cat)"; value="${value%$'\n'}"
+	[ -n "$value" ] || out_json ok false error "empty value"
+	case "$value" in *$'\n'*) out_json ok false error "the value has a line break" ;; esac
+	if [ "$name" != GAH_GITLAB_TOKEN ]; then
+		value="${value/#\~/$HOME}"
+		[ -f "$value" ] || out_json ok false error "no such file: $value"
+	fi
+	mkdir -p "$(dirname "$SECRETS")"; chmod 700 "$(dirname "$SECRETS")"
+	(umask 077; { [ -f "$SECRETS" ] && grep -v "^$name=" "$SECRETS" || true; printf '%s=%s\n' "$name" "$value"; } >"$SECRETS.tmp")
+	mv "$SECRETS.tmp" "$SECRETS"; chmod 600 "$SECRETS"
+	out_json ok true stored "$name"
+fi
+[ -n "$internal" ] && out_json ok false error "unknown internal operation: $internal"
+
 # --- 1. Self-update --------------------------------------------------------------
 # Newest published version of this package; switch to it and re-launch from it.
 # Any failure here is a warning: the installed version keeps working.
 self_update() {
-	local proj body latest slug new dl zip base want got stage
+	local proj body ids id ver files latest slug new dl zip base want got stage
 	proj="$(enc "$D_PROJECT")"
-	# The newest 100 by publication date, and the highest of those in the order
-	# newer() uses, rather than trusting the registry's own version sort (the
-	# same rule as gah.ps1). Versions that do not parse are skipped.
+	slug="${D_PACKAGE_NAME%-"$D_VERSION"}"
+	# The newest 100 by publication date, highest first in the order
+	# PowerShell's [version] uses, so both launchers agree on "newer": digits
+	# and dots, two to four parts, a missing part below zero (1.0 < 1.0.0).
+	# The registry's own version sort is not trusted. Versions that do not
+	# parse are skipped. Windows and Linux
+	# zips share one registry package, so the update is the highest newer
+	# version that holds this platform's zip: <name>-linux-<version>.zip.
 	body="$(api "projects/$proj/packages?package_name=$(enc "$D_PACKAGE")&order_by=created_at&sort=desc&per_page=100")" || return 1
-	latest="$(json "$body" "(() => {
+	ids="$(json "$body" "(() => {
 		const name = $(node -e 'process.stdout.write(JSON.stringify(process.argv[1]))' "$D_PACKAGE");
 		const parse = (s) => (/^\\d+(\\.\\d+){1,3}\$/.test(s) ? s.split('.').map(Number) : null);
 		const gt = (a, b) => { for (let i = 0; i < 4; i++) { const x = a[i] ?? -1, y = b[i] ?? -1; if (x !== y) return x > y; } return false; };
-		let best = null;
-		for (const p of d) { const v = p.name === name ? parse(String(p.version)) : null; if (v && (!best || gt(v, best.v))) best = { v, s: p.version }; }
-		return best?.s;
+		const cur = parse($(node -e 'process.stdout.write(JSON.stringify(process.argv[1]))' "$D_VERSION"));
+		return d.map((p) => ({ p, v: p.name === name ? parse(String(p.version)) : null }))
+			.filter((x) => x.v && cur && gt(x.v, cur))
+			.sort((a, b) => (gt(a.v, b.v) ? -1 : gt(b.v, a.v) ? 1 : 0))
+			.slice(0, 10).map((x) => x.p.id + ' ' + x.p.version).join('\\n');
 	})()")" || return 1
-	[ -n "$latest" ] && newer "$latest" "$D_VERSION" || return 0
-	slug="${D_PACKAGE_NAME%-"$D_VERSION"}"
+	latest=""
+	while read -r id ver; do
+		[ -n "$id" ] || continue
+		files="$(api "projects/$proj/packages/$id/package_files?per_page=100")" || return 1
+		if [ "$(json "$files" "d.some((f) => f.file_name === $(node -e 'process.stdout.write(JSON.stringify(process.argv[1]))' "$slug-$ver.zip"))")" = true ]; then
+			latest="$ver"; break
+		fi
+	done <<<"$ids"
+	[ -n "$latest" ] || return 0
 	new="$slug-$latest"
 	dl="$ROOT/downloads"; mkdir -p "$dl"
 	zip="$dl/$new.zip"
@@ -187,8 +311,16 @@ self_update() {
 	UPDATED_TO="$ROOT/$new"
 }
 UPDATED_TO=""
+# GitLab problems are collected and reported as one line: without GitLab set up
+# both steps fail for the same reason, and gah still starts.
+problem=""
 if [ "$info_only" -eq 0 ] && [ -z "${GAH_NO_UPDATE:-}" ]; then
-	self_update || warn "update check failed - continuing with $D_VERSION ($(why))"
+	if ! self_update; then
+		# GitLab answers 404, not 401, for a project an anonymous caller may not see.
+		if [ -z "${GAH_GITLAB_TOKEN:-}" ] && grep -q 'error: 404' "$ERR_FILE" 2>/dev/null; then
+			problem="update check: $D_PROJECT is not visible without a GitLab token (read_api), so updates cannot be found"
+		else problem="update check: $(why)"; fi
+	fi
 	if [ -n "$UPDATED_TO" ]; then
 		export GAH_NO_UPDATE=1
 		rm -f "$ERR_FILE"
@@ -196,39 +328,15 @@ if [ "$info_only" -eq 0 ] && [ -z "${GAH_NO_UPDATE:-}" ]; then
 	fi
 fi
 
-# --- 2. Skills: the repository as an archive at its branch head --------------------
-SKILLS_ROOT="$ROOT/skills"
-CURRENT_FILE="$SKILLS_ROOT/current.txt"
-CURRENT="$(cat "$CURRENT_FILE" 2>/dev/null | tr -d '[:space:]')"
-sync_skills() {
-	local sproj body head tmp top
-	sproj="$(enc "$D_SKILLS_PROJECT")"
-	body="$(api "projects/$sproj/repository/branches/$(enc "$D_SKILLS_BRANCH")")" || return 1
-	head="$(json "$body" 'd.commit?.id')" || return 1
-	[ -n "$head" ] && [ "$head" != "$CURRENT" ] || return 0
-	tmp="$SKILLS_ROOT/tmp-$head"
-	rm -rf "$tmp"; mkdir -p "$tmp/x"
-	fetch "$D_GITLAB/api/v4/projects/$sproj/repository/archive.tar.gz?sha=$head" "$tmp/repo.tar.gz" || return 1
-	tar -xzf "$tmp/repo.tar.gz" -C "$tmp/x" 2>"$ERR_FILE" || return 1
-	top="$(find "$tmp/x" -mindepth 1 -maxdepth 1 -type d)"
-	[ "$(printf '%s\n' "$top" | grep -c .)" -eq 1 ] || { echo "unexpected archive layout" >"$ERR_FILE"; return 1; }
-	rm -rf "${SKILLS_ROOT:?}/$head"
-	mv "$top" "$SKILLS_ROOT/$head" || return 1
-	rm -rf "$tmp"
-	printf '%s' "$head" >"$CURRENT_FILE"
-	[ -n "$CURRENT" ] && [ -d "$SKILLS_ROOT/$CURRENT" ] && rm -rf "${SKILLS_ROOT:?}/$CURRENT"
-	CURRENT="$head"
-	echo "gah: skills updated to ${head:0:8}"
-}
+# --- 2. Skills ----------------------------------------------------------------------
 if [ "$info_only" -eq 0 ]; then
-	mkdir -p "$SKILLS_ROOT"
-	sync_skills || warn "skills update failed - continuing with the local copy ($(why))"
+	sync_skills || problem="${problem:-skills: $(why)}"
 fi
 SKILLS=""
-[ -n "$CURRENT" ] && SKILLS="$SKILLS_ROOT/$CURRENT"
-if [ "$info_only" -eq 0 ] && ! { [ -n "$SKILLS" ] && [ -d "$SKILLS/skills" ]; } && [ -z "${GAH_ALLOW_NO_SKILLS:-}" ]; then
-	warn "no skills available (repository $D_SKILLS_PROJECT could not be fetched). Check GAH_GITLAB_TOKEN and try again."
-	exit 1
+[ -n "$CURRENT" ] && [ -d "$SKILLS_ROOT/$CURRENT/skills" ] && SKILLS="$SKILLS_ROOT/$CURRENT"
+if [ -n "$problem" ]; then
+	if [ -n "$SKILLS" ]; then warn "GitLab: $problem - continuing with $D_VERSION and the local skills"
+	else warn "GitLab: $problem - continuing with $D_VERSION, without shared skills"; fi
 fi
 
 # --- 3. Environment: what the admin decided, nothing else ---------------------------
@@ -238,6 +346,9 @@ export GAH_ALLOWED_HOSTS="${GAH_ALLOWED_HOSTS-}"
 export GAH_ALLOW_MODELS_JSON=""                         # the endpoint is baked; models.json would route around it
 export GAH_PROVIDERS_FILE="$HERE/gah-policy/providers.json"
 export PATH="$HERE/bin:$PATH"                           # fd, rg
+# For the onboarding extension: who started the session, and how to call back.
+export GAH_LAUNCHER_KIND=package
+export GAH_LAUNCHER_SCRIPT="$HERE/gah.sh"
 # The secrets file is readable by this user, and so by the agent's read tool;
 # name it as a secret store so the policy refuses it and redacts its values.
 [ -f "$SECRETS" ] && export GAH_SECRET_FILES="${GAH_SECRET_FILES:+$GAH_SECRET_FILES:}$SECRETS"
@@ -246,6 +357,28 @@ export PATH="$HERE/bin:$PATH"                           # fd, rg
 # accepts. Add the system bundle unless the machine already chose something.
 if [ -z "${NODE_EXTRA_CA_CERTS:-}" ] && [ -f /etc/pki/tls/certs/ca-bundle.crt ]; then
 	export NODE_EXTRA_CA_CERTS=/etc/pki/tls/certs/ca-bundle.crt
+fi
+
+# --- 3b. Preflight: a model must be reachable, with a working key ---------------------
+# preflight.mjs finds the route (direct, HTTPS_PROXY, the deployment's
+# suggestion, or asks) and makes sure at least one provider has a key it
+# accepts, asking for one (masked) when none does. The session then goes the
+# way that was tested: through the proxy found (lower-case too: undici reads
+# https_proxy before HTTPS_PROXY), or, on a direct route, with the inference
+# hosts added to NO_PROXY so a proxy the environment names for other traffic
+# is not used for them.
+if [ "$info_only" -eq 0 ] && [ -z "${GAH_SKIP_PREFLIGHT:-}" ]; then
+	rm -f "$ROOT/preflight-out.json"
+	node "$HERE/preflight.mjs" --deploy "$HERE/deploy.json" --providers "$GAH_PROVIDERS_FILE" \
+		--state "$ROOT/preflight-state.json" --out "$ROOT/preflight-out.json" || { rc=$?; rm -f "$ERR_FILE"; exit "$rc"; }
+	pf_proxy="$(node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).proxy ?? "")' "$ROOT/preflight-out.json")"
+	pf_direct="$(node -e 'process.stdout.write((JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).direct ?? []).join(","))' "$ROOT/preflight-out.json")"
+	if [ -n "$pf_proxy" ]; then
+		export HTTPS_PROXY="$pf_proxy" HTTP_PROXY="$pf_proxy" https_proxy="$pf_proxy" http_proxy="$pf_proxy" NODE_USE_ENV_PROXY=1
+	elif [ -n "$pf_direct" ]; then
+		export NO_PROXY="${NO_PROXY:+$NO_PROXY,}$pf_direct" no_proxy="${no_proxy:+$no_proxy,}$pf_direct"
+	fi
+	load_secrets                                        # a key preflight just stored
 fi
 
 # --- 4. Setup steps from the skills repository ------------------------------------
@@ -257,9 +390,11 @@ if [ "$info_only" -eq 0 ] && [ -n "$SKILLS" ] && [ -z "${GAH_SKIP_SETUP:-}" ] &&
 fi
 
 # --- 5. Start -------------------------------------------------------------------
-skill_args=()
+# --no-skills always: the person's own folders are never searched for skills.
+# The setup skills come from the policy (onboarding extension), not from here.
+skill_args=(--no-skills)
 if [ -n "$SKILLS" ]; then
-	skill_args+=(--no-skills --skill "$SKILLS/skills")
+	skill_args+=(--skill "$SKILLS/skills")
 	[ -d "$SKILLS/prompts" ] && skill_args+=(--prompt-template "$SKILLS/prompts")
 fi
 # The knowledge base (optional, docs/KB.md). Unlike the skills repository it is

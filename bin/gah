@@ -313,53 +313,21 @@ if [ "$subcommand" = "update-skills" ]; then
   exit 0
 fi
 
-# --- skills are required ---------------------------------------------------
-# GAH exists to run skills; a session with none is a misconfiguration, not a
-# lighter mode. Without this the policy layer loads with nothing to govern and
-# the agent declines ordinary work, because the system prompt is written around
-# skills that are not there. A deployment launcher (deploy/host/gah-launch) may
-# satisfy this itself by cloning SKILLS_REPO and passing --skill.
+# --- skills are optional (#135) ---------------------------------------------
+# GAH is built around the organisation's shared skills, but no longer refuses to
+# start without them: a person still setting up is better served by a session
+# that says what is missing than by an exit. The onboarding extension shows
+# "gah is better with your team's skills. Type /setup-skills ..." above the
+# input box until shared skills load, and branding.ts tells the model that this
+# session has none, so it helps with ordinary work instead of declining it.
+# GAH_ALLOW_NO_SKILLS=1 now only silences that nudge (checks, CI).
 #
-# Only --skill counts. --no-skills means "do not auto-discover", not "I want
-# none" -- gah-launch passes it on every launch to pin the loaded set, so
-# honouring it here would exempt the shared host from the check entirely.
-skills_configured=0
-case " $* " in *" --skill "*) skills_configured=1 ;; esac
-# --help and --version answer without a skills repo and start nothing, so they
-# also skip the setup steps below.
+# --help and --version start nothing, so they also skip the setup steps below.
 info_only=0
-case " $* " in *" --help "*|*" -h "*|*" --version "*|*" -v "*) info_only=1; skills_configured=1 ;; esac
-[ -n "${GAH_ALLOW_NO_SKILLS:-}" ] && skills_configured=1
-if [ -n "${GAH_SKILLS_DIR:-}" ] && [ -d "$GAH_SKILLS_DIR" ]; then skills_configured=1; fi
-if [ "$skills_configured" -eq 0 ]; then
-  cat >&2 <<EOF
-GAH works with your organization's shared agents and skills.
-Set them up using:
-
-  gah init <directory>
-
-Then start a session with:
-
-  GAH_SKILLS_DIR=<directory>/skills gah
-
-A knowledge base is optional and scaffolded separately (docs/KB.md):
-
-  gah init-kb <directory>   then   GAH_KB_DIR=<directory> gah
-
-Refresh an existing one's scripts and skills, leaving its articles alone:
-
-  gah update-kb <directory>
-
-Refresh the starter skills gah maintains, leaving your own alone:
-
-  gah update-skills <directory>
-
-Or pass one directly for a single run:  gah --skill <path>
-
-To start a deliberately empty session:   GAH_ALLOW_NO_SKILLS=1 gah
-EOF
-  exit 1
-fi
+case " $* " in *" --help "*|*" -h "*|*" --version "*|*" -v "*) info_only=1 ;; esac
+# Which launcher started the session; the onboarding extension tailors its
+# advice to it. deploy/host/gah-launch sets "host" before calling this script.
+export GAH_LAUNCHER_KIND="${GAH_LAUNCHER_KIND:-checkout}"
 
 # Resolve the entry point from the package's own `bin` field rather than
 # hardcoding it. Upstream moved this from dist/cli.js to dist/bundle/cli.js in
@@ -495,4 +463,5 @@ exec node "$PI_CLI" \
   --extension "$POLICY_DIR/providers.ts" \
   --extension "$POLICY_DIR/skills-freshness.ts" \
   --extension "$POLICY_DIR/whats-new.ts" \
+  --extension "$POLICY_DIR/onboarding.ts" \
   "$@"

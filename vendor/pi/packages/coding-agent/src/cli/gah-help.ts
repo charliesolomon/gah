@@ -179,7 +179,7 @@ ${row("--version, -v", "Show the version")}
 ${extensionSection}
 ${chalk.bold("Environment:")}
 ${row("GAH_SKILLS_DIR", "Skills directory to load (a session needs one)")}
-${row("GAH_ALLOW_NO_SKILLS", "Set to 1 to start deliberately without skills")}
+${row("GAH_ALLOW_NO_SKILLS", "Set to 1 to hide the /setup-skills nudge (checks, CI)")}
 ${row("GAH_BUILTIN_MODELS", "provider/model globs allowed from the built-in catalogue; unset = none")}
 ${row("GAH_ALLOWED_HOSTS", "Hostname globs the process may connect to; unset = none, * = any")}
 ${row("GAH_PROVIDERS_FILE", `Approved-endpoints file (default ${join(gahDir, "providers.json")})`)}

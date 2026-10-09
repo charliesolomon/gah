@@ -89,8 +89,8 @@ if (build === "stale-seed") blockers.push("the model data changed after the last
 if (build === "stale") blockers.push("the source or its dependencies changed after the last build: npm ci --ignore-scripts, then npm run build");
 
 // --- the deployment config -------------------------------------------------------
-const KNOWN = new Set(["$comment", "org", "shortcutName", "icon", "version", "gitlab", "skills", "env", "providers", "systemMd", "windowsArch", "linuxArch"]);
-const KNOWN_GITLAB = new Set(["url", "project", "package", "linuxPackage", "clientCert", "clientCertIssuer", "proxy"]);
+const KNOWN = new Set(["$comment", "org", "name", "shortcutName", "icon", "version", "gitlab", "skills", "env", "providers", "systemMd", "windowsArch", "linuxArch", "setupSkills", "skillsNudge", "inferenceProxy"]);
+const KNOWN_GITLAB = new Set(["url", "project", "package", "clientCert", "clientCertIssuer", "proxy"]);
 const KNOWN_ENV = new Set(["GAH_BUILTIN_MODELS", "GAH_ALLOWED_HOSTS", "GAH_ALLOW_TOOLS", "GAH_SECRET_FILES", "GAH_ALLOW_SHARE"]);
 const VERSION_RE = /^\d+(\.\d+){1,3}$/;
 let config, cfg;
@@ -109,7 +109,7 @@ if (opt.config) {
 		if (cfg.version && !VERSION_RE.test(cfg.version)) blockers.push(`config: version '${cfg.version}' is not digits and dots (2-4 parts); the launcher's update check would fail`);
 		const gl = cfg.gitlab ?? {};
 		for (const k of ["url", "project"]) if (!gl[k]) blockers.push(`config: 'gitlab.${k}' is required`);
-		for (const k of Object.keys(gl)) if (!KNOWN_GITLAB.has(k)) p(`unknown key 'gitlab.${k}'`);
+		for (const k of Object.keys(gl)) if (!KNOWN_GITLAB.has(k) && k !== "linuxPackage") p(`unknown key 'gitlab.${k}'`);
 		if (gl.clientCert !== undefined && gl.clientCert !== null && gl.clientCert !== "user") p(`gitlab.clientCert is '${gl.clientCert}'; expected "user" or null`);
 		if (!cfg.skills?.project) blockers.push("config: 'skills.project' is required (consumers fetch skills from it)");
 		const env = cfg.env ?? {};
@@ -132,18 +132,23 @@ if (opt.config) {
 			if (hosts.length && !hosts.some((h) => h === "*" || glob(h).test(host))) blockers.push(`config: provider '${pr.name}' host ${host} is not in GAH_ALLOWED_HOSTS`);
 			if (typeof pr.apiKey === "string" && pr.apiKey && !pr.apiKey.startsWith("$")) p(`provider '${pr.name}' has a literal apiKey: it would ship inside every package. Use "$VAR" or /login`);
 		}
-		for (const k of ["systemMd", "icon"]) if (cfg[k] && !existsSync(resolve(dir, cfg[k]))) blockers.push(`config: ${k} '${cfg[k]}' does not exist next to the config`);
+		for (const k of ["systemMd", "icon", "setupSkills"]) if (cfg[k] && !existsSync(resolve(dir, cfg[k]))) blockers.push(`config: ${k} '${cfg[k]}' does not exist next to the config`);
+		if (cfg.inferenceProxy && !/^https?:\/\/\S+$/.test(String(cfg.inferenceProxy))) blockers.push("config: inferenceProxy must be an http(s):// URL");
+		if (cfg.skillsNudge !== undefined && typeof cfg.skillsNudge !== "boolean") blockers.push("config: skillsNudge must be true or false");
 		const readme = join(dir, "README.md");
 		config.readme = existsSync(readme) ? "present" : "missing";
 		if (existsSync(readme)) {
-			const left = [...new Set(readFileSync(readme, "utf8").match(/<(Org|org|admin contact|provider)>/g) ?? [])];
+			const left = [...new Set(readFileSync(readme, "utf8").match(/<(Org|org|name|admin contact|provider)>/g) ?? [])];
 			if (left.length) p(`README.md still has template placeholders: ${left.join(", ")}`);
 		} else p("no README.md next to the config: copy templates/deploy/DEPLOY-PROJECT-README.md and fill it in");
 		config.org = cfg.org;
 		config.version = cfg.version;
-		config.package = gl.package ?? "gah-windows";
-		config.linuxPackage = gl.linuxPackage ?? "gah-linux";
-		if (config.package === config.linuxPackage) blockers.push("config: gitlab.package and gitlab.linuxPackage must differ, or each platform's launcher would install the other's zip");
+		// The same defaults as scripts/package.mjs: one registry package holds
+		// <name>-win11-<version>.zip and <name>-linux-<version>.zip.
+		config.name = cfg.name ?? `gah-${String(cfg.org ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`;
+		config.package = gl.package ?? config.name;
+		for (const [k, v] of [["name", config.name], ["gitlab.package", config.package]]) if (!/^[a-z0-9][a-z0-9._-]*$/.test(v)) blockers.push(`config: ${k} '${v}' must be lower-case letters, digits, '.', '_' and '-'`);
+		if (gl.linuxPackage !== undefined) blockers.push("config: gitlab.linuxPackage is gone; both platforms publish into gitlab.package (default: name). Remove it");
 		config.gitlab = gl.url && gl.project ? `${gl.url.replace(/\/$/, "")}/${gl.project}` : undefined;
 		config.mutualTls = gl.clientCert === "user";
 		config.skillsProject = cfg.skills?.project;
@@ -206,7 +211,7 @@ if (opt.json) {
 		L();
 		L(`deployment     ${config.path}`);
 		if (cfg) {
-			L(`  org          ${config.org}   packages '${config.package}' (Windows), '${config.linuxPackage}' (Linux)   version ${config.version}`);
+			L(`  org          ${config.org}   registry package '${config.package}' (${config.name}-win11-*.zip, ${config.name}-linux-*.zip)   version ${config.version}`);
 			L(`  gitlab       ${config.gitlab ?? "?"}${config.mutualTls ? "   (mutual TLS)" : ""}`);
 			L(`  skills       ${config.skillsProject ?? "?"}`);
 			L(`  providers    ${config.providers.join("; ") || "none"}`);

@@ -29,6 +29,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { formatSkillsForPrompt, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { todayLine } from "./lib/today.ts";
+import { noSharedSkillsNote, nudgeEnabled, setupSkillDirs, sharedSkillPaths } from "./lib/onboarding.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SYSTEM_MD_PATH = join(HERE, "..", "SYSTEM.md");
@@ -36,7 +37,7 @@ const SYSTEM_MD_PATH = join(HERE, "..", "SYSTEM.md");
 // Keep in sync with policy.ts: the prompt must describe the allowlist policy
 // actually enforces. A static prompt claiming "no bash" while GAH_ALLOW_TOOLS
 // grants it makes the model refuse work it is allowed to do.
-const DEFAULT_ALLOWED_TOOLS = ["read", "grep", "find", "ls", "edit", "write"];
+const DEFAULT_ALLOWED_TOOLS = ["read", "grep", "find", "ls", "edit", "write", "gah_setup"];
 const EXTRA_ALLOWED_TOOLS = (process.env.GAH_ALLOW_TOOLS ?? "")
 	.split(",")
 	.map((t) => t.trim())
@@ -56,6 +57,14 @@ export default function (pi: ExtensionAPI) {
 			// the model cannot autonomously choose a skill (see note above).
 			const skills = event.systemPromptOptions?.skills ?? [];
 			const skillsBlock = skills.length > 0 ? formatSkillsForPrompt(skills) : "";
+			// gah starts without shared skills (#135). SYSTEM.md's "ask when no
+			// skill fits" would then make the model decline ordinary work, so say
+			// plainly that this session has none. Setup skills do not count.
+			const shared = sharedSkillPaths(
+				skills.map((s) => s.filePath),
+				setupSkillDirs(join(HERE, "..")),
+			);
+			const noSkillsBlock = shared.length === 0 ? `\n\n${noSharedSkillsNote(nudgeEnabled())}` : "";
 
 			if (ctx.hasUI) {
 				const n = skills.length;
@@ -64,7 +73,7 @@ export default function (pi: ExtensionAPI) {
 					"info",
 				);
 			}
-			return { systemPrompt: `${systemMd}\n\n${todayLine()}${skillsBlock}` };
+			return { systemPrompt: `${systemMd}\n\n${todayLine()}${noSkillsBlock}${skillsBlock}` };
 		} catch (err) {
 			process.stderr.write(`[gah-branding] failed to load SYSTEM.md: ${(err as Error).message}\n`);
 			return undefined;

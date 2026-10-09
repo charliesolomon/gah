@@ -8,7 +8,9 @@
  *
  * --platform defaults to windows; scripts/package-windows.mjs runs this with it fixed.
  *
- * Output: <out>/gah-<org>-<version>.zip (Windows) or gah-<org>-linux-<version>.zip
+ * Output: <out>/<name>-win11-<version>.zip or <name>-linux-<version>.zip, where
+ * <name> is the config's "name" (default gah-<org slug>). Both go into one
+ * registry package, gitlab.package (default <name>), one version each.
  * (Linux), each with a .sha256, containing one folder of the same name:
  *     bundle/              upstream's self-contained build (runs on bare Node)
  *     package.json         version metadata the bundle reads
@@ -17,6 +19,9 @@
  *     gah.ps1, Install-Gah.ps1, Uninstall-Gah.ps1    (Windows; templates/deploy/windows/)
  *     gah.sh, install.sh, uninstall.sh               (Linux; templates/deploy/linux/)
  *                          launcher, installer, uninstaller (also copied to the install root)
+ *     preflight.mjs        checks before each session: route to the model (proxy), a working key
+ *     gah-policy/setup-skills/          the built-in setup skills (/setup-skills, #135)
+ *     gah-policy/deploy-setup-skills/   the deployment's own, from gah-deploy.json setupSkills
  *     deploy.json          what the launcher and installer read at runtime
  *     VERSION              package, gah and upstream versions, build time
  *
@@ -54,22 +59,48 @@ const PLATFORMS = {
 		launcher: ["gah.ps1", "Install-Gah.ps1", "Uninstall-Gah.ps1"],
 		archKey: "windowsArch",
 		toolPlatform: "win32",
-		packageKey: "package",
-		defaultPackage: "gah-windows",
-		nameInfix: "",
+		tag: "win11",
 	},
 	linux: {
 		launcher: ["gah.sh", "install.sh", "uninstall.sh"],
 		archKey: "linuxArch",
 		toolPlatform: "linux",
-		packageKey: "linuxPackage",
-		defaultPackage: "gah-linux",
-		// A distinct name, so both zips sit side by side in dist-deploy and the
-		// Windows package keeps the name every installed launcher derives.
-		nameInfix: "linux-",
+		tag: "linux",
 	},
 };
 const P = PLATFORMS[opt.platform] ?? fail(`--platform must be windows or linux, not ${opt.platform}`);
+
+/**
+ * A deployment's setup skills ship in a zip anyone in the organisation can
+ * download, before any access control applies. Each must be a valid skill, and
+ * nothing in them may look like a credential: that is refused, not warned.
+ */
+function checkSetupSkills(dir) {
+	const SECRETISH = [
+		[/glpat-[A-Za-z0-9_-]{20,}/, "a GitLab token"],
+		[/\bgh[pousr]_[A-Za-z0-9]{30,}/, "a GitHub token"],
+		[/\bsk-[A-Za-z0-9_-]{20,}/, "an API key"],
+		[/\bAKIA[0-9A-Z]{16}\b/, "an AWS access key"],
+		[/-----BEGIN [A-Z ]*PRIVATE KEY-----/, "a private key"],
+	];
+	const walk = (d) => readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(join(d, e.name)) : [join(d, e.name)]));
+	let skills = 0;
+	for (const e of readdirSync(dir, { withFileTypes: true })) {
+		if (!e.isDirectory()) continue;
+		const md = join(dir, e.name, "SKILL.md");
+		if (!existsSync(md)) fail(`setupSkills: ${e.name}/ has no SKILL.md`);
+		const front = readFileSync(md, "utf8").match(/^---\r?\n([\s\S]*?)\r?\n---/);
+		const name = front?.[1].match(/^name:\s*(.+)$/m)?.[1].trim();
+		if (!front || !name || !/^description:\s*\S/m.test(front[1])) fail(`setupSkills: ${e.name}/SKILL.md needs frontmatter with name and description`);
+		if (name !== e.name) fail(`setupSkills: ${e.name}/SKILL.md is named '${name}'; the folder and the name must match`);
+		skills++;
+	}
+	if (skills === 0) fail(`setupSkills: ${dir} has no skill folders`);
+	for (const f of walk(dir)) {
+		const text = readFileSync(f, "utf8");
+		for (const [re, what] of SECRETISH) if (re.test(text)) fail(`setupSkills: ${f} contains what looks like ${what}; it would ship in every package`);
+	}
+}
 
 function fail(msg) {
 	console.error(`package: ${msg}`);
@@ -90,13 +121,29 @@ for (const p of cfg.providers.providers) {
 	if (!Array.isArray(p.models) || p.models.length === 0) fail(`config: provider ${p.name} needs a non-empty models array`);
 	if (p.apiKey !== undefined && typeof p.apiKey !== "string") fail(`config: provider ${p.name}: apiKey must be a string when present`);
 }
-const env = cfg.env ?? {};
+const env = { ...(cfg.env ?? {}) };
 for (const [k, v] of Object.entries(env)) {
 	if (!/^GAH_[A-Z0-9_]+$/.test(k)) fail(`config: env key ${k} must be GAH_*`);
 	if (typeof v !== "string") fail(`config: env.${k} must be a string`);
 }
-const slug = String(cfg.org).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-const name = `gah-${slug}-${P.nameInfix}${cfg.version}`;
+// skillsNudge: false -- a deployment that never uses shared skills turns the
+// "/setup-skills" line off (#135). Carried as an environment variable.
+if (cfg.skillsNudge !== undefined && typeof cfg.skillsNudge !== "boolean") fail("config: skillsNudge must be true or false");
+if (cfg.skillsNudge === false) env.GAH_SKILLS_NUDGE = "0";
+// inferenceProxy: offered by preflight.mjs when a direct connection fails.
+if (cfg.inferenceProxy !== undefined && cfg.inferenceProxy !== null && !/^https?:\/\/[^\s]+$/.test(String(cfg.inferenceProxy))) {
+	fail("config: inferenceProxy must be an http(s):// URL, or null");
+}
+// One name for the registry package and both zips: <name>-win11-<version>.zip
+// and <name>-linux-<version>.zip side by side under one registry version. Each
+// launcher derives its update's file name from its own packageName.
+const NAME_RE = /^[a-z0-9][a-z0-9._-]*$/;
+const baseName = cfg.name ?? `gah-${String(cfg.org).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`;
+if (!NAME_RE.test(baseName)) fail(`config: name '${baseName}' must be lower-case letters, digits, '.', '_' and '-'`);
+if (cfg.gitlab.linuxPackage !== undefined) fail("config: gitlab.linuxPackage is gone; both platforms now publish into gitlab.package (default: name). Remove it");
+const registryPackage = cfg.gitlab.package ?? baseName;
+if (!NAME_RE.test(registryPackage)) fail(`config: gitlab.package '${registryPackage}' must be lower-case letters, digits, '.', '_' and '-'`);
+const name = `${baseName}-${P.tag}-${cfg.version}`;
 
 // --- Inputs from the build ----------------------------------------------
 const VENDOR = join(REPO, "vendor", "pi");
@@ -219,10 +266,25 @@ const systemMd = cfg.systemMd ? resolve(dirname(opt.config), cfg.systemMd) : joi
 if (!existsSync(systemMd)) fail(`SYSTEM.md not found: ${systemMd}`);
 cpSync(systemMd, join(tree, "gah-policy", "SYSTEM.md"));
 writeFileSync(join(tree, "gah-policy", "providers.json"), `${JSON.stringify(cfg.providers, null, 2)}\n`);
+cpSync(join(REPO, "templates", "deploy", "preflight.mjs"), join(tree, "preflight.mjs"));
+// Setup skills (#135): the built-in, generic ones, and optionally the
+// deployment's own. The onboarding extension loads the deployment's first, so
+// one with the same name (setup-gitlab, say) replaces the built-in step.
+cpSync(join(policyPack, "setup-skills"), join(tree, "gah-policy", "setup-skills"), { recursive: true });
+if (cfg.setupSkills) {
+	const dir = resolve(dirname(opt.config), cfg.setupSkills);
+	if (!existsSync(dir)) fail(`setupSkills folder not found: ${dir}`);
+	checkSetupSkills(dir);
+	cpSync(dir, join(tree, "gah-policy", "deploy-setup-skills"), { recursive: true });
+}
 for (const f of P.launcher) {
-	cpSync(join(launcherSrc, f), join(tree, f));
-	// Executable in the zip (it records Unix modes), whatever the checkout's mode.
-	if (f.endsWith(".sh")) chmodSync(join(tree, f), 0o755);
+	if (f.endsWith(".sh")) {
+		// LF whatever the checkout has: a Windows checkout with core.autocrlf
+		// gives CRLF, and bash then fails on its first line ("set: pipefail:
+		// invalid option name"). Executable in the zip, which records Unix modes.
+		writeFileSync(join(tree, f), readFileSync(join(launcherSrc, f), "utf8").replace(/\r\n/g, "\n"));
+		chmodSync(join(tree, f), 0o755);
+	} else cpSync(join(launcherSrc, f), join(tree, f));
 }
 
 // tools: pinned archives + checksums; the installer verifies and unpacks them
@@ -256,7 +318,7 @@ const deploy = {
 	gitlab: {
 		url: cfg.gitlab.url,
 		project: cfg.gitlab.project,
-		package: cfg.gitlab[P.packageKey] ?? P.defaultPackage,
+		package: registryPackage,
 		// "user": the installer asks which of the user's certificates to present (mutual TLS front-ends).
 		clientCert: cfg.gitlab.clientCert ?? null,
 		// Optional issuer substring: the installer lists certificates from that CA first.
@@ -270,6 +332,7 @@ const deploy = {
 	providersLogin: cfg.providers.providers.filter((p) => p.apiKey === undefined).map((p) => p.name),
 	providersEnv: cfg.providers.providers.filter((p) => typeof p.apiKey === "string" && p.apiKey.startsWith("$")).map((p) => ({ provider: p.name, variable: p.apiKey.slice(1) })),
 	platform: opt.platform,
+	inferenceProxy: cfg.inferenceProxy ?? null,
 	[P.archKey]: archs,
 };
 writeFileSync(join(tree, "deploy.json"), `${JSON.stringify(deploy, null, 2)}\n`);

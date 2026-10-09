@@ -62,10 +62,11 @@ node scripts/install-tools.mjs                   # fd + ripgrep, pinned and veri
 GAH_SKILLS_DIR=../my-org-skills/skills ./bin/gah # bin\gah.ps1 on Windows
 ```
 
-**GAH works with your organization's shared agents and skills**, so it will not
-start without them — a session with no skills is a misconfiguration, not a
-lighter mode. `gah init` scaffolds the repository those live in; put it under
-source control and share it with the team. See [docs/SKILLS.md](docs/SKILLS.md).
+**GAH works with your organization's shared agents and skills.** It starts
+without them, but says so: until they are loaded, a line above the input box
+points at `/setup-skills`, which works out what is missing and sets it up.
+`gah init` scaffolds the repository the skills live in; put it under source
+control and share it with the team. See [docs/SKILLS.md](docs/SKILLS.md).
 
 `npm run build` is what `make build-all` invokes. Prefer it: it comes from the
 vendored tree, so it cannot fall out of step with upstream the way a hand-kept
