@@ -132,7 +132,7 @@ if (cfg.skillsNudge !== undefined && typeof cfg.skillsNudge !== "boolean") fail(
 if (cfg.skillsNudge === false) env.GAH_SKILLS_NUDGE = "0";
 // setupSkills: false -- a deployment set up by its administrator never offers
 // in-session setup: no setup skills, no /setup-skills, no gah_setup (#138).
-if (cfg.setupSkills !== undefined && cfg.setupSkills !== false && typeof cfg.setupSkills !== "string") fail("config: setupSkills must be a folder name, or false");
+if (cfg.setupSkills != null && cfg.setupSkills !== false && typeof cfg.setupSkills !== "string") fail("config: setupSkills must be a folder name, false, or null");
 if (cfg.setupSkills === false) env.GAH_SETUP_SKILLS = "0";
 // inferenceProxy: offered by preflight.mjs when a direct connection fails.
 if (cfg.inferenceProxy !== undefined && cfg.inferenceProxy !== null && !/^https?:\/\/[^\s]+$/.test(String(cfg.inferenceProxy))) {
