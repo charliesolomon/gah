@@ -1,19 +1,17 @@
-# Built-in model data GAH ships
+# Built-in model data gah ships
 
-Upstream PI hydrates `packages/ai/src/providers/data/` from about twenty vendor
-APIs during `npm run build`, then bundles the result (39 providers, ~650K) into
-`dist/`. GAH denies that catalogue at runtime (patch 0010), so the fetch bought
-nothing and broke every fresh clone without network — see issue #15.
+The only built-in model catalogue a gah build contains. This page is for
+maintainers: what is seeded, why, and how to refresh it.
 
-Patch `0030-offline-model-data` replaces the fetch with
-`packages/ai/scripts/gah-model-data.ts`, which materialises the data directory
-from **this** folder: every provider that has a `<provider>.json` here is
-shipped verbatim, every other provider ships an empty catalogue (`{}`). The
-build makes no network calls, and the model list in `dist/` is exactly what is
-committed here.
+Upstream pi fetches model data from about twenty vendor APIs during its build.
+gah denies that catalogue at runtime anyway (patch 0010), so patch
+`0030-offline-model-data` replaces the fetch with
+`packages/ai/scripts/gah-model-data.ts`, which seeds the data from **this**
+folder: each `<provider>.json` here ships as-is, every other provider ships
+empty. The build makes no network calls.
 
-Point `GAH_MODEL_DATA_DIR` at another directory to seed from somewhere else;
-set it to the empty string to ship every provider empty.
+`GAH_MODEL_DATA_DIR` seeds from another directory instead; the empty string
+ships every provider empty.
 
 ## What is here and why
 

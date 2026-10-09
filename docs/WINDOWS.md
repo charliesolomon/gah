@@ -1,103 +1,29 @@
-# Running gah on Windows (PowerShell)
+# Building and running gah on Windows
 
-Windows is a supported *runtime* for gah, not a maintenance environment. The
-upstream PI build is cross-platform (`shx`/`tsgo`), and the patched vendor
-state is committed to git. The Makefile, `scripts/*.sh`, and the sync/patch
-ritual are bash-only and stay on Linux/macOS (see [WORKFLOW.md](WORKFLOW.md)).
+This page is for building a gah checkout on Windows and running it from
+PowerShell, as a developer or admin. To give gah to people who will never clone
+this repository, build a package instead: see [DEPLOY-WINDOWS.md](DEPLOY-WINDOWS.md).
 
-Node and npm are not quite the whole story, though, and the two gaps bite hardest
-on a managed corporate network. Read [Network requirements](#network-requirements)
-before the first build if you are behind a proxy — both known failure modes are
-network-caused and neither error message says so.
+Windows can build and run gah. Maintaining the fork (the Makefile, upstream
+syncs, patch work) is bash-only and stays on Linux or macOS
+([WORKFLOW.md](WORKFLOW.md)).
+
+**What you'll do:** 4 steps, about 15 minutes on a fast network.
+
+1. [Install the prerequisites](#prerequisites)
+2. [Build](#build)
+3. [Install fd and ripgrep](#install-fd-and-ripgrep)
+4. [Run](#run), pointed at your team's skills
+
+**Behind a corporate proxy?** Set the [proxy environment](#behind-a-corporate-proxy)
+first. Both failures it prevents look like something else.
 
 ## Prerequisites
 
-- Git for Windows — needed beyond cloning: PI expects a bash on Windows at
-  runtime and probes Git Bash first, then `bash.exe` on PATH (see
-  `vendor/pi/packages/coding-agent/docs/windows.md`). GAH's policy blocks the
-  bash *tool*, but the probe still runs.
-- Node.js ≥ 22.19 (with npm) — upstream PI's `engines` requirement; builds
-  fail on older 22.x with `ERR_UNKNOWN_FILE_EXTENSION` on `.ts` scripts
-
-## Network requirements
-
-`npm ci --ignore-scripts` is the only step that needs the network — the build itself makes
-no calls since `0030-offline-model-data` (see below) — and the one install
-failure that remains does not report itself as a network problem.
-
-### Corporate proxy and CA trust: the environment to set
-
-Two things go wrong behind a corporate proxy, and neither reports itself as a
-network problem. Node ships its own CA bundle and ignores the Windows store, so
-a TLS-inspecting proxy — whose CA Windows, Chrome and Edge already trust — is
-invisible to it and every HTTPS call fails certificate validation. And Node's
-built-in `fetch` ignores `HTTPS_PROXY` unless told to honour it, so anything an
-install script fetches goes direct and hangs or is refused.
-
-The expected set, to be confirmed on a machine behind the proxy
-([#14](https://github.com/charliesolomon/gah/issues/14)):
-
-| Variable | Value | What it does |
-|---|---|---|
-| `NODE_OPTIONS` | `--use-system-ca --use-env-proxy` | `--use-system-ca` makes Node trust the Windows certificate store, so the proxy's CA is accepted. `--use-env-proxy` makes Node's own `fetch` route through `HTTPS_PROXY`. |
-| `HTTPS_PROXY` | `http://your-proxy:8080` | The proxy for HTTPS traffic — npm, install scripts, and anything Node fetches once `--use-env-proxy` is set. |
-
-Set them before anything else:
-
-```powershell
-$env:NODE_OPTIONS = "--use-system-ca --use-env-proxy"
-$env:HTTPS_PROXY  = "http://your-proxy:8080"
-```
-
-Both `NODE_OPTIONS` flags apply to **child processes** — which is what
-`prebuild-install` and `node-gyp` are — which is why they go in `NODE_OPTIONS`
-rather than on a single command line. Persist them with
-`setx NODE_OPTIONS "--use-system-ca --use-env-proxy"` and
-`setx HTTPS_PROXY "http://your-proxy:8080"`.
-
-Version floors: `--use-system-ca` needs Node ≥22.15; `--use-env-proxy` needs
-Node ≥22.21 or ≥24.5 (on older Node, `NODE_USE_ENV_PROXY=1` is the same
-switch where it exists, and an unknown flag in `NODE_OPTIONS` makes every
-`node` invocation exit immediately — check `node --version` first).
-
-`HTTP_PROXY` should not be needed: nothing in the install or build fetches
-over plain HTTP. Add it only if a proxy log shows a refused plain-HTTP request.
-
-`npm config set cafile` is *not* sufficient: it governs npm's own registry
-traffic and does not reach install scripts. Do not reach for
-`npm config set strict-ssl false` — it works by disabling certificate
-verification for everything on the machine.
-
-### The build no longer fetches model catalogs
-
-Upstream's `packages/ai` build runs `generate-models --strict`, which fetches
-provider catalogs from roughly twenty vendor APIs and makes any single failure
-fatal — behind a host-allowlisting proxy that was the wall every fresh clone
-hit ([#14](https://github.com/charliesolomon/gah/issues/14),
-[#15](https://github.com/charliesolomon/gah/issues/15)).
-
-`patches/0030-offline-model-data.patch` replaces that step. `npm run build`
-now materialises `packages/ai/src/providers/data/` from
-[`packages/policy-pack/model-data/`](../packages/policy-pack/model-data/README.md)
-— the two providers GAH actually exposes — and ships every other provider
-with an empty catalogue. No vendor host needs to be reachable. If a build
-still reports a fetch, it is an install script, not the catalog.
-
-### Install scripts are skipped
-
-Always install with `--ignore-scripts`. Seven packages in upstream's tree run
-code during an npm install, and none of it is needed to build or run gah
-(docs/SUPPLY-CHAIN.md, "Install time"). The one that mattered on Windows was
-`canvas`, a devDependency of `packages/ai` used by a single test-fixture
-script: its install script downloads a prebuilt binary from GitHub releases
-and, when that fails behind a proxy, falls back to compiling from source with
-Visual Studio Build Tools and Python. Skipping scripts removes that download
-and that fallback. It also skips upstream's `prepare: husky` hook, which is
-bash-only and irrelevant here, and silences newer npm's `allow-scripts`
-warning about unapproved install scripts.
-
-**Do not use `--omit=dev`** — the compilers (`typescript`, `esbuild`, `shx`) are
-devDependencies, so omitting them breaks the build.
+- **Git for Windows.** pi probes for a bash at startup (Git Bash first, then
+  `bash.exe` on `PATH`) even though gah's policy blocks the bash tool.
+- **Node.js 22.19 or newer**, with npm. Older 22.x fails the build with
+  `ERR_UNKNOWN_FILE_EXTENSION` on `.ts` scripts.
 
 ## Build
 
@@ -108,175 +34,153 @@ npm ci --ignore-scripts
 npm run build
 ```
 
-**`npm ci`, not `npm install`.** `npm ci` installs exactly what the vendored
-lockfile says and never writes to it. `npm install` may rewrite the lockfile,
-and a dirty `vendor/pi` makes the next `git pull --ff-only` refuse. The same
-command the Makefile and CI use.
+- **`npm ci`, not `npm install`.** It installs exactly what the vendored
+  lockfile says and never rewrites it; a rewritten lockfile makes the next
+  `git pull --ff-only` refuse.
+- **`--ignore-scripts`, always.** No install script is needed to build or run
+  gah, and one (`canvas`) tries to download or compile a native binary, which
+  fails behind a proxy. [SUPPLY-CHAIN.md](SUPPLY-CHAIN.md#install-time) lists them.
+- **Not `--omit=dev`.** The compilers are devDependencies.
+- **`npm run build` is upstream's own build chain**, the same one
+  `make build-all` runs. Don't list the packages by hand; the vendored script
+  can't fall out of step with upstream.
 
-One warning is expected and harmless: `EBADENGINE` for `autoevals`, which
-declares that it wants pnpm. It belongs to upstream's evaluation tooling, is
-never built into gah, and its install-time guard is skipped by
-`--ignore-scripts`. (docs/SUPPLY-CHAIN.md lists it with the others.)
+Only `npm ci` touches the network. The build reads the model catalogue from
+[`packages/policy-pack/model-data/`](../packages/policy-pack/model-data/README.md)
+instead of fetching it (patch 0030), and the vendored tree is committed with
+gah's patches applied, so there is nothing to apply.
 
-`npm run build` is upstream's own build chain — nine packages in dependency
-order (tui, telemetry, ai, agent, session-backends/sqlite-node, protocol,
-client, server, coding-agent). It is what `make build-all` invokes, so there is
-nothing make does here that npm does not.
-
-> **Do not hand-list the packages.** An earlier version of this page named four
-> of them explicitly. Upstream grew to nine, the list was never updated, and the
-> build appeared to succeed while producing a partial result. `npm run build`
-> cannot drift, because it comes from the vendored tree itself. The Makefile
-> was corrected for exactly this reason — see the note on `build-all`.
-
-This is the PowerShell equivalent of `make sync-init` minus the vendoring,
-which is already in git. There is nothing to apply from `patches/` — the
-vendored tree is committed with patches applied.
+One warning is expected: `EBADENGINE` for `autoevals`, part of upstream's
+evaluation tooling, which gah never builds.
 
 ### Rebuilding after a change
 
 ```powershell
 cd vendor\pi
-npm --workspace packages/coding-agent run build   # incremental — make build
-npm run build:offline                             # full, reuses src/providers/data as-is
+npm --workspace packages/coding-agent run build   # incremental (make build)
+npm run build:offline                             # full, reusing the model data as seeded
 ```
-
-Both are offline. `build:offline` only skips re-seeding `packages/ai`'s model
-data from `packages/policy-pack/model-data/`, which a normal build does anyway.
 
 **After a pull that changes `packages/policy-pack/model-data/`, run the full
-build**, which is the only one that re-seeds:
-
-```powershell
-cd vendor\pi
-npm run build
-```
-
-Neither command above picks the change up: the incremental build does not
-touch `packages/ai` at all, and `build:offline` reuses the old seed. The binary
-then runs with the model data from before the pull, with no warning. That is
-not hypothetical: the fix for #108 was a seed change, and a checkout rebuilt
-with either of those commands keeps sending Bedrock the field it rejects.
-`git log -1 -- packages/policy-pack/model-data` shows when the seed last
-changed.
+`npm run build`.** It is the only build that re-seeds the model data; the two
+above keep the old data without warning. `git log -1 -- packages/policy-pack/model-data`
+shows when it last changed.
 
 ## Install fd and ripgrep
 
-The agent's find and grep tools need these two binaries, and GAH does not
-download them at runtime (patch 0013; upstream did, unpinned). Install them once,
-pinned and SHA-256-verified, into `~\.gah\agent\bin`:
+The agent's find and grep tools need these two binaries, and gah never
+downloads them at runtime. Install them once, pinned and SHA-256-verified, into
+`~\.gah\agent\bin`:
 
 ```powershell
-cd ..\..                              # repo root
+cd ..\..                              # repository root
 node scripts\install-tools.mjs
 ```
 
-Needs the same proxy environment as the install. Nothing else in a session
-reaches the internet except the inference endpoint.
-
-**No internet on the target machine?** On any connected machine, from a clone:
-
-```powershell
-node scripts\install-tools.mjs --download-only C:\path\to\gah-tools --platform win32-x64
-```
-
-copy that folder over, then on the target:
-
-```powershell
-node scripts\install-tools.mjs --from C:\path\to\gah-tools
-```
-
-The archives are verified against the pinned checksums either way. Details and
-the pinned versions: [SUPPLY-CHAIN.md](SUPPLY-CHAIN.md). If the tools are
-missing, the agent says so at startup and the find and grep tools fail; nothing
-else is affected.
-
-## Tools
-
-The model is offered exactly the tools the policy allows: `read`, `grep`, `find`,
-`ls`, `edit`, `write`. Listing a directory is the `ls` tool, which needs no shell.
-Shells are off by default; on Windows the shell tool is `powershell`, and a
-deployment opts in with:
-
-```powershell
-$env:GAH_ALLOW_TOOLS = 'powershell'
-```
-
-The editor's `!command` prefix, which runs a shell as you rather than as the
-model, follows the same rule: it works only when a shell tool is allowed.
-
-Two PowerShell habits to know when passing lists on the command line: an
-unquoted comma list is an **array literal**, so `--tools read,ls` reaches the
-binary as two separate words. Quote it: `--tools 'read,ls'`. Environment
-variables are not affected, since `$env:X = 'a,b'` is already a string.
+For a machine without internet access, download on a connected machine with
+`--download-only <folder> --platform win32-x64`, copy the folder over, and
+install with `--from <folder>`. Details and pins: [SUPPLY-CHAIN.md](SUPPLY-CHAIN.md#fd-and-ripgrep).
 
 ## Run
 
-GAH starts without your organization's skills, but it is built around them:
-until they are loaded, a line above the input box points at `/setup-skills`.
-If someone has already set up a skills repository, clone it and point at it; if
-you are the first, create one:
+Always start gah through `bin\gah.ps1`. It loads exactly the policy this
+repository ships; running pi's `cli.js` directly bypasses the policy.
+
+gah starts without your team's skills, but is built around them: until they
+load, a line above the input box points at `/setup-skills`. Point it at a
+clone of your team's skills repository, or create one if you are the first:
 
 ```powershell
-cd ..\..
-.\bin\gah.ps1 init ..\my-org-skills          # only if one does not exist yet
+.\bin\gah.ps1 init ..\my-org-skills          # only if your team has none yet
 $env:GAH_SKILLS_DIR = '..\my-org-skills\skills'
 .\bin\gah.ps1
 ```
 
-Set `GAH_SKILLS_DIR` permanently so it survives new shells:
+To keep `GAH_SKILLS_DIR` across new shells:
 
 ```powershell
 [Environment]::SetEnvironmentVariable('GAH_SKILLS_DIR', (Resolve-Path ..\my-org-skills\skills).Path, 'User')
 ```
 
-The first launch runs the repository's `setup\NN-*.ps1` steps in the terminal
-before the agent starts, so expect prompts for your inference endpoint and its
-API key. They are idempotent — later launches skip them once the config exists.
-The step writes `~\.gah\agent\models.json` with your key in it, restricted to
-your user, and `bin\gah.ps1` reads it by default — so models work on the first
-launch with nothing further to set (see [PROVIDERS.md](PROVIDERS.md)).
+A checkout reads skills from any local clone, so the skills repository can live
+on any git host ([DEPLOY.md](DEPLOY.md#the-team-forge)). What belongs in it:
+[SKILLS.md](SKILLS.md).
 
-See [SKILLS.md](SKILLS.md) for what belongs in that repository.
+The first launch runs the skills repository's `setup\NN-*.ps1` steps before the
+agent starts. The starter step asks for your inference endpoint and API key and
+writes `~\.gah\agent\models.json`, readable only by you, which a checkout reads
+by default ([PROVIDERS.md](PROVIDERS.md)). The steps are idempotent; later
+launches skip what is already configured.
 
-`bin\gah.ps1` is the PowerShell twin of `bin/gah`: it launches PI with
-`--no-extensions` plus the policy-pack extensions explicitly, so the policy
-enforced is exactly what this repo ships. Always launch through the wrapper —
-running `node vendor\pi\...\cli.js` directly bypasses the GAH policy.
+**Script execution blocked?** Run once with
+`powershell -ExecutionPolicy Bypass -File .\bin\gah.ps1`, or allow local
+scripts for your user with `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`.
 
-If script execution is blocked (`running scripts is disabled on this
-system`), either run it once via:
+### Tools
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\bin\gah.ps1
-```
-
-or allow local scripts permanently for your user:
+The model is offered exactly the tools the policy allows: `read`, `grep`,
+`find`, `ls`, `edit`, `write`. Shells are off by default; on Windows the shell
+tool is `powershell`:
 
 ```powershell
-Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+$env:GAH_ALLOW_TOOLS = 'powershell'
 ```
 
-## Smoke test
+The editor's `!command` prefix follows the same rule: it works only when a
+shell tool is allowed.
+
+Quote comma lists on the PowerShell command line: `--tools 'read,ls'`. An
+unquoted `read,ls` is an array and reaches gah as two words.
+
+### Smoke test
 
 The equivalent of `make smoke`:
 
 ```powershell
-$env:GAH_ALLOW_NO_SKILLS = '1'   # checks the harness, not your skills repo; hides the /setup-skills line
+$env:GAH_ALLOW_NO_SKILLS = '1'   # tests the harness, not your skills; hides the /setup-skills line
 .\bin\gah.ps1 --version
 .\bin\gah.ps1 --list-models | Out-Null; if ($?) { "list-models OK" }
 ```
 
-## Where things live on Windows
+### Where things live
 
-- Audit log: `C:\Users\<you>\.gah\audit.log` (override with `$env:GAH_AUDIT_LOG`)
+- Audit log: `C:\Users\<you>\.gah\audit.log` (`$env:GAH_AUDIT_LOG` overrides)
 - Agent config: `C:\Users\<you>\.gah\agent\`
+
+## Behind a corporate proxy
+
+Two things fail behind a corporate proxy, and neither error says "network":
+
+- Node ships its own CA bundle and ignores the Windows certificate store, so a
+  TLS-inspecting proxy's CA is not trusted and HTTPS calls fail validation.
+- Node's built-in `fetch` ignores `HTTPS_PROXY` unless told otherwise, so
+  install scripts go direct and hang or are refused.
+
+Set both before installing:
+
+```powershell
+$env:NODE_OPTIONS = "--use-system-ca --use-env-proxy"
+$env:HTTPS_PROXY  = "http://your-proxy:8080"
+```
+
+Persist them with `setx` the same way. They go in `NODE_OPTIONS`, not on one
+command line, because install scripts run as child processes.
+
+- `--use-system-ca` needs Node 22.15+; `--use-env-proxy` needs Node 22.21+ or
+  24.5+. An unknown flag in `NODE_OPTIONS` makes every `node` exit at once, so
+  check `node --version` first.
+- `HTTP_PROXY` should not be needed: nothing in the install fetches over plain HTTP.
+- `npm config set cafile` is not enough (it doesn't reach install scripts), and
+  `strict-ssl false` turns off certificate checking for everything. Use neither.
+
+This set has not yet been confirmed on a machine behind a proxy
+([#14](https://github.com/charliesolomon/gah/issues/14)).
 
 ## Not supported on Windows
 
-- `make` targets (bash recipes; use the PowerShell commands above)
+- `make` targets (use the PowerShell commands above)
 - `scripts/sync-upstream.sh`, `apply-patches.sh`, `clean-vendor.sh`
 - `make patch-new` / `patch-export` and the pre-push smoke hook
 
-Do upstream syncs and patch work on a Linux/macOS clone, push, and `git pull`
-on the Windows side.
+Do upstream syncs and patch work on a Linux or macOS clone, push, and
+`git pull` on Windows.

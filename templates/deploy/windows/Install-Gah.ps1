@@ -145,7 +145,7 @@ if (-not $Update) {
         if ($key) { [Environment]::SetEnvironmentVariable($e.variable, $key, 'User'); Ok "$($e.provider): key stored ($($e.variable))" }
         else { Warn "$($e.provider): no key given; set $($e.variable) later" }
     }
-    foreach ($p in @($Deploy.providersLogin)) { if ($p) { Ok "$($p): run /login in the agent on first start and paste your API key" } }
+    foreach ($p in @($Deploy.providersLogin)) { if ($p) { Ok "$($p): gah asks for your API key the first time it starts" } }
 }
 
 # --- Make this the current package -------------------------------------------------------

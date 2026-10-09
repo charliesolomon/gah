@@ -1,18 +1,20 @@
 # Runtime supply chain
 
-**Contract: at runtime, GAH reaches the network only to talk to approved
-inference endpoints.** Nothing is downloaded, phoned home, or looked up.
-Everything the binary needs is present after installation, so an installation
-with no internet access works exactly like one with it.
+**At runtime, gah reaches the network only to talk to approved inference
+endpoints.** Nothing is downloaded, phoned home or looked up, so an
+installation without internet access works exactly like one with it.
 
-This page records the decision behind issue #3, what upstream PI does that GAH
-turns off, and how to install the two helper binaries the agent needs.
+This page is for admins and maintainers. It covers:
+
+- [what upstream pi does at runtime](#what-upstream-does-at-runtime-and-what-gah-does-instead) and how gah turns it off;
+- [install time](#install-time): the one step that runs third-party code;
+- [fd and ripgrep](#fd-and-ripgrep): the two helper binaries the agent needs, and how to install them.
 
 ## What upstream does at runtime, and what GAH does instead
 
-Upstream PI makes these network calls in a default session. All of them are
-disabled by `patches/0013-offline-runtime.patch`, which forces upstream's own
-`--offline` mode unconditionally and removes the tool download path outright.
+Upstream pi makes these network calls in a default session.
+`patches/0013-offline-runtime.patch` turns them all off: it forces upstream's
+own `--offline` mode and removes the tool download.
 
 | Upstream behaviour | When | GAH |
 |---|---|---|
@@ -23,35 +25,38 @@ disabled by `patches/0013-offline-runtime.patch`, which forces upstream's own
 | Package update check | startup | Off. GAH loads its extensions by path, not from packages. |
 | `/share`: upload the session transcript as a GitHub gist via the `gh` CLI | on request | Off (`patches/0014-no-session-share.patch`), audited as `share_disabled`. A child process the egress allowlist cannot see, and the transcript is the organisation's data. `GAH_ALLOW_SHARE=1` re-enables it. |
 
-Enforcement is in the binary (`main()` and the tools manager), not in launcher
-environment, so it holds for `bin/gah`, the shared-host launcher, published
-artifacts and the SDK path alike. One layer down, `GAH_ALLOWED_HOSTS`
-(patch 0011, [PROVIDERS.md](PROVIDERS.md)) refuses any HTTP request to a host
-the deployment has not named, so the contract holds even for code paths this
-page does not list.
+This is enforced in the binary, not by launcher settings, so it holds for every
+way gah is started. Underneath, `GAH_ALLOWED_HOSTS` (patch 0011,
+[PROVIDERS.md](PROVIDERS.md#gah_allowed_hosts-network-egress)) refuses any
+request to a host the deployment has not named, including from code paths this
+table does not list.
 
 ## Install time
 
-`npm install` is the one step that runs third-party code on the machine before
-anything is built, through packages' install scripts. Upstream's tree has seven
-(as of v0.87.1; five at v0.84.4 and v0.85.1): `canvas` (downloads a prebuilt binary from GitHub releases, or
-compiles from source), `esbuild` (validates a binary that already arrives as an
-optional package), `protobufjs` (generates helper files), `ssh2` and, beneath
-it, `cpu-features` (both build optional native addons, via an example extension
-that is never shipped), a no-op in `@google/genai`, and `autoevals` (a guard that
-refuses to install with anything but pnpm when it is the root project, which it
-never is here; a dependency of the evals workspace, never shipped). None is
-needed to build or run gah — verified at each sync, most recently v0.87.1, by a
-fresh clone with `npm ci --ignore-scripts`, a full build, and the tool-surface
-check — so every documented install and every CI job passes `--ignore-scripts`.
-The two deprecation notices npm prints (`prebuild-install`, `node-domexception`)
-are transitive to those same upstream dependencies and are not ours to fix.
+`npm install` is the one step that runs third-party code before anything is
+built, through packages' install scripts. **gah always installs with
+`npm ci --ignore-scripts`**, in every documented install and every CI job,
+because none of the scripts is needed to build or run gah. Each sync re-checks
+this with a fresh clone, a full build and the tool-surface check.
 
-The Windows deployment package never runs `npm install` at all: it carries the
-packages the bundle leaves external (`jiti`, `photon-node`, `chord`) and a
-generated stub in place of `esbuild`, which upstream's experimental plugin
-bundler imports at startup and GAH never uses. The stub throws a clear error
-if that path is reached, so no esbuild binary ships (docs/DEPLOY-WINDOWS.md).
+Upstream's tree has seven install scripts (as of v0.87.1):
+
+| Package | What its script does |
+|---|---|
+| `canvas` | downloads a prebuilt binary from GitHub, or compiles one |
+| `esbuild` | validates a binary that already arrives as an optional package |
+| `protobufjs` | generates helper files |
+| `ssh2`, `cpu-features` | build optional native addons, for an example extension gah never ships |
+| `@google/genai` | nothing |
+| `autoevals` | refuses non-pnpm installs when it is the root project, which it never is here |
+
+npm's deprecation notices for `prebuild-install` and `node-domexception` come
+from these upstream dependencies.
+
+The deployment packages never run `npm install`. They carry the few packages
+the bundle leaves external, and a stub in place of `esbuild`, which upstream's
+plugin bundler imports at startup but gah never uses
+([DEPLOY-WINDOWS.md](DEPLOY-WINDOWS.md)).
 
 ## fd and ripgrep
 
@@ -60,13 +65,11 @@ them ("fd is not available"). Nothing else needs them. The agent looks in
 `~/.gah/agent/bin` first (`$GAH_CODING_AGENT_DIR/bin` if set), then on PATH
 under the names `fd`, `fdfind` and `rg`.
 
-### Decision
-
-Option B from #3 — block the runtime download — plus a deployment-time
-installer, so the default install is still complete. Vendoring binaries into
-this repository was rejected: it puts 12 platform archives into git and every
-sync, for the same assurance a pinned checksum table gives. Audit-only was
-rejected because it still executes an unpinned download.
+gah blocks upstream's runtime download and installs pinned, checksummed
+copies at deployment time instead ([#3](https://github.com/charliesolomon/gah/issues/3)).
+The deployment packages carry pinned archives that their installer verifies, and
+the shared host's `setup.sh` installs them from apt, so only a checkout needs a
+step below.
 
 ### Installing
 

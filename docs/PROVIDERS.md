@@ -1,257 +1,193 @@
 # Restricting inference providers
 
-Upstream PI ships a catalog of ~15 public inference providers (Anthropic,
-OpenAI, Google, Ollama, …) plus three user-side ways to add more. GAH inverts
-that: **deny all by default**, with two deployment-controlled mechanisms to
-expose approved endpoints, and a third underneath them that decides which hosts
-the process may open connections to at all.
+gah denies every model and every network host by default. A deployment opens
+exactly what it approves. This page is for the admin choosing which models and
+endpoints a deployment can use.
 
-Enforced by `patches/0010-restrict-model-sources.patch` (vendor) +
-`packages/policy-pack/extensions/providers.ts` (policy pack). Since
-`patches/0030-offline-model-data.patch` the built-in catalogue itself is no
-longer upstream's: a build ships only the providers seeded from
-[`packages/policy-pack/model-data/`](../packages/policy-pack/model-data/README.md)
-(currently `amazon-bedrock` and `anthropic`) and an empty list for every other
-provider, with no network access during the build.
+## The three layers
 
-## Mechanism 1 — `GAH_BUILTIN_MODELS`: allowlist built-in models
+| Layer | Decides | Set with |
+|---|---|---|
+| [Built-in models](#gah_builtin_models-built-in-models) | which models from gah's own catalogue can be picked | `GAH_BUILTIN_MODELS` |
+| [Approved endpoints](#providersjson-approved-endpoints) | which other endpoints (a corporate gateway, say) are registered | `providers.json` |
+| [Network egress](#gah_allowed_hosts-network-egress) | which hosts the process may connect to at all | `GAH_ALLOWED_HOSTS` |
 
-Comma-separated `provider/model-id` globs, matched against the built-in
-catalog GAH ships. Unset or empty = no built-in models at all. A glob for a
-provider that is not seeded matches nothing, however it is spelled.
+Each is independent. Egress is the guarantee under the other two: whatever a
+model registry or extension does, a request to an unlisted host never leaves
+the process. Cloud IAM (for example, which Bedrock models an agent's AWS keys
+may invoke) sits outside gah, as a fourth layer.
+
+Most deployments use one of two patterns:
+
+- **A corporate gateway:** one entry in `providers.json`, its host in
+  `GAH_ALLOWED_HOSTS`, `GAH_BUILTIN_MODELS` empty.
+- **Bedrock or Anthropic directly:** `GAH_BUILTIN_MODELS` names the models, and
+  `GAH_ALLOWED_HOSTS` names the provider's host.
+
+The deployment launchers set these for you from their config:
+[DEPLOY-WINDOWS.md](DEPLOY-WINDOWS.md) and [DEPLOY-LINUX.md](DEPLOY-LINUX.md)
+for packages, a manifest for the [shared host](../deploy/host/README.md). A
+checkout's `bin/gah` and `bin\gah.ps1` open everything up for development
+([defaults](#defaults)).
+
+## `GAH_BUILTIN_MODELS`: built-in models
+
+Comma-separated `provider/model-id` globs. Unset or empty means no built-in
+models.
 
 ```bash
 # Specific Bedrock models only (Bedrock keeps its native AWS credential chain)
 export GAH_BUILTIN_MODELS='amazon-bedrock/anthropic.claude-opus-4-7,amazon-bedrock/anthropic.claude-haiku-*'
 
-# All Anthropic models (what bin/gah defaults to for development)
+# All Anthropic models (bin/gah's development default)
 export GAH_BUILTIN_MODELS='anthropic/*'
 ```
 
-Use this for providers whose auth can't be expressed as an API key — e.g.
-`amazon-bedrock` resolves AWS credentials (profile, IAM keys, ECS/IRSA roles)
-internally, which `registerProvider` cannot re-create.
+A build ships models for only two providers, `amazon-bedrock` and `anthropic`,
+seeded from [`packages/policy-pack/model-data/`](../packages/policy-pack/model-data/README.md);
+a glob for any other provider matches nothing. Use this layer for providers
+whose auth is not a plain API key: Bedrock resolves AWS credentials (profile,
+IAM keys, roles) itself.
 
-The repo's `bin/gah` / `bin\gah.ps1` default this to `anthropic/*` so
-development keeps working; **published artifacts have no wrapper and are
-deny-all until the deployment sets it.** To turn the dev default off, set the
-variable to `none`. In PowerShell that is the only way: assigning an empty
-string removes the variable, so `$env:GAH_BUILTIN_MODELS = ''` leaves it
-unset and the default applies ([#76](https://github.com/charliesolomon/gah/issues/76)).
-`bin\gah.ps1` also undoes every default it set once the session ends, so
-`gci env:` afterwards shows only what you set yourself.
+To turn a checkout's development default off, set the variable to `none`. In
+PowerShell that is the only way, because assigning an empty string removes the
+variable.
 
-## Mechanism 2 — `providers.json`: register approved endpoints
+## `providers.json`: approved endpoints
 
-`providers.ts` reads `$GAH_PROVIDERS_FILE` (default `~/.gah/providers.json`).
-Schema and a worked example: [`packages/policy-pack/providers.example.json`](../packages/policy-pack/providers.example.json)
-(also shipped inside published artifacts at `dist/gah-policy/`).
+The policy pack reads `$GAH_PROVIDERS_FILE` (default `~/.gah/providers.json`).
+Schema and a worked example: [`packages/policy-pack/providers.example.json`](../packages/policy-pack/providers.example.json).
+Deployment packages generate this file from their config.
 
-**Quick dev setup:** `make add-provider` (or `node scripts/add-provider.mjs`)
-prompts for a provider — name, base URL, protocol (defaults to
-`openai-responses`), auth, models — and writes `~/.gah/providers.json` for you,
-so you don't have to hand-write the schema to point a dev checkout at a corp
-inference server. It merges into an existing file, reads a literal key with the
-echo off (and `chmod 600`s the file), and prints the exact launch line for your
-shell. The deployed package builds the same file from its config instead.
+- Any API pi speaks works: `openai-completions`, `openai-responses`,
+  `anthropic-messages`, and so on. Most enterprise gateways are
+  OpenAI-compatible (`openai-completions`).
+- `"apiKey": "$SOME_ENV_VAR"` reads the key from the environment, so the file
+  holds no secret. Omit `apiKey` and the person runs `/login` once instead.
+- **No file:** nothing registered. **A bad file:** fail closed (nothing
+  registered, an error on stderr and in the audit log).
+- When a file is present, built-in OAuth logins not listed in `keepOAuth` are
+  removed from `/login`.
 
-It offers to **probe the endpoint first** (`scripts/probe-endpoint.mjs`, also
-`make probe-endpoint URL=... KEY_ENV=VAR`): `GET /models` for the model ids and,
-where the server includes them, context and output limits (vLLM, LiteLLM,
-OpenRouter and Ollama-style keys are recognised); one tiny request each to
-`/responses` and `/chat/completions` to see which protocol answers; one with
-`stream: true`; one asking for an absurd output cap, whose rejection usually
-states the real limit (and a 200 means the endpoint clamps silently, so the
-`maxTokens` you write is documentation there, and a quota message states no
-limit at all); a conversation-history check in two requests, as an agent would
-make them — the opening turn alone, then three turns with the assistant slot
-holding what the endpoint itself replied — which a gateway that forwards only
-the latest message cannot answer (such an endpoint is unusable for an agent:
-every turn starts blank and tool results never come back, #96); and one
-carrying a real `ls` tool. The answers become the
-defaults of the questions that follow, and the tool probe decides the
-`"tools"` mode below: a tool call back means native; a rejection, or an
-accepted request with no call back (the definitions were stripped), means
-prompted. For a prompted endpoint it then checks that a system prompt reaches
-the model and that the model follows the text protocol, from the system
-prompt or, failing that, from the user turn — sending the same preamble a
-session sends (the policy pack's SYSTEM.md plus the protocol as
-`lib/prompted-tools.ts` renders it, loaded from the checkout; a bare protocol
-without the persona got "I do not have access to tools like ls" from a model
-that calls `ls` in every session). Every negative verdict carries an excerpt
-of what the model actually replied, so a surprising result can be read rather
-than guessed at. Requests go one at a time with a short pause, a timeout of
-60 s (`TIMEOUT=seconds`), and one retry after a timeout, a 429 or a 5xx; the
-output-cap request runs last, because an absurd cap can trip a quota check
-whose after-effects would turn the following probes into noise. Nothing is
-written by the probe, and the key is never put on a command line.
+**For a development checkout,** `make add-provider` (`node scripts/add-provider.mjs`)
+asks for the endpoint, its protocol, auth and models, and writes the file for
+you. It offers to [probe the endpoint](#probing-an-endpoint) first.
 
-- Works for any endpoint speaking an API PI knows: `openai-completions`,
-  `openai-responses`, `anthropic-messages`, etc. Most enterprise gateways
-  and proxies are OpenAI-compatible → `openai-completions`.
-- `"apiKey": "$SOME_ENV_VAR"` resolves from the environment per request, so
-  the file itself holds no secrets. Omit `apiKey` entirely and the provider is
-  registered without one: the user runs `/login`, picks it, and the key is
-  stored in `auth.json`. The endpoint stays in the file either way.
-- **No file → nothing registered** (mechanism 1 still applies).
-- **Bad file → fail closed**: nothing registered, error in stderr + audit log.
-- Registered providers appear in `/login` alongside any allowlisted built-ins;
-  everything else is absent from the list, not shown disabled.
-- When a file is present it is authoritative for logins: built-in OAuth flows
-  (`anthropic`, `github-copilot`, `openai-codex`) not listed in `keepOAuth`
-  are removed from `/login`.
+### Probing an endpoint
+
+`make probe-endpoint URL=https://... KEY_ENV=VAR` (or `scripts/probe-endpoint.mjs`)
+reports what an endpoint actually offers, so the config is built from facts:
+
+- the model ids and, where the server says, their context and output limits;
+- which protocol answers (`/responses`, `/chat/completions`) and whether streaming works;
+- whether the gateway keeps the conversation history (one that forwards only
+  the latest message cannot run an agent);
+- whether native tool calls work, which decides the [`"tools"` mode](#gateways-that-refuse-tool-calls-tools-prompted);
+- for a prompted endpoint, whether the system prompt reaches the model and the
+  model follows the tool protocol.
+
+Each failed check quotes what the model replied. The probe writes nothing, and
+the key never goes on a command line. Requests go one at a time, with a 60 s
+timeout (`TIMEOUT=seconds`) and one retry.
 
 ### The last model picked is the next session's default
 
-Upstream keeps a `/model` pick for the session and saves it as the startup
-default only on Ctrl+S in the picker. In GAH the pick itself is remembered:
-`providers.ts` writes `defaultProvider` and `defaultModel` into the agent
-directory's `settings.json` on every selection the person makes (not on a
-session restore), which is exactly where upstream reads its default from, and
-every other key in that file is preserved. `GAH_REMEMBER_MODEL=0` turns this
-off; Ctrl+S still works either way. Each save is an audit line
-(`default_model`) ([#77](https://github.com/charliesolomon/gah/issues/77)).
+Every `/model` pick is saved as the startup default in the agent directory's
+`settings.json` (upstream saves only on Ctrl+S). `GAH_REMEMBER_MODEL=0` turns
+this off. Each save is an audit line (`default_model`).
 
 ### Gateways that refuse tool calls: `"tools": "prompted"`
 
-Some corporate gateways strip or reject the `tools` field as a matter of
-policy, even when the model behind them supports tools. The request then
-reaches the model with no tools at all, and instead of saying so the model
-fabricates what a directory listing or a file might have contained
-([#42](https://github.com/charliesolomon/gah/issues/42)). The gateway in #35
-that returned tool calls with empty names is the same family.
+Some corporate gateways strip or reject the `tools` field. The model then gets
+no tools and, instead of saying so, invents what a file or directory listing
+might have contained.
 
-Set `"tools": "prompted"` on such a provider (or on one model inside it; the
-default is `"native"`) and `providers.ts` gives it a text protocol instead,
-after the "system message tools" of continue.dev:
+Set `"tools": "prompted"` on such a provider (or on one model in it; the
+default is `"native"`). gah then sends no `tools` array: it describes the
+tools in the system prompt, and the model asks for one with a fenced block:
 
-- The tool definitions are rendered into the system prompt, and the request
-  carries no `tools` array. Earlier tool calls and results in the history are
-  rendered as text, so the wire never carries a `tool_calls` or `tool` role.
-  Each results message ends with a line telling the model to continue the
-  earlier request rather than treat the results as a new one.
-- The model is asked to end a reply that needs a tool with one fenced block:
+````
+```tool
+TOOL_NAME: read
+BEGIN_ARG: path
+docs/SKILLS.md
+END_ARG
+```
+````
 
-  ````
-  ```tool
-  TOOL_NAME: read
-  BEGIN_ARG: path
-  docs/GITLAB.md
-  END_ARG
-  ```
-  ````
+Each block becomes an ordinary tool call, so the allowlist, protected paths,
+secret files and audit log all apply as for a native call. The HTTP call is
+still upstream's own, so auth, proxies and egress are unchanged. One tool call
+per reply; parallel calls are not supported.
 
-- The streamed text is scanned for such blocks and each becomes an ordinary
-  tool call. From there nothing changes: the agent loop executes it, the
-  allowlist, protected paths and secret files apply, and the audit log gets the
-  same `allowed`/`blocked` line a native call gets. A block cut off inside an
-  argument value is reported as `length` and not executed, as upstream does for
-  a truncated native call; a block missing only its closing fence is whole and
-  runs, because some gateways end the stream with `length` exactly there (a
-  Gemini gateway counting thinking tokens against the output cap did). Argument
-  values are coerced by the tool's schema, so a `number` argument arrives as a
-  number.
+Two things a gateway can still break. The probe tells you which:
 
-The implementation is `packages/policy-pack/extensions/lib/prompted-tools.ts`,
-wired through the `streamSimple` hook of the provider config: the HTTP call is
-still upstream's own streamer for the provider's `api`, so auth, proxies and
-the egress allowlist below are unchanged. `make check-prompted` runs `bin/gah`
-against `scripts/mock-openai.mjs` playing such a gateway and asserts all of the
-above; `make test-policy` covers the parser and the rewriting.
+- **The system prompt never reaches the model** (`System prompt: IGNORED`).
+  Set `"toolsPrompt": "user"` (per provider or per model): the whole system
+  prompt, protocol included, goes on the person's latest turn instead.
+- **The model doesn't follow the protocol** (`Prompted tool protocol: NOT FOLLOWED`).
+  Nothing in gah can fix this; pick another model on that endpoint.
 
-Two things a gateway can still break, and how to find out which:
+The `/rrr` prompt template in a skills repository is a quick acceptance test:
+its answer must name real files. For a session that still invents results, set
+`GAH_PROMPTED_DEBUG=<file>` to log each prompted request's shape, the stop
+reason and the raw reply (it holds conversation text; keep it out of the repo).
 
-- **The system prompt does not reach the model.** Then the protocol never
-  does either, and the model answers as if it had no tools. The probe reports
-  `System prompt: IGNORED` for this and, if the model follows the protocol
-  when it is placed at the front of the user turn instead, recommends
-  `"toolsPrompt": "user"` (per provider or per model). The whole system
-  prompt then goes on the person's latest turn, the deployment's instructions
-  and the skills list included, followed by the protocol: a gateway that drops
-  the system prompt drops all of it, and a model that only ever saw the
-  protocol answered "what skills are available?" with a list of tools
-  ([#81](https://github.com/charliesolomon/gah/issues/81)). Nothing is sent
-  as a system prompt in that mode. A results message stays a results message,
-  and the request is rebuilt from the stored context on every turn, so nothing
-  accumulates in the session.
-- **The model does not follow the protocol.** The probe reports
-  `Prompted tool protocol: NOT FOLLOWED`. Nothing in GAH can make such a
-  model call tools; pick another model on that endpoint.
+Implementation: `packages/policy-pack/extensions/lib/prompted-tools.ts`.
+Tests: `make check-prompted` and `make test-policy`.
 
-For a session that still fabricates, set `GAH_PROMPTED_DEBUG=<file>`: every
-prompted request appends one JSON line with the outbound shape (system prompt
-length, whether it carried the protocol, message roles), the stop reason the
-provider reported and the one the wrapper decided, and the model's raw reply
-text with the calls parsed from it. The file is the operator's choice
-and holds conversation text, so keep it out of the repo.
+## `GAH_ALLOWED_HOSTS`: network egress
 
-What it does not do: parallel tool calls (the prompt asks for one per reply),
-and it cannot stop a model that decides not to emit a block from making things
-up. The prompt is firm about that, and the `/rrr` template in a skills repo is
-the quick acceptance test: it must name real files.
-
-## Mechanism 3 — `GAH_ALLOWED_HOSTS`: network egress allowlist
-
-`patches/0011-egress-allowlist.patch`. Comma-separated hostname globs; no HTTP
-request leaves the process unless its host matches one. Unset or empty =
-**deny everything**. Hostnames only, case-insensitive; ports and schemes are not
-part of the policy.
+Comma-separated hostname globs, case-insensitive; no HTTP request leaves the
+process unless its host matches one. Unset or empty means **deny everything**.
 
 ```bash
-# Shared host, Bedrock via static IAM keys in us-west-1
+# Bedrock via static IAM keys in one region
 export GAH_ALLOWED_HOSTS='bedrock-runtime.us-west-1.amazonaws.com'
 
 # Bedrock with role assumption, any region
 export GAH_ALLOWED_HOSTS='*.amazonaws.com'
 
-# Anthropic direct with OAuth: the API plus the token-refresh endpoint
+# Anthropic directly with OAuth: the API plus the token-refresh endpoint
 export GAH_ALLOWED_HOSTS='api.anthropic.com,platform.claude.com'
 
-# Corporate gateway from providers.json
+# A corporate gateway from providers.json
 export GAH_ALLOWED_HOSTS='inference.corp.example'
 ```
 
-This is what makes the other two mechanisms a guarantee rather than a
-configuration: a model that slipped past the registry, an extension that
-registered a provider it should not have, or upstream code added after the
-patch series was written all hit the same refusal. It covers every HTTP stack
-in the process — undici (`fetch`, which the Anthropic, OpenAI and Google SDKs
-and OAuth use), `node:http`/`node:https` and `node:http2` (which the AWS SDK
-uses for Bedrock, with and without a proxy). Under an HTTP proxy the check sees
-the target host, not the proxy.
+It covers every HTTP stack in the process (`fetch`/undici, `node:http`,
+`node:https`, `node:http2`). Behind an HTTP proxy it checks the target host,
+not the proxy. A refused request fails with `GAH egress policy: "<host>" is
+not in GAH_ALLOWED_HOSTS` and is logged once per host per session
+(`egress_blocked`).
 
-A refused request fails with `GAH egress policy: "<host>" is not in
-GAH_ALLOWED_HOSTS`, surfaced as the provider error, and is appended to the
-audit log as `egress_blocked` once per host per session.
+## Defaults
 
-Defaults: `bin/gah` and `bin\gah.ps1` set `*` (no restriction — a workstation
-points at whatever its user has, and the user owns the environment anyway).
-`deploy/host/gah-launch` exports it empty, so the manifest must name the hosts;
-`deploy/host/users.d/agent.conf.example` shows the Bedrock line. Published
-artifacts have no wrapper and deny everything until the deployment sets it.
+| Launcher | `GAH_BUILTIN_MODELS` | `GAH_ALLOWED_HOSTS` | `models.json` |
+|---|---|---|---|
+| Checkout (`bin/gah`, `bin\gah.ps1`) | `anthropic/*` | `*` (no restriction) | read |
+| Deployment package | from the config (usually empty) | from the config | ignored |
+| Shared host (`gah-launch`) | from the manifest | from the manifest (empty = deny all) | ignored |
+| No wrapper at all | none | deny all | ignored unless `GAH_ALLOW_MODELS_JSON=1` |
 
-## What's closed off
+A checkout is a workstation: it points at whatever endpoint its user has, so
+it reads `~/.gah/agent/models.json` too. A shared host never does, because
+`models.json` carries its own URL and key and would route around every layer
+above. `bin\gah.ps1` removes the defaults it set when the session ends.
 
-| Surface | Disposition |
+## Reference: what's closed off
+
+| Surface | What happens |
 |---|---|
-| Built-in catalog | Only seeded providers have any models (patch 0030); those are hidden unless `GAH_BUILTIN_MODELS` matches (patch 0010) |
-| `/login`, `gah auth`, `ModelRegistry.getProviders()` | List only providers with at least one usable model (patch 0010). A denied built-in provider does not appear, so nobody stores a credential for a provider that can never serve a model. |
-| Re-registering a built-in provider id from an extension | Still subject to `GAH_BUILTIN_MODELS`, whether registered by config or as a native provider object (patch 0010). A `providers.json` entry that reuses a built-in id such as `anthropic` therefore also needs that provider allowlisted; use a new id to sidestep the built-in catalogue entirely. |
-| `~/.gah/agent/models.json` | Read unless `GAH_ALLOW_MODELS_JSON` is set to anything but `1` (patch 0010). `bin/gah` and `bin\gah.ps1` default it **on**, since a workstation exists to point at its user's endpoint. `deploy/host/gah-launch` defaults it **off** and exports it either way, so a user's own environment cannot switch it on — models.json carries its own `baseUrl` and `apiKey`, so honouring one there would route around this table entirely. |
-| `pi.registerProvider()` from extensions | Only GAH's own extensions load (`--no-extensions` + explicit list / baked `gah-policy`) |
-| Built-in OAuth `/login` flows | Removed when a providers file is present, except `keepOAuth` entries |
-| Stray env API keys (`OPENAI_API_KEY`, …) | Inert — keys only matter for models that exist in the registry |
-| Any HTTP request to a host not in `GAH_ALLOWED_HOSTS` | Refused before it leaves the process, on every HTTP stack (patch 0011). Unset = deny all. |
+| Built-in catalogue | Only seeded providers have models (patch 0030); those are hidden unless `GAH_BUILTIN_MODELS` matches (patch 0010). |
+| `/login`, `gah auth`, the provider list | Show only providers with at least one usable model, so nobody stores a key for a provider that can never serve one (patch 0010). |
+| An extension re-registering a built-in id | Still subject to `GAH_BUILTIN_MODELS`. A `providers.json` entry named `anthropic` needs that provider allowed; use a new id to avoid the built-in catalogue. |
+| `~/.gah/agent/models.json` | Ignored when `GAH_ALLOW_MODELS_JSON` is set to anything but `1` ([defaults](#defaults)). |
+| `pi.registerProvider()` from extensions | Only gah's own extensions load. |
+| Built-in OAuth logins | Removed when a providers file is present, except `keepOAuth` entries. |
+| Stray API-key variables (`OPENAI_API_KEY`, …) | Inert: a key matters only for a model that exists in the registry. |
+| A request to a host not in `GAH_ALLOWED_HOSTS` | Refused before it leaves the process (patch 0011). |
 
-All provider registrations and OAuth removals are appended to the audit log
-(`$GAH_AUDIT_LOG`, default `~/.gah/audit.log`).
-
-## Layers, summarised
-
-| Layer | Answers | Where |
-|---|---|---|
-| IAM policy on the per-agent AWS keys | which Bedrock models the credentials can invoke | AWS, not GAH |
-| `GAH_ALLOWED_HOSTS` (0011) | which hosts the process may connect to | the binary, every HTTP stack |
-| `GAH_BUILTIN_MODELS` (0010) + `providers.json` | which models and endpoints the user can pick | the model registry and the policy pack |
-
-Each is independent; the two GAH layers are defence in depth around the first.
+Provider registrations and OAuth removals are written to the audit log
+(`$GAH_AUDIT_LOG`, default `~/.gah/audit.log`). Code: `patches/0010-restrict-model-sources.patch`,
+`patches/0011-egress-allowlist.patch` and `packages/policy-pack/extensions/providers.ts`.
