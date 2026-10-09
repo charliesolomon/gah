@@ -152,6 +152,7 @@ else
 	export GIT_SSH_COMMAND="ssh $GIT_SSH_OPTS"
 fi
 
+unset GAH_SKILLS_UPDATE_FAILED
 if [ -d "$SKILLS_DIR/.git" ]; then
 	if timeout 30 git -C "$SKILLS_DIR" fetch --quiet origin "$SKILLS_BRANCH"; then
 		git -C "$SKILLS_DIR" checkout --quiet "$SKILLS_BRANCH" 2>/dev/null \
@@ -159,10 +160,12 @@ if [ -d "$SKILLS_DIR/.git" ]; then
 		git -C "$SKILLS_DIR" reset --hard --quiet "origin/$SKILLS_BRANCH"
 	else
 		warn "skills update failed — continuing with the existing checkout"
+		export GAH_SKILLS_UPDATE_FAILED="the skills checkout could not be updated from $SKILLS_REPO"
 	fi
 else
 	timeout 120 git clone --quiet --branch "$SKILLS_BRANCH" "$SKILLS_REPO" "$SKILLS_DIR" \
-		|| warn "skills clone failed — starting without skills"
+		|| { warn "skills clone failed — starting without skills"
+			export GAH_SKILLS_UPDATE_FAILED="the skills repository $SKILLS_REPO could not be cloned"; }
 fi
 if [ -n "$HEADLESS" ] && [ -d "$SKILLS_DIR/.git" ]; then
 	# Unattended: the checkout is nobody's work in progress, and a previous run
@@ -389,12 +392,13 @@ if [ -n "${GAH_KB_DIR:-}" ] && [ -d "$GAH_KB_DIR/skills" ]; then
 	[ "$kb_count" -eq 0 ] && warn "knowledge base at $GAH_KB_DIR has no skills — it will not be searchable"
 fi
 
-# No skills is no longer a reason to refuse (#135): the session starts, the
-# onboarding extension shows the /setup-skills nudge, and branding.ts tells the
-# model the session has no shared skills so it does not decline ordinary work.
-# The warnings above say which half failed -- the clone, or the repo's
-# contents -- and /setup-skills on this host points the person to the admin,
-# who owns the manifest and the deploy key.
+# No skills is no longer a reason to refuse (#135): the session starts, and
+# branding.ts tells the model the session has no shared skills so it does not
+# decline ordinary work. The warnings above say which half failed -- the clone,
+# or the repo's contents -- and the onboarding extension keeps one line above
+# the input box telling the person to contact the administrator, who owns the
+# manifest and the deploy key. The terminal warnings themselves are covered by
+# the TUI as soon as it starts.
 if [ ${#skill_args[@]} -eq 0 ]; then
 	warn "no shared skills loaded (repo $SKILLS_REPO, branch $SKILLS_BRANCH); starting without them — tell your administrator"
 fi
@@ -412,12 +416,12 @@ fi
 # the help page honest for the people who only ever arrive this way.
 export GAH_SCAFFOLD_COMMANDS=""
 
-# Tells the onboarding extension this is the shared host, so /setup-skills sends
-# people to the administrator instead of walking them through a GitLab token.
-# Setup skills of the host's own (optional) replace the built-in ones by name.
+# Tells the onboarding extension this is the shared host. The administrator sets
+# accounts up here, so there is no in-session setup at all (#138): no setup
+# skills, no /setup-skills, no gah_setup tool. When the shared skills did not
+# load or could not be updated, one line above the input box says to contact
+# the administrator.
 export GAH_LAUNCHER_KIND=host
-SETUP_SKILLS_DIR="${SETUP_SKILLS_DIR:-$CONF_DIR/setup-skills}"
-[ -d "$SETUP_SKILLS_DIR" ] && export GAH_SETUP_SKILLS_DIR="$SETUP_SKILLS_DIR"
 
 if [ -n "$HEADLESS" ]; then
 	[ -f "$SKILLS_DIR/$PROMPT_FILE" ] || fail "headless: no prompt file '$PROMPT_FILE' in the skills repo"

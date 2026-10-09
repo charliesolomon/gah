@@ -1,6 +1,7 @@
 ---
 name: setup-gitlab
 description: Give this gah installation read access to the organisation's GitLab, so it can fetch the shared skills, choosing the steps that fit this machine (Windows or Linux, client certificate or not). Use when the setup-skills skill finds that GitLab access is missing or refused. A deployment may replace this skill with its own.
+disable-model-invocation: true
 ---
 
 # Set up GitLab access

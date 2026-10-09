@@ -329,8 +329,15 @@ if [ "$info_only" -eq 0 ] && [ -z "${GAH_NO_UPDATE:-}" ]; then
 fi
 
 # --- 2. Skills ----------------------------------------------------------------------
+# A failed update is passed to the session (GAH_SKILLS_UPDATE_FAILED): with an
+# older copy of the skills still loaded, it is what keeps /setup-skills offered,
+# so an expired token can be replaced from inside gah (#138).
+unset GAH_SKILLS_UPDATE_FAILED
 if [ "$info_only" -eq 0 ]; then
-	sync_skills || problem="${problem:-skills: $(why)}"
+	if ! sync_skills; then
+		problem="${problem:-skills: $(why)}"
+		GAH_SKILLS_UPDATE_FAILED="$(why)"; export GAH_SKILLS_UPDATE_FAILED
+	fi
 fi
 SKILLS=""
 [ -n "$CURRENT" ] && [ -d "$SKILLS_ROOT/$CURRENT/skills" ] && SKILLS="$SKILLS_ROOT/$CURRENT"

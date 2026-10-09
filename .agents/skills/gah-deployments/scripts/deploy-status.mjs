@@ -135,6 +135,7 @@ if (opt.config) {
 		for (const k of ["systemMd", "icon", "setupSkills"]) if (cfg[k] && !existsSync(resolve(dir, cfg[k]))) blockers.push(`config: ${k} '${cfg[k]}' does not exist next to the config`);
 		if (cfg.inferenceProxy && !/^https?:\/\/\S+$/.test(String(cfg.inferenceProxy))) blockers.push("config: inferenceProxy must be an http(s):// URL");
 		if (cfg.skillsNudge !== undefined && typeof cfg.skillsNudge !== "boolean") blockers.push("config: skillsNudge must be true or false");
+		if (cfg.setupSkills != null && cfg.setupSkills !== false && typeof cfg.setupSkills !== "string") blockers.push("config: setupSkills must be a folder name, false, or null");
 		const readme = join(dir, "README.md");
 		config.readme = existsSync(readme) ? "present" : "missing";
 		if (existsSync(readme)) {
