@@ -29,17 +29,32 @@ launcher starts anyway, and while no shared skills are loaded:
   Type /setup-skills to set them up.*;
 - the model is told the session has no shared skills, so it helps with ordinary
   work instead of declining it;
-- `/setup-skills` runs a built-in skill that works out what is missing and does
-  the next step: on a deployment package, GitLab access and then the skills
-  fetch, in the same session; on the shared host, a pointer to the
-  administrator; in a checkout, how to point at a skills repository.
+- `/setup-skills` helps connect them: on a deployment package it runs a
+  built-in skill that works out what is missing and does the next step (GitLab
+  access, then the skills fetch, in the same session); in a checkout it prints
+  how to point at a skills repository.
+
+**Setup is there only while it can help** ([#138](https://github.com/charliesolomon/gah/issues/138)).
+Once the team's skills load, the setup skills, `/setup-skills` and the
+`gah_setup` tool are not registered at all, so they are in neither the system
+prompt nor the slash menu. They come back when a package's launcher could not
+update the skills (an expired GitLab token, say): the session then runs on the
+copy it already had, and the line says *Your team's skills couldn't be updated.
+Type /setup-skills to see why and fix it.* Even while offered, the setup skills
+carry `disable-model-invocation: true`: only the person starts them, and the
+model never picks one for an unrelated question.
+
+The shared host has no in-session setup at all: the administrator sets accounts
+up. When its skills did not load or could not be updated, the line says to tell
+the administrator. A package whose administrator configures everything turns
+setup off with `setupSkills: false` in gah-deploy.json.
 
 The setup skills ship with the policy pack (`packages/policy-pack/setup-skills/`),
 so they exist before any skills repository does. A deployment package can ship
 its own that replace them by name (`setupSkills` in gah-deploy.json,
-[DEPLOY-WINDOWS.md](DEPLOY-WINDOWS.md)); the shared host reads
-`/etc/gah/setup-skills/`. They never count as the team's skills, so the line
-stays until real ones load.
+[DEPLOY-WINDOWS.md](DEPLOY-WINDOWS.md)); the packager marks them
+`disable-model-invocation` too. They never count as the team's skills, so the
+line stays until real ones load.
 
 ## Creating it
 
@@ -167,12 +182,13 @@ plain local directory works, only the shared project needs tracking.
 ### `--no-skills` is not an opt-out
 
 It means *do not auto-discover from the user-global config dir*. Every launcher
-passes it to pin the loaded set; the setup skills still load, through the
-policy pack.
+passes it to pin the loaded set; the setup skills, when offered, still load,
+through the policy pack.
 
 `GAH_ALLOW_NO_SKILLS=1` hides the /setup-skills line, for checks and CI that
 start without skills on purpose. A deployment that never uses shared skills
-sets `skillsNudge: false` in gah-deploy.json instead.
+sets `skillsNudge: false` in gah-deploy.json instead, and one whose
+administrator configures everything sets `setupSkills: false`.
 
 ## Prompt templates
 

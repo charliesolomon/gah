@@ -4,12 +4,17 @@
 # from inside the session (#135). Against the mock endpoint, no real model:
 #
 #   1. A checkout with no skills starts. The model is told the session has no
-#      shared skills (so it helps instead of declining), is pointed at
-#      /setup-skills, and sees the built-in setup skills.
-#   2. GAH_SKILLS_NUDGE=0 keeps the note but drops the pointer; with shared
-#      skills loaded the note is gone.
+#      shared skills (so it helps instead of declining) and is pointed at
+#      /setup-skills; a checkout has no guided setup (no setup skills, no
+#      gah_setup).
+#   2. Setup is offered only while it can help (#138): a package with no
+#      shared skills gets gah_setup and the pointer, and the setup skills stay
+#      out of the system prompt; with shared skills loaded all of it is gone,
+#      unless the launcher could not update them; setupSkills: false and the
+#      shared host never offer it, and the host points to the administrator.
 #   3. The model can call gah_setup status, and what comes back names the
-#      launcher and never a secret's value.
+#      launcher, the update failure and the hidden setup guides, and never a
+#      secret's value.
 #   4. preflight.mjs (packages): direct route, proxy from the environment, the
 #      deployment's suggested proxy, a proxy that wants a login, a refused key,
 #      a missing key, and -- through a pseudo-terminal when `script` exists --
@@ -30,7 +35,7 @@ cleanup() {
 	if [ -n "${KEEP:-}" ]; then echo "work dir kept: $WORK"; else rm -rf "$WORK"; fi
 }
 trap cleanup EXIT
-unset GAH_ALLOW_TOOLS GAH_ALLOW_NO_SKILLS GAH_SKILLS_NUDGE GAH_SKILLS_DIR GAH_KB_DIR GAH_LAUNCHER_KIND
+unset GAH_ALLOW_TOOLS GAH_ALLOW_NO_SKILLS GAH_SKILLS_NUDGE GAH_SKILLS_DIR GAH_KB_DIR GAH_LAUNCHER_KIND GAH_SETUP_SKILLS GAH_SKILLS_UPDATE_FAILED GAH_SETUP_SKILLS_DIR
 
 fail=0
 check() {
@@ -84,16 +89,13 @@ sys="$(field "$WORK/req1" 0 systemText 2>/dev/null)"
 check "the model is told the session has no shared skills" "$(has "$sys" "## This session has no shared skills")"
 check "and that this lifts 'ask when no skill fits'" "$(has "$sys" "help directly with general requests")"
 check "and is told to suggest /setup-skills" "$(has "$sys" "mention once that typing /setup-skills")"
-check "the built-in setup-skills skill is listed" "$(has "$sys" "<name>setup-skills</name>")"
-check "and setup-gitlab" "$(has "$sys" "<name>setup-gitlab</name>")"
-check "gah_setup is among the allowed tools" "$(has "$sys" '`gah_setup`')"
+check "a checkout lists no setup skills" "$(hasnt "$sys" "<name>setup-")"
+check "and has no gah_setup" "$(hasnt "$sys" '`gah_setup`')"
 
 : >"$WORK/req1"
 run_gah GAH_SKILLS_NUDGE=0
 sys="$(field "$WORK/req1" 0 systemText 2>/dev/null)"
 check "GAH_SKILLS_NUDGE=0 keeps the no-skills note" "$(has "$sys" "## This session has no shared skills")"
-# The setup skill's own catalogue entry still names /setup-skills; what goes is
-# the note's instruction to suggest it.
 check "but drops the instruction to suggest /setup-skills" "$(hasnt "$sys" "mention once that typing /setup-skills")"
 
 SK="$WORK/team-skills"
@@ -106,14 +108,53 @@ check "with shared skills loaded the note is gone" "$(hasnt "$sys" "## This sess
 check "and the shared skill is listed" "$(has "$sys" "<name>ticket-triage</name>")"
 
 echo
+echo "-- setup is offered only while it can help (#138) --"
+: >"$WORK/req1"
+run_gah GAH_LAUNCHER_KIND=package
+sys="$(field "$WORK/req1" 0 systemText 2>/dev/null)"
+check "a package with no shared skills has gah_setup" "$(has "$sys" '`gah_setup`')"
+check "and the pointer to /setup-skills" "$(has "$sys" "mention once that typing /setup-skills")"
+check "but its setup skills are not in the system prompt" "$(hasnt "$sys" "<name>setup-")"
+
+# The packaged launchers pass skills with --skill; bin/gah does the same for
+# GAH_SKILLS_DIR, so this is how a package with its skills loaded starts.
+: >"$WORK/req1"
+run_gah GAH_LAUNCHER_KIND=package GAH_SKILLS_DIR="$SK/skills"
+sys="$(field "$WORK/req1" 0 systemText 2>/dev/null)"
+check "with shared skills loaded, a package has no gah_setup" "$(hasnt "$sys" '`gah_setup`')"
+
+: >"$WORK/req1"
+run_gah GAH_LAUNCHER_KIND=package GAH_SKILLS_DIR="$SK/skills" GAH_SKILLS_UPDATE_FAILED="error: 401"
+sys="$(field "$WORK/req1" 0 systemText 2>/dev/null)"
+check "unless the launcher could not update them: gah_setup is back" "$(has "$sys" '`gah_setup`')"
+check "and the setup skills are still not in the system prompt" "$(hasnt "$sys" "<name>setup-")"
+
+: >"$WORK/req1"
+run_gah GAH_LAUNCHER_KIND=package GAH_SETUP_SKILLS=0
+sys="$(field "$WORK/req1" 0 systemText 2>/dev/null)"
+check "setupSkills: false (GAH_SETUP_SKILLS=0): no gah_setup" "$(hasnt "$sys" '`gah_setup`')"
+check "and no pointer to /setup-skills" "$(hasnt "$sys" "/setup-skills")"
+
+: >"$WORK/req1"
+run_gah GAH_LAUNCHER_KIND=host GAH_SKILLS_UPDATE_FAILED="clone failed"
+sys="$(field "$WORK/req1" 0 systemText 2>/dev/null)"
+check "the shared host has no gah_setup" "$(hasnt "$sys" '`gah_setup`')"
+check "and never mentions /setup-skills" "$(hasnt "$sys" "/setup-skills")"
+check "it points to the administrator" "$(has "$sys" "their administrator can fix it")"
+check "and names no forge" "$(hasnt "$sys" "GitLab")"
+
+echo
 echo "-- the model calls gah_setup status --"
 PORT="$(start_mock req2 MOCK_MODE=prompted MOCK_TOOL=gah_setup 'MOCK_ARGS={"action":"status"}')"
 providers "$PORT" prompted
-run_gah GAH_GITLAB_TOKEN=test-value-never-shown-to-the-model GAH_KB_DIR=/nowhere
+run_gah GAH_LAUNCHER_KIND=package GAH_GITLAB_TOKEN=test-value-never-shown-to-the-model GAH_KB_DIR=/nowhere \
+	GAH_SKILLS_UPDATE_FAILED="error: 401 Unauthorized"
 user2="$(field "$WORK/req2" 1 userText 2>/dev/null)"
 check "a second request carries the tool result" "$(has "$user2" '<tool_result tool="gah_setup"')"
-check "the status names the launcher" "$(has "$user2" '"launcher": "checkout"')"
+check "the status names the launcher" "$(has "$user2" '"launcher": "package"')"
 check "and counts shared skills" "$(has "$user2" '"sharedSkillsLoaded": 0')"
+check "and passes on the update failure" "$(has "$user2" '"skillsUpdateFailed": "error: 401 Unauthorized"')"
+check "and lists the hidden setup guides" "$(has "$user2" '"setup-gitlab": ')"
 check "and never a secret's value" "$(hasnt "$user2" "never-shown-to-the-model")"
 check "the call is audited" "$(grep -q '"tool":"gah_setup"' "$WORK/audit.log" && echo 1 || echo 0)"
 

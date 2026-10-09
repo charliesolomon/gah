@@ -181,8 +181,10 @@ config cannot tell you.
    - optional, for onboarding (#135): a proxy to suggest when the inference
      endpoint is not reachable directly (`inferenceProxy`), the deployment's
      own setup skills (`setupSkills`, a folder of skills such as a
-     `setup-gitlab` with who issues certificates and internal links), and
-     whether to show the /setup-skills line at all (`skillsNudge`).
+     `setup-gitlab` with who issues certificates and internal links, or
+     `false` when the administrator configures everything and people never
+     set up in-session), and whether to show the /setup-skills line at all
+     (`skillsNudge`).
 2. **Probe the endpoint** so the models and tool-call support are facts, not
    guesses: `node scripts/probe-endpoint.mjs <baseUrl> --key-env <VAR>`. The
    key must already be in that environment variable *before* this session

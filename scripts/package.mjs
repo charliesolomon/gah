@@ -130,6 +130,10 @@ for (const [k, v] of Object.entries(env)) {
 // "/setup-skills" line off (#135). Carried as an environment variable.
 if (cfg.skillsNudge !== undefined && typeof cfg.skillsNudge !== "boolean") fail("config: skillsNudge must be true or false");
 if (cfg.skillsNudge === false) env.GAH_SKILLS_NUDGE = "0";
+// setupSkills: false -- a deployment set up by its administrator never offers
+// in-session setup: no setup skills, no /setup-skills, no gah_setup (#138).
+if (cfg.setupSkills !== undefined && cfg.setupSkills !== false && typeof cfg.setupSkills !== "string") fail("config: setupSkills must be a folder name, or false");
+if (cfg.setupSkills === false) env.GAH_SETUP_SKILLS = "0";
 // inferenceProxy: offered by preflight.mjs when a direct connection fails.
 if (cfg.inferenceProxy !== undefined && cfg.inferenceProxy !== null && !/^https?:\/\/[^\s]+$/.test(String(cfg.inferenceProxy))) {
 	fail("config: inferenceProxy must be an http(s):// URL, or null");
@@ -270,12 +274,21 @@ cpSync(join(REPO, "templates", "deploy", "preflight.mjs"), join(tree, "preflight
 // Setup skills (#135): the built-in, generic ones, and optionally the
 // deployment's own. The onboarding extension loads the deployment's first, so
 // one with the same name (setup-gitlab, say) replaces the built-in step.
-cpSync(join(policyPack, "setup-skills"), join(tree, "gah-policy", "setup-skills"), { recursive: true });
+if (cfg.setupSkills !== false) cpSync(join(policyPack, "setup-skills"), join(tree, "gah-policy", "setup-skills"), { recursive: true });
 if (cfg.setupSkills) {
 	const dir = resolve(dirname(opt.config), cfg.setupSkills);
 	if (!existsSync(dir)) fail(`setupSkills folder not found: ${dir}`);
 	checkSetupSkills(dir);
-	cpSync(dir, join(tree, "gah-policy", "deploy-setup-skills"), { recursive: true });
+	const out = join(tree, "gah-policy", "deploy-setup-skills");
+	cpSync(dir, out, { recursive: true });
+	// Setup skills are started by the person, never picked by the model (#138).
+	for (const e of readdirSync(out, { withFileTypes: true })) {
+		if (!e.isDirectory()) continue;
+		const md = join(out, e.name, "SKILL.md");
+		const text = readFileSync(md, "utf8");
+		if (/^disable-model-invocation:/m.test(text.match(/^---\r?\n([\s\S]*?)\r?\n---/)?.[1] ?? "")) continue;
+		writeFileSync(md, text.replace(/^(---\r?\n[\s\S]*?)(\r?\n---)/, "$1\ndisable-model-invocation: true$2"));
+	}
 }
 for (const f of P.launcher) {
 	if (f.endsWith(".sh")) {

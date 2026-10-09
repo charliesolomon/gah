@@ -92,10 +92,13 @@ check() {
 	fi
 }
 
-# gah_setup (onboarding.ts, #135) is in the default allowlist: it reports setup
-# status and opens dialogs the person types into, and runs nothing the model picks.
-check "default launch offers exactly the allowlist" "read,grep,find,ls,edit,write,gah_setup" "$(offered)"
-check "GAH_ALLOW_TOOLS=bash adds bash, nothing else" "read,grep,find,ls,edit,write,gah_setup,bash" "$(GAH_ALLOW_TOOLS=bash offered)"
+check "default launch offers exactly the allowlist" "read,grep,find,ls,edit,write" "$(offered)"
+check "GAH_ALLOW_TOOLS=bash adds bash, nothing else" "read,grep,find,ls,edit,write,bash" "$(GAH_ALLOW_TOOLS=bash offered)"
+# gah_setup (onboarding.ts, #135) is in the allowlist but registered only while a
+# package offers guided setup (#138): it reports setup status and opens dialogs
+# the person types into, and runs nothing the model picks.
+check "a package with no shared skills adds gah_setup" "read,grep,find,ls,edit,write,gah_setup" "$(GAH_LAUNCHER_KIND=package offered)"
+check "the shared host never does" "read,grep,find,ls,edit,write" "$(GAH_LAUNCHER_KIND=host offered)"
 # --tools restricts which tools are registered at all, so the policy can only
 # activate what is left: the flag can narrow the set but never widen it past
 # the allowlist (bash is dropped, grep/find/ls cannot be added back).

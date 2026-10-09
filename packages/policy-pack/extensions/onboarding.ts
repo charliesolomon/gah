@@ -1,16 +1,29 @@
 /**
- * Onboarding (#135): gah starts without shared skills, and helps finish setup
- * from inside the session.
+ * Onboarding (#135, #138): gah starts without shared skills, and helps finish
+ * setup from inside the session -- only while that can help.
  *
- *   - Setup skills load in every session: a deployment's own first, then the
- *     built-in ones (lib/onboarding.ts, setupSkillDirs). They are what
- *     /setup-skills runs, and they are available before GitLab works.
- *   - While no shared skills are loaded, one line above the input box says so:
- *     "gah is better with your team's skills. Type /setup-skills to set them up."
- *     branding.ts tells the model the same, and lifts SYSTEM.md's "ask when no
- *     skill fits" for that case.
- *   - /setup-skills starts the setup-skills skill. It decides the next step from
- *     facts, through the gah_setup tool:
+ *   - Setup is offered only while no shared skills are loaded, or while the
+ *     launcher could not update them (GAH_SKILLS_UPDATE_FAILED: an expired
+ *     token, with an older copy still loaded). Never on the shared host, where
+ *     the administrator sets accounts up, and never when the deployment turned
+ *     it off (gah-deploy.json setupSkills: false). When it is not offered,
+ *     nothing is registered: no setup skills, no /setup-skills, no gah_setup,
+ *     so none of it is in the system prompt or the slash menu. This is decided
+ *     when the extension loads (lib/onboarding.ts, setupOffered); pi loads it
+ *     again on every reload, so setup disappears once fetch_skills has brought
+ *     the team's skills in.
+ *   - Guided setup (the setup skills and gah_setup) exists only in a package,
+ *     the one place with something to do. The setup skills carry
+ *     disable-model-invocation: the person starts them with /setup-skills, the
+ *     model never picks one for an unrelated question. A deployment's own come
+ *     first (lib/onboarding.ts, setupSkillDirs), then the built-in ones.
+ *   - In a gah checkout, /setup-skills prints how skills are configured there;
+ *     no model turn.
+ *   - One line above the input box says what is wrong: no shared skills, or
+ *     skills that could not be updated. On the shared host it says to tell the
+ *     administrator. branding.ts tells the model the same.
+ *   - The setup-skills skill decides the next step from facts, through the
+ *     gah_setup tool:
  *       status        what is configured and what works -- never a secret's value;
  *       enter_gitlab_token, choose_gitlab_certificate
  *                     ask the PERSON in a dialog (the token is masked), store
@@ -22,9 +35,7 @@
  *
  * GitLab work is done by the package's own launcher (gah.ps1 / gah.sh,
  * `--gah-internal <op>`), which already knows the deployment's GitLab, proxy
- * and client certificate. A gah checkout and the shared host have no such
- * launcher; there the status says how skills are configured, and the setup
- * skill explains rather than acts.
+ * and client certificate.
  */
 
 import { spawn } from "node:child_process";
@@ -34,7 +45,20 @@ import { fileURLToPath } from "node:url";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Input, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
-import { launcherKind, NUDGE_LINE, nudgeEnabled, setupSkillDirs, sharedSkillPaths } from "./lib/onboarding.ts";
+import {
+	guidedSetupOffered,
+	HOST_NO_SKILLS_LINE,
+	HOST_UPDATE_FAILED_LINE,
+	launcherKind,
+	NUDGE_LINE,
+	nudgeEnabled,
+	setupOffered,
+	setupSkillDirs,
+	setupSkillFolders,
+	sharedSkillPaths,
+	skillsUpdateFailure,
+	UPDATE_FAILED_LINE,
+} from "./lib/onboarding.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const POLICY_ROOT = join(HERE, "..");
@@ -87,13 +111,6 @@ function runLauncher(op: string[], input?: string, timeoutMs = 120_000): Promise
 
 // --- Status ---------------------------------------------------------------------
 
-/** Skill paths on the command line (--skill <path>), as the launcher passed them. */
-function argvSkillPaths(argv: readonly string[]): string[] {
-	const out: string[] = [];
-	for (let i = 0; i < argv.length - 1; i++) if (argv[i] === "--skill") out.push(argv[i + 1]!);
-	return out;
-}
-
 function sharedSkillsLoaded(pi: ExtensionAPI): string[] {
 	const dirs = setupSkillDirs(POLICY_ROOT);
 	const paths = pi
@@ -103,33 +120,45 @@ function sharedSkillsLoaded(pi: ExtensionAPI): string[] {
 	return sharedSkillPaths(paths, dirs);
 }
 
+/**
+ * The setup skills loaded, by name, with the file to read. They carry
+ * disable-model-invocation, so they are not in the system prompt's skill list
+ * and the setup-skills skill finds setup-gitlab (or a deployment's own) here.
+ */
+function setupGuides(pi: ExtensionAPI): Record<string, string> {
+	const dirs = setupSkillDirs(POLICY_ROOT);
+	const out: Record<string, string> = {};
+	for (const c of pi.getCommands()) {
+		const path = c.sourceInfo?.path ?? "";
+		if (c.source !== "skill" || !path || sharedSkillPaths([path], dirs).length > 0) continue;
+		const name = c.name.replace(/^skill:/, "");
+		if (!(name in out)) out[name] = path;
+	}
+	return out;
+}
+
+/** The status gah_setup reports. gah_setup exists only in a package (#138). */
 async function status(pi: ExtensionAPI): Promise<Record<string, unknown>> {
-	const kind = launcherKind();
-	const shared = sharedSkillsLoaded(pi);
+	const failure = skillsUpdateFailure();
 	const base: Record<string, unknown> = {
-		launcher: kind,
+		launcher: launcherKind(),
 		platform: process.platform,
-		sharedSkillsLoaded: shared.length,
+		sharedSkillsLoaded: sharedSkillsLoaded(pi).length,
+		...(failure ? { skillsUpdateFailed: failure } : {}),
+		setupGuides: setupGuides(pi),
 		knowledgeBase: process.env.GAH_KB_DIR ? { configured: true, path: process.env.GAH_KB_DIR } : { configured: false },
 	};
-	if (kind === "package") {
-		const r = await runLauncher(["status"], undefined, 60_000);
-		return { ...base, ...(r.json ?? {}), ...(r.ok ? {} : { statusError: r.error }) };
-	}
-	if (kind === "host") {
-		return {
-			...base,
-			note: "Shared host: the administrator configures skills in a root-owned manifest with a deploy key. The person cannot set this up; tell them to contact the administrator, with the failure the launcher printed.",
-		};
-	}
-	const dir = process.env.GAH_SKILLS_DIR;
-	return {
-		...base,
-		skillsDir: dir ? { path: dir, exists: existsSync(dir) } : null,
-		skillPathsOnCommandLine: argvSkillPaths(process.argv).filter((p) => !setupSkillDirs(POLICY_ROOT).some((d) => p.startsWith(d))),
-		note: "gah checkout: shared skills come from a local skills repository named by GAH_SKILLS_DIR (or --skill). `gah init <dir>` scaffolds one; clone the team's instead when it exists.",
-	};
+	const r = await runLauncher(["status"], undefined, 60_000);
+	return { ...base, ...(r.json ?? {}), ...(r.ok ? {} : { statusError: r.error }) };
 }
+
+/** What /setup-skills prints in a gah checkout, where there is nothing to do in-session. */
+const CHECKOUT_HELP = [
+	"Shared skills come from a local skills repository in a gah checkout.",
+	"Clone your team's skills repository (or create one with `gah init <folder>`), then start gah with",
+	"  GAH_SKILLS_DIR=<folder>/skills gah",
+	"On Windows: $env:GAH_SKILLS_DIR = '<folder>\\skills'",
+].join("\n");
 
 // --- Dialogs ----------------------------------------------------------------------
 
@@ -188,6 +217,11 @@ async function store(name: string, value: string): Promise<LauncherResult> {
 
 export default function (pi: ExtensionAPI) {
 	const nudge = nudgeEnabled();
+	const kind = launcherKind();
+	const setupDirs = setupSkillDirs(POLICY_ROOT);
+	// Decided once per load; pi loads the extension again on every reload.
+	const offered = setupOffered(process.argv, setupDirs);
+	const guided = guidedSetupOffered(process.argv, setupDirs);
 	// Set by fetch_skills. The reload waits for the turn to end: reloading in the
 	// middle of a tool call would tear the session down under the running turn.
 	let reloadPending = false;
@@ -198,10 +232,11 @@ export default function (pi: ExtensionAPI) {
 		setImmediate(() => pi.sendUserMessage(`/${RELOAD_COMMAND}`, { expandPromptTemplates: true }));
 	});
 
-	// Setup skills, and skills fetched earlier in this process (fetch_skills).
-	// resources_discover runs at startup and on every /reload.
+	// Setup skills (only while guided setup is offered), and skills fetched
+	// earlier in this process (fetch_skills). resources_discover runs at
+	// startup and on every /reload.
 	pi.on("resources_discover", () => {
-		const skillPaths = setupSkillDirs(POLICY_ROOT);
+		const skillPaths = guided ? setupSkillFolders(setupDirs) : [];
 		const promptPaths: string[] = [];
 		const fetched = process.env.GAH_SESSION_SKILLS_DIR;
 		if (fetched && existsSync(join(fetched, "skills"))) {
@@ -211,10 +246,18 @@ export default function (pi: ExtensionAPI) {
 		return { skillPaths, promptPaths };
 	});
 
+	function nudgeLine(): string | undefined {
+		if (!nudge) return undefined;
+		const none = sharedSkillsLoaded(pi).length === 0;
+		const failed = Boolean(skillsUpdateFailure());
+		if (kind === "host") return none ? HOST_NO_SKILLS_LINE : failed ? HOST_UPDATE_FAILED_LINE : undefined;
+		if (!offered) return undefined;
+		return none ? NUDGE_LINE : failed ? UPDATE_FAILED_LINE : undefined;
+	}
 	function refreshNudge(ctx: ExtensionContext): void {
 		if (!ctx.hasUI) return;
-		const show = nudge && sharedSkillsLoaded(pi).length === 0;
-		ctx.ui.setWidget(WIDGET_KEY, show ? [ctx.ui.theme.fg("accent", NUDGE_LINE)] : undefined);
+		const line = nudgeLine();
+		ctx.ui.setWidget(WIDGET_KEY, line ? [ctx.ui.theme.fg("accent", line)] : undefined);
 	}
 	pi.on("session_start", async (_event, ctx) => refreshNudge(ctx));
 	// Setup skills arrive through resources_discover, after session_start; a
@@ -225,12 +268,21 @@ export default function (pi: ExtensionAPI) {
 		return undefined;
 	});
 
+	// Nothing below exists unless setup is offered (#138).
+	if (!offered) return;
+
 	pi.registerCommand("setup-skills", {
 		description: "Connect your team's shared skills (and GitLab, if that is needed first)",
-		handler: async (args, _ctx) => {
+		handler: async (args, ctx) => {
+			if (!guided) {
+				ctx.ui.notify(CHECKOUT_HELP, "info");
+				return;
+			}
 			pi.sendUserMessage(`/skill:setup-skills ${args ?? ""}`.trim(), { expandPromptTemplates: true });
 		},
 	});
+
+	if (!guided) return;
 
 	pi.registerCommand(RELOAD_COMMAND, {
 		description: "Reload skills after gah_setup fetched them",
@@ -260,17 +312,8 @@ export default function (pi: ExtensionAPI) {
 		async execute(_id, params, _signal, _onUpdate, ctx) {
 			const text = (o: unknown) => ({ content: [{ type: "text" as const, text: typeof o === "string" ? o : JSON.stringify(o, null, 2) }], details: {} });
 			const action = (params as { action: string }).action;
-			const kind = launcherKind();
 
 			if (action === "status") return text(await status(pi));
-
-			if (kind !== "package") {
-				return text(
-					kind === "host"
-						? "Not available on the shared host: the administrator manages skills and GitLab access there."
-						: "Not available in a gah checkout: skills come from a local repository (GAH_SKILLS_DIR). See the status note.",
-				);
-			}
 
 			if (action === "enter_gitlab_token" || action === "choose_gitlab_certificate") {
 				if (!ctx.hasUI) return text("This needs the interactive terminal: the person must type the answer into a dialog.");
@@ -321,6 +364,9 @@ export default function (pi: ExtensionAPI) {
 					: 0;
 				if (count === 0) return text({ fetched: true, skills: 0, note: "The skills repository has no skills/ folder with skills in it; nothing to load." });
 				process.env.GAH_SESSION_SKILLS_DIR = dir;
+				// Fresh skills: the failure that kept setup offered no longer holds,
+				// so the reload drops setup (#138).
+				delete process.env.GAH_SKILLS_UPDATE_FAILED;
 				reloadPending = true;
 				return text({ fetched: true, skills: count, reloading: true, note: "The session reloads after this turn; the skills are then available." });
 			}

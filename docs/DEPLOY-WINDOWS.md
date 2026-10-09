@@ -59,7 +59,7 @@ Lives in **your** deployment repository, not in this one. Start from
 | `icon` | Optional path, relative to the config, of a `.ico` for the desktop shortcut (16/32/48/256 sizes). Carried as `shortcut.ico`; the installer keeps it at `%LOCALAPPDATA%\gah\shortcut.ico` across updates. Absent = the stock terminal icon |
 | `windowsArch` | Default `["x64"]`; add `"arm64"` to ship both tool sets |
 | `inferenceProxy` | Optional proxy URL that the launcher offers when the inference endpoint is not reachable directly, after the machine's own `HTTPS_PROXY` and system proxy ([first launch](#first-launch-and-setup)). `null` = none. |
-| `setupSkills` | Optional folder, relative to the config, of the deployment's own setup skills: one folder per skill with a `SKILL.md`. A skill with the same name as a built-in one (`setup-skills`, `setup-gitlab`) replaces it. The packager refuses one that looks like it holds a credential, because the zip is downloadable by anyone in the organisation. |
+| `setupSkills` | Optional folder, relative to the config, of the deployment's own setup skills: one folder per skill with a `SKILL.md`. A skill with the same name as a built-in one (`setup-skills`, `setup-gitlab`) replaces it, and the packager marks each `disable-model-invocation: true` so only the person starts it. The packager refuses one that looks like it holds a credential, because the zip is downloadable by anyone in the organisation. `false` turns in-session setup off entirely (no setup skills, no `/setup-skills`, no `gah_setup`), for a deployment its administrator configures. |
 | `skillsNudge` | Default `true`. `false` hides the /setup-skills line, for a deployment that never uses shared skills. |
 | `linuxArch` | The Linux package's tool architectures (default `["x64"]`); see [DEPLOY-LINUX.md](DEPLOY-LINUX.md) |
 
@@ -152,8 +152,12 @@ without a scheme (`10.0.0.1:8080`) is read as `http://`, as curl does.
 **In the session**, while no shared skills are loaded, one line above the
 input box says *gah is better with your team's skills. Type /setup-skills to
 set them up.*, and the model is told the session has none, so it still helps
-with ordinary work. `/setup-skills` runs the `setup-skills` skill, which uses
-the `gah_setup` tool to find out what is missing and does only the next step:
+with ordinary work. When the launcher could not update the skills it already
+had (an expired token, say), the line says *Your team's skills couldn't be
+updated* instead. Otherwise none of the setup below is registered: it is in
+neither the system prompt nor the slash menu (#138). `/setup-skills` runs the
+`setup-skills` skill, which only the person can start, and which uses the
+`gah_setup` tool to find out what is missing and does only the next step:
 
 - **GitLab works already**, for example a public skills project: fetch the
   skills and reload them into the same session.

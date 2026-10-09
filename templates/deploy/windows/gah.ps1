@@ -336,8 +336,12 @@ if (-not $InfoOnly -and -not $env:GAH_NO_UPDATE) {
 }
 
 # --- 2. Skills --------------------------------------------------------------------
+# A failed update is passed to the session (GAH_SKILLS_UPDATE_FAILED): with an
+# older copy of the skills still loaded, it is what keeps /setup-skills offered,
+# so an expired token can be replaced from inside gah (#138).
+Remove-Item Env:GAH_SKILLS_UPDATE_FAILED -ErrorAction SilentlyContinue
 if (-not $InfoOnly) {
-    try { Sync-Skills } catch { $Problems += "skills: $($_.Exception.Message)" }
+    try { Sync-Skills } catch { $Problems += "skills: $($_.Exception.Message)"; $env:GAH_SKILLS_UPDATE_FAILED = $_.Exception.Message }
 }
 $Skills = if ($Current -and (Test-Path (Join-Path (Join-Path $SkillsRoot $Current) 'skills'))) { Join-Path $SkillsRoot $Current } else { '' }
 if ($Problems.Count -gt 0) {

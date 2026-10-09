@@ -1,6 +1,7 @@
 ---
 name: setup-skills
 description: Connect this gah installation to the team's shared skills, working out what is missing first (GitLab access, a token, a client certificate) and doing only the next step. Use when the person types /setup-skills, asks how to get their team's skills, or asks why gah says it is better with skills.
+disable-model-invocation: true
 ---
 
 # Set up shared skills
@@ -23,30 +24,24 @@ person did not use first.
 
 ## Steps
 
-1. Run `gah_setup` with action `status`. Read `launcher` first.
+1. Run `gah_setup` with action `status`.
 
-2. **`launcher` is `host`** (a shared server): the administrator manages the
-   skills and GitLab access there. Tell the person that, quote any failure in
-   the status, and stop. Do not suggest tokens or certificates.
-
-3. **`launcher` is `checkout`** (a gah developer checkout): skills come from a
-   local folder. Explain, using the status note: clone the team's skills
-   repository if there is one, or scaffold one with `gah init <folder>`, then
-   start gah with `GAH_SKILLS_DIR=<folder>/skills` (on Windows,
-   `$env:GAH_SKILLS_DIR = '<folder>\skills'`). Then stop.
-
-4. **`launcher` is `package`**, the normal case. Look at `probes`:
-   - `sharedSkillsLoaded` above 0: skills are already loaded. Say so, and
-     suggest the knowledge base as a possible next step if `knowledgeBase` is
-     not configured. Stop.
+2. Look at `sharedSkillsLoaded`, `skillsUpdateFailed` and `probes`:
+   - `sharedSkillsLoaded` above 0 and no `skillsUpdateFailed`: skills are
+     already loaded and current. Say so, and suggest the knowledge base as a
+     possible next step if `knowledgeBase` is not configured. Stop.
+   - `skillsUpdateFailed` present: gah is using an older copy of the skills
+     because the last update failed. Say so in one sentence, quoting the
+     reason, then carry on below; the probes say whether access is the problem.
    - `skillsAnonymous` or `skillsWithToken` is 200: access works. Run
      `gah_setup` with action `fetch_skills`. When it reports `reloading`, tell
      the person their skills will be ready as soon as this answer ends, and
      suggest they ask "what can you do?" afterwards.
-   - Anything else: GitLab access is the problem. Load the `setup-gitlab`
-     skill and follow it. When it is done, come back to step 1.
+   - Anything else: GitLab access is the problem. Read the `setup-gitlab`
+     file listed in `setupGuides` and follow it. When it is done, come back
+     to step 1.
 
-5. If `fetch_skills` fails, show the error in one sentence and run `status`
+3. If `fetch_skills` fails, show the error in one sentence and run `status`
    again; the probes usually say why.
 
 ## When the person declines
