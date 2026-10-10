@@ -259,11 +259,12 @@ check "the packaged launcher clears the list rather than publishing one" \
 	"$(grep -q "GAH_SCAFFOLD_COMMANDS = ''" templates/deploy/windows/gah.ps1 && echo 1 || echo 0)"
 check "the Linux packaged launcher clears it too" \
 	"$(grep -q 'export GAH_SCAFFOLD_COMMANDS=""' templates/deploy/linux/gah.sh && echo 1 || echo 0)"
-check "the shared-host launcher clears it too, having fixed arguments" \
-	"$(grep -q 'export GAH_SCAFFOLD_COMMANDS=""' deploy/host/gah-launch && echo 1 || echo 0)"
+# The shared host cannot clear it: gah-launch execs bin/gah, which publishes its
+# list. Its page has no usage section instead (#142), asserted end to end below.
 
 # End to end through the built CLI, if there is one: a checkout offers them all,
-# and the same binary with the variable cleared offers none.
+# the same binary with the variable cleared offers none, and so does the shared
+# host's page, though bin/gah hands it the full list.
 if [ -f vendor/pi/packages/coding-agent/dist/cli.js ]; then
 	# Through the launcher, not around it: what is being tested is that bin/gah
 	# hands the CLI its list, so calling the CLI directly would prove nothing.
@@ -277,6 +278,11 @@ if [ -f vendor/pi/packages/coding-agent/dist/cli.js ]; then
 		"$(printf '%s' "$bare_out" | grep -qE 'gah (init|update-kb|update-skills|init-kb) <directory>' && echo 0 || echo 1)"
 	check "and still offers auth check, which works everywhere" \
 		"$(printf '%s' "$bare_out" | grep -q 'gah auth check' && echo 1 || echo 0)"
+	host_out="$(GAH_LAUNCHER_KIND=host GAH_SKIP_SETUP=1 ./bin/gah --help </dev/null 2>&1)"
+	check "the shared host's --help offers none of them, where nobody can pass one" \
+		"$(printf '%s' "$host_out" | grep -qE 'gah (init|update-kb|update-skills|init-kb) <directory>' && echo 0 || echo 1)"
+	check "and says where to look instead" \
+		"$(printf '%s' "$host_out" | grep -q 'On this host' && echo 1 || echo 0)"
 else
 	echo "  (no built CLI — skipping the rendered --help assertions)"
 fi

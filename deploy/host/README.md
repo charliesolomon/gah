@@ -103,6 +103,7 @@ belongs in your own ops repository.
 | Update skills | Merge a change in the skills repository. Every launch pulls it; open sessions are told within 10 minutes, and the next launch summarises what changed. |
 | Update the knowledge base | Merge the proposal `kb-propose` opened; every launch fast-forwards a clean checkout ([KB.md](../../docs/KB.md)). |
 | Change a person's models or tools | Edit `/etc/gah/users.d/<user>.conf`. |
+| See what a person's session gets | `sudo -u <user> -H /usr/local/bin/gah-launch --help`: their tools, models, network hosts and skills, from their manifest. It syncs nothing and starts no session. People see the same in a session with `/help`. |
 | Test a skill as a person | `sudo -u <user> -H /usr/local/bin/gah-launch --no-mark-seen`. This skips the login shell, which drops arguments, and doesn't mark their skills update as seen (`/skills-seen reset` undoes a launch that did). |
 | Update another checkout on the host (an ops repo, a cron tool) | `ssh -A <admin>@<host> "git -C ~/<repo> pull --ff-only"`. The forwarded SSH agent supplies the credential; `sudo -u <user> git pull` loses it. |
 | Audit a person's tool calls | `~<user>/.gah/audit.log` (JSON lines, rolled daily, kept 30 days; `GAH_AUDIT_RETENTION_DAYS` in the manifest changes that, `0` keeps all). |

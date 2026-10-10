@@ -45,7 +45,7 @@ GAH_SKILLS_DIR=../my-team-skills/skills ./bin/gah  # 4. start (bin\gah.ps1 on Wi
   and the model catalogue ships in the repository.
 - gah starts without team skills too, and says how to add them.
 - `./bin/gah --help` shows what this session may use: tools, models, network
-  hosts and skills.
+  hosts and skills. In a session, `/help` shows the same.
 - On Windows, see [docs/WINDOWS.md](docs/WINDOWS.md), including corporate
   proxies.
 

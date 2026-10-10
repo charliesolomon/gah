@@ -48,7 +48,8 @@ token** with the `read_api` scope.
 - **Our skills.** If they aren't set up yet, a line above the input box says
   *Type /setup-skills to set them up*. Type `/setup-skills` and follow it.
   Your token goes into a hidden box, never into the chat.
-- **Try it:** type `what can you do?`, or `/` to see the commands.
+- **Try it:** type `what can you do?`, `/help` to see what your session can
+  use, or `/` for every command.
 
 ## Day to day
 

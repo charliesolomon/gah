@@ -23,6 +23,7 @@ sync. Patches (`../../patches/`) hold only what an extension cannot do
 | `extensions/skills-freshness.ts` | Skills behind in-session, what changed at startup, `/skills-changelog`, `/skills-seen reset` (#91) |
 | `extensions/whats-new.ts` | The deployment's own release notes (`GAH_WHATS_NEW`), shown once at startup; `/whats-new`, `/whats-new-seen reset` (#117) |
 | `extensions/onboarding.ts` | Starting without shared skills: the line above the input box, `/setup-skills` and the `gah_setup` tool, offered only while setup can help (#135, #138; [SKILLS.md](../../docs/SKILLS.md)) |
+| `extensions/help.ts` | `/help`: what this session may use, the same rows as `--help` (`gahSessionRows`, patch 0002), for people with no command line (#142) |
 | `setup-skills/` | The built-in setup skills (`setup-skills`, `setup-gitlab`), started only by the person |
 | `extensions/lib/last-model.ts` | The last model picked becomes the next session's default (#77) |
 | `extensions/lib/prompted-tools.ts` | Tool calling as a text protocol, for a provider marked `"tools": "prompted"` (a gateway that refuses native tool calls, #42) |

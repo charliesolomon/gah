@@ -145,7 +145,11 @@ URLs) is a patch, by convention `0001-branding.patch`.
 `GAH_EFFECTIVE_TOOLS`, models, hosts, skills) and lists only the options and
 `GAH_*` variables that matter under policy; `--help --verbose` prints
 upstream's full reference. Keep it short: if upstream adds a flag gah users
-need, add one `row()`.
+need, add one `row()`. The "This session" rows come from `gahSessionRows()`,
+which the patch exports from the package index so that `/help`
+(`extensions/help.ts`) shows the same rows in a session. On the shared host
+the page is only those rows, since nobody there can pass an option.
+`scripts/check-help.sh` checks that the two agree.
 
 **Environment variable names.** Upstream reads some settings from fixed `PI_*`
 names. `0002-branded-cli.patch` mirrors each `GAH_<NAME>` onto `PI_<NAME>` at

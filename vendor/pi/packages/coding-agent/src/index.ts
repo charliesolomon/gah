@@ -1,6 +1,8 @@
 // Core session management
 
 export { type Args, parseArgs } from "./cli/args.ts";
+// GAH: the --help page's "This session" rows, for the policy pack's /help (#142).
+export { type GahSessionRow, gahSessionRows } from "./cli/gah-help.ts";
 
 // Config paths
 export {

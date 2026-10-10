@@ -20,8 +20,9 @@ the detailed guide.
    [SKILLS.md](SKILLS.md). A knowledge base is optional and can come later
    ([KB.md](KB.md)).
 3. **Choose a shape and deploy.** See [Choose a shape](#choose-a-shape) below.
-4. **Hand it over.** People start gah. If something is missing, such as their
-   team's skills or a key, gah tells them and helps them finish setup.
+4. **Hand it over.** People start gah; in a session, `/help` shows what it can
+   use. If something is missing, such as their team's skills or a key, gah
+   tells them and helps them finish setup.
 
 ## Choose a shape
 

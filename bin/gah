@@ -464,4 +464,5 @@ exec node "$PI_CLI" \
   --extension "$POLICY_DIR/skills-freshness.ts" \
   --extension "$POLICY_DIR/whats-new.ts" \
   --extension "$POLICY_DIR/onboarding.ts" \
+  --extension "$POLICY_DIR/help.ts" \
   "$@"

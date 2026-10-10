@@ -15,7 +15,7 @@ these patches.
 | Patch | Why it cannot be an extension |
 |---|---|
 | `0001-branding` | The executable name, banners and URLs are inside the binary |
-| `0002-branded-cli` | `GAH_*` environment names and gah's `--help` page |
+| `0002-branded-cli` | `GAH_*` environment names and gah's `--help` page, whose session rows `/help` also shows |
 | `0003-release-notes-link` | Upstream's startup changelog becomes one line |
 | `0010-restrict-model-sources` | The built-in model catalogue is deny-all unless allowlisted |
 | `0011-egress-allowlist` | HTTP requests to hosts outside `GAH_ALLOWED_HOSTS` are refused |

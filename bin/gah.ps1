@@ -501,6 +501,7 @@ try {
         --extension (Join-Path $PolicyDir "skills-freshness.ts") `
         --extension (Join-Path $PolicyDir "whats-new.ts") `
         --extension (Join-Path $PolicyDir "onboarding.ts") `
+        --extension (Join-Path $PolicyDir "help.ts") `
         @GahArgs
     $ExitCode = $LASTEXITCODE
 } finally {
