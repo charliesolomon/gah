@@ -6,7 +6,7 @@
 PI_DIR := vendor/pi
 
 .DEFAULT_GOAL := help
-.PHONY: help install install-tools install-hooks build build-all build-offline smoke test-policy add-provider probe-endpoint check-tools check-prompted check-kb check-skills check-onboarding check-live package-windows package-linux refresh-model-data patches bundle-policy clean-vendor sync sync-init status patch-new patch-export
+.PHONY: help install install-tools install-hooks build build-all build-offline smoke test-policy add-provider probe-endpoint check-tools check-prompted check-kb check-skills check-help check-onboarding check-live package-windows package-linux refresh-model-data patches bundle-policy clean-vendor sync sync-init status patch-new patch-export
 
 help: ## Show available targets
 	@awk 'BEGIN { FS = ":.*##"; printf "Usage: make <target> [VAR=value]\n\nTargets:\n" } \
@@ -100,6 +100,9 @@ check-live: ## On demand, never CI: a real tool call to each model THIS environm
 
 check-skills: ## Scaffold a skills repo, then assert `gah update-skills` refreshes ours and leaves theirs alone. No network.
 	./scripts/check-skills.sh
+
+check-help: ## /help and --help agree in a checkout and on the shared host; gah-launch --help syncs nothing (#142). No network.
+	./scripts/check-help.sh
 
 scrub-session: ## Copy a session with environment identifiers replaced, for sharing. Usage: make scrub-session FILE=~/.gah/agent/sessions/<cwd>/<id>.jsonl [ARGS="--drop-tool-results"]
 	@test -n "$(FILE)" || { echo "usage: make scrub-session FILE=<session.jsonl> [ARGS=...]"; exit 2; }

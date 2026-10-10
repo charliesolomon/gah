@@ -7,11 +7,17 @@
 # Users never invoke this with arguments; it is started by gah-session
 # (their login shell) inside tmux.
 #
-# One flag exists for administrators testing under someone else's account:
+# Two flags exist for administrators. Run them as the user directly, bypassing
+# the login shell (which drops arguments):
+#   --help           print gah's help page for this account: the tools,
+#                    models, network hosts and skills its sessions get, from
+#                    its manifest and the checkouts as they are on disk. It
+#                    syncs nothing, runs no setup steps and starts no session
+#                    (#142). People see the same rows in a session with /help.
+#                      sudo -u <user> -H /usr/local/bin/gah-launch --help
 #   --no-mark-seen   this session never advances the person's "skills seen"
 #                    marker, so the skills-update summary (#91) still shows
-#                    on their own next launch. Run it as the user directly,
-#                    bypassing the login shell (which drops arguments):
+#                    on their own next launch.
 #                      sudo -u <user> -H /usr/local/bin/gah-launch --no-mark-seen
 #
 # Headless mode runs one prompt and exits, for scheduled jobs (cron) under an
@@ -38,10 +44,11 @@
 #
 set -euo pipefail
 
-HEADLESS="" PROMPT_FILE="" ONLY_IF="" RUN_MODEL="" RUN_TIMEOUT="600"
+HEADLESS="" PROMPT_FILE="" ONLY_IF="" RUN_MODEL="" RUN_TIMEOUT="600" HELP=""
 need_value() { [ -n "${2:-}" ] || { echo "gah-launch: $1 needs a value" >&2; exit 2; }; }
 while [ $# -gt 0 ]; do
 	case "$1" in
+		--help | -h) HELP=1; shift ;;
 		--no-mark-seen) export GAH_SKILLS_NO_MARK_SEEN=1; shift ;;
 		--print)   need_value "$1" "${2:-}"; HEADLESS=1; PROMPT_FILE="$2"; shift 2 ;;
 		--only-if) need_value "$1" "${2:-}"; ONLY_IF="$2"; shift 2 ;;
@@ -50,6 +57,9 @@ while [ $# -gt 0 ]; do
 		*) echo "gah-launch: unknown argument '$1' (see the header of $0)" >&2; exit 2 ;;
 	esac
 done
+if [ -n "$HELP" ] && [ -n "$HEADLESS$ONLY_IF$RUN_MODEL" ]; then
+	echo "gah-launch: --help takes no other options" >&2; exit 2
+fi
 if [ -z "$HEADLESS" ] && [ -n "$ONLY_IF$RUN_MODEL" ]; then
 	echo "gah-launch: --only-if and --model only apply with --print" >&2; exit 2
 fi
@@ -95,7 +105,7 @@ owner="$(stat -c %U "$CONF")"
 # arrive, i.e. before the skills sync we spend seconds in. The trap guarantees
 # the agent never inherits a terminal with echo disabled.
 _tty_saved=""
-if [ -t 0 ]; then
+if [ -z "$HELP" ] && [ -t 0 ]; then
 	_tty_saved="$(stty -g 2>/dev/null || true)"
 	[ -n "$_tty_saved" ] && trap 'stty "$_tty_saved" 2>/dev/null || true' EXIT INT TERM
 	stty -echo 2>/dev/null || true
@@ -153,7 +163,9 @@ else
 fi
 
 unset GAH_SKILLS_UPDATE_FAILED
-if [ -d "$SKILLS_DIR/.git" ]; then
+if [ -n "$HELP" ]; then
+	: # --help reads the checkouts as they are on disk, here and below.
+elif [ -d "$SKILLS_DIR/.git" ]; then
 	if timeout 30 git -C "$SKILLS_DIR" fetch --quiet origin "$SKILLS_BRANCH"; then
 		git -C "$SKILLS_DIR" checkout --quiet "$SKILLS_BRANCH" 2>/dev/null \
 			|| git -C "$SKILLS_DIR" checkout --quiet -b "$SKILLS_BRANCH" "origin/$SKILLS_BRANCH"
@@ -186,6 +198,8 @@ if [ -n "$HEADLESS" ]; then
 	# Personal skills belong to a person. An unattended account has none, and a
 	# directory a previous run could write to must not become instructions.
 	:
+elif [ -n "$HELP" ]; then
+	:
 elif [ -n "$MY_SKILLS_REPO" ]; then
 	if [ -d "$MY_SKILLS_DIR/.git" ]; then
 		timeout 30 git -C "$MY_SKILLS_DIR" pull --ff-only --quiet 2>/dev/null \
@@ -207,7 +221,9 @@ fi
 # default branch is fast-forwarded. The repo is still authoritative; it is just
 # never authoritative at the cost of somebody's unpushed article.
 if [ -n "$KB_REPO" ]; then
-	if [ -d "$KB_DIR/.git" ]; then
+	if [ -n "$HELP" ]; then
+		:
+	elif [ -d "$KB_DIR/.git" ]; then
 		kb_branch_now="$(git -C "$KB_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")"
 		if [ -n "$(git -C "$KB_DIR" status --porcelain 2>/dev/null)" ]; then
 			warn "knowledge base has uncommitted changes — left as it is (propose them with kb-propose)"
@@ -246,14 +262,14 @@ fi
 
 # Swallow whatever arrived while echo was off, then hand back a clean terminal:
 # the setup steps below are interactive and need echo for the username prompt.
-if [ -t 0 ]; then
+if [ -z "$HELP" ] && [ -t 0 ]; then
 	while IFS= read -r -t 0.2 -n 256 _drain 2>/dev/null; do :; done
 	unset _drain
 	[ -n "$_tty_saved" ] && stty "$_tty_saved" 2>/dev/null || true
 	printf '\033[2J\033[H'
 fi
 
-if [ -z "$HEADLESS" ] && [ -d "$SKILLS_DIR/setup" ]; then
+if [ -z "$HEADLESS$HELP" ] && [ -d "$SKILLS_DIR/setup" ]; then
 	for step in "$SKILLS_DIR"/setup/[0-9]*.sh; do
 		[ -e "$step" ] || continue
 		bash "$step" || warn "setup step $(basename "$step") failed — continuing"
@@ -295,6 +311,10 @@ if [ -n "$HEADLESS" ]; then
 	# run wrote is within reach of context-file discovery or relative paths.
 	WORKDIR="$(mktemp -d "${TMPDIR:-/tmp}/gah-run.XXXXXX")"
 	trap 'rm -rf "$WORKDIR"' EXIT
+elif [ -n "$HELP" ]; then
+	# Where a session would start, without creating it.
+	WORKDIR="${WORKDIR:-$HOME/work}"
+	[ -d "$WORKDIR" ] || WORKDIR="$HOME"
 else
 	WORKDIR="${WORKDIR:-$HOME/work}"
 	mkdir -p "$WORKDIR"
@@ -399,7 +419,7 @@ fi
 # the input box telling the person to contact the administrator, who owns the
 # manifest and the deploy key. The terminal warnings themselves are covered by
 # the TUI as soon as it starts.
-if [ ${#skill_args[@]} -eq 0 ]; then
+if [ ${#skill_args[@]} -eq 0 ] && [ -z "$HELP" ]; then
 	warn "no shared skills loaded (repo $SKILLS_REPO, branch $SKILLS_BRANCH); starting without them — tell your administrator"
 fi
 
@@ -410,18 +430,20 @@ fi
 [ -d "$SKILLS_DIR/prompts" ] && skill_args+=(--prompt-template "$SKILLS_DIR/prompts")
 [ -n "${GAH_KB_DIR:-}" ] && [ -d "$GAH_KB_DIR/prompts" ] && skill_args+=(--prompt-template "$GAH_KB_DIR/prompts")
 
-# bin/gah publishes the scaffolding subcommands it handles so --help can list
-# them. None is reachable from here: this is a login shell that starts a session
-# with the arguments below and never forwards the user's own. Clearing it keeps
-# the help page honest for the people who only ever arrive this way.
-export GAH_SCAFFOLD_COMMANDS=""
-
 # Tells the onboarding extension this is the shared host. The administrator sets
 # accounts up here, so there is no in-session setup at all (#138): no setup
 # skills, no /setup-skills, no gah_setup tool. When the shared skills did not
 # load or could not be updated, one line above the input box says to contact
-# the administrator.
+# the administrator. It also shapes the help page (#142): no usage, options or
+# scaffolding subcommands, since the login shell drops arguments and this
+# script forwards none.
 export GAH_LAUNCHER_KIND=host
+
+# --help: the page for this account, from its manifest and the checkouts as they
+# are on disk. Nothing above synced or ran a setup step, and no session starts.
+if [ -n "$HELP" ]; then
+	exec "$GAH_HOME/bin/gah" --no-skills "${skill_args[@]}" --help
+fi
 
 if [ -n "$HEADLESS" ]; then
 	[ -f "$SKILLS_DIR/$PROMPT_FILE" ] || fail "headless: no prompt file '$PROMPT_FILE' in the skills repo"

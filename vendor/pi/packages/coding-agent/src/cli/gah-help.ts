@@ -15,14 +15,21 @@
  * flags that registered. Upstream's full reference stays one flag away:
  * `gah --help --verbose`.
  *
+ * The "This session" rows are also the policy pack's /help, for people who
+ * never see a command line (#142): gahSessionRows is exported from the package
+ * index, so the command and this page cannot disagree. On the shared host
+ * (GAH_LAUNCHER_KIND=host) nobody can pass options, so the page is those rows
+ * and where to go next, with no usage, options or examples.
+ *
  * printHelp() in args.ts delegates here with a one-line hunk.
  */
 
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import chalk from "chalk";
 import { APP_NAME, CONFIG_DIR_NAME, ENV_AGENT_DIR, ENV_SESSION_DIR, VERSION } from "../config.ts";
+import { loadSkillsFromDir } from "../core/skills.ts";
 
 interface HelpExtensionFlag {
 	name: string;
@@ -38,6 +45,18 @@ export interface GahHelpOptions {
 	extensionFlags?: readonly HelpExtensionFlag[];
 	/** Home directory used to describe default paths. */
 	home?: string;
+}
+
+/** One row of the "This session" section. */
+export interface GahSessionRow {
+	/** Stable name, for a caller that shows only some rows. */
+	key: "tools" | "models" | "endpoints" | "network" | "skills" | "audit";
+	label: string;
+	value: string;
+	/** Where the value comes from and how to change it, for the --help page. */
+	note?: string;
+	/** Set when the row names something this session does not have: an endpoints file that is absent. */
+	absent?: boolean;
 }
 
 const COL = 34;
@@ -105,7 +124,142 @@ function skillArgs(argv: readonly string[]): string[] {
 	return out;
 }
 
-/** Render the page. Pure: everything it reports comes from `options`. */
+/**
+ * The skill paths this process was given: GAH_SKILLS_DIR (a checkout), each
+ * --skill (the packages and the shared host), and the folder an in-session
+ * skills fetch added (GAH_SESSION_SKILLS_DIR, set by the policy pack).
+ */
+function skillPaths(env: NodeJS.ProcessEnv, argv: readonly string[]): string[] {
+	const paths = [
+		...(env.GAH_SKILLS_DIR ? [env.GAH_SKILLS_DIR] : []),
+		...skillArgs(argv),
+		...(env.GAH_SESSION_SKILLS_DIR ? [join(env.GAH_SESSION_SKILLS_DIR, "skills")] : []),
+	];
+	return [...new Set(paths)];
+}
+
+/** A skill on its own: a folder holding SKILL.md, or a Markdown file. */
+function isOneSkill(path: string): boolean {
+	try {
+		return statSync(path).isFile() ? path.endsWith(".md") : existsSync(join(path, "SKILL.md"));
+	} catch {
+		return false;
+	}
+}
+
+/** How many skills pi loads from a path, by pi's own rules; undefined when the path does not exist. */
+function skillCount(path: string): number | undefined {
+	try {
+		if (!existsSync(path)) return undefined;
+		if (statSync(path).isFile()) return path.endsWith(".md") ? 1 : 0;
+		return loadSkillsFromDir({ dir: path, source: "path" }).skills.length;
+	} catch {
+		return undefined;
+	}
+}
+
+/**
+ * The skill paths as one line. The shared host passes every skill folder with
+ * its own --skill, so skills from one folder are counted under it rather than
+ * listed: "<folder> (12 skills)". A skill passed alone keeps its own path.
+ */
+function describeSkills(paths: readonly string[]): string {
+	const groups = new Map<string, { count: number; missing: boolean; alone: string[] }>();
+	const group = (folder: string) => {
+		let g = groups.get(folder);
+		if (!g) {
+			g = { count: 0, missing: false, alone: [] };
+			groups.set(folder, g);
+		}
+		return g;
+	};
+	for (const path of paths) {
+		const n = skillCount(path);
+		if (isOneSkill(path)) {
+			const g = group(dirname(path));
+			g.alone.push(path);
+			g.count += n ?? 0;
+		} else if (n === undefined) {
+			group(path).missing = true;
+		} else {
+			group(path).count += n;
+		}
+	}
+	return [...groups]
+		.map(([folder, g]) => {
+			const name = g.alone.length === 1 ? g.alone[0]! : folder;
+			if (g.alone.length === 1 && g.count === 1) return name;
+			if (g.count > 0) return `${folder} (${g.count} skill${g.count === 1 ? "" : "s"})`;
+			return `${name} (${g.missing ? "missing" : "no skills"})`;
+		})
+		.join(", ");
+}
+
+/**
+ * What this process may use, as the "This session" rows: here, and in the
+ * policy pack's /help through the package index. Reads the skill folders to
+ * count them; otherwise pure, everything comes from `options`.
+ */
+export function gahSessionRows(options: GahHelpOptions = {}): GahSessionRow[] {
+	const env = options.env ?? process.env;
+	const home = options.home ?? homedir();
+	const host = env.GAH_LAUNCHER_KIND === "host";
+	const gahDir = join(home, `.${APP_NAME}`);
+	const providersFile = env.GAH_PROVIDERS_FILE || join(gahDir, "providers.json");
+	const providersPresent = existsSync(providersFile);
+
+	const tools = env.GAH_EFFECTIVE_TOOLS
+		? describeList(env.GAH_EFFECTIVE_TOOLS, "none")
+		: "(policy pack not loaded -- run through bin/gah)";
+	const hosts =
+		env.GAH_ALLOWED_HOSTS === undefined || env.GAH_ALLOWED_HOSTS.trim() === ""
+			? "none (deny all)"
+			: env.GAH_ALLOWED_HOSTS.trim() === "*"
+				? "any (no restriction)"
+				: describeList(env.GAH_ALLOWED_HOSTS, "none");
+	const paths = skillPaths(env, options.argv ?? []);
+
+	return [
+		{
+			key: "tools",
+			label: "Tools",
+			value: tools,
+			note: "GAH_ALLOW_TOOLS adds more; every call is written to the audit log",
+		},
+		{
+			key: "models",
+			label: "Models",
+			value: describeList(env.GAH_BUILTIN_MODELS, "none from the built-in catalogue"),
+			note: host
+				? "GAH_BUILTIN_MODELS; /model in a session to choose"
+				: "GAH_BUILTIN_MODELS; /model to choose, --list-models to see",
+		},
+		{
+			key: "endpoints",
+			label: "Endpoints file",
+			value: providersPresent ? providersFile : `${providersFile} (absent)`,
+			note: "GAH_PROVIDERS_FILE; approved endpoints your deployment registered",
+			absent: !providersPresent,
+		},
+		{
+			key: "network",
+			label: "Network",
+			value: hosts,
+			note: "GAH_ALLOWED_HOSTS; nothing else is reachable, including the tools",
+		},
+		{
+			key: "skills",
+			label: "Skills",
+			value: paths.length > 0 ? describeSkills(paths) : "none (your team's skills are not loaded)",
+			note: host
+				? "set up by the administrator for this account"
+				: "your team's skills repository; GAH_SKILLS_DIR, or --skill <path> for one run",
+		},
+		{ key: "audit", label: "Audit log", value: env.GAH_AUDIT_LOG || join(gahDir, "audit.log") },
+	];
+}
+
+/** Render the page. Pure apart from counting skills: everything it reports comes from `options`. */
 export function renderGahHelp(options: GahHelpOptions = {}): string {
 	const env = options.env ?? process.env;
 	const home = options.home ?? homedir();
@@ -113,25 +267,31 @@ export function renderGahHelp(options: GahHelpOptions = {}): string {
 	const ENV = app.toUpperCase();
 	const agentDir = env[ENV_AGENT_DIR] || join(home, CONFIG_DIR_NAME, "agent");
 	const gahDir = join(home, `.${app}`);
-	const providersFile = env.GAH_PROVIDERS_FILE || join(gahDir, "providers.json");
-	const auditLog = env.GAH_AUDIT_LOG || join(gahDir, "audit.log");
 	const bedrock = (env.GAH_BUILTIN_MODELS ?? "").includes("amazon-bedrock");
 
-	const tools = env.GAH_EFFECTIVE_TOOLS
-		? describeList(env.GAH_EFFECTIVE_TOOLS, "none")
-		: "(policy pack not loaded -- run through bin/gah)";
-	const models = describeList(env.GAH_BUILTIN_MODELS, "none from the built-in catalogue");
-	const hosts =
-		env.GAH_ALLOWED_HOSTS === undefined || env.GAH_ALLOWED_HOSTS.trim() === ""
-			? "none (deny all)"
-			: env.GAH_ALLOWED_HOSTS.trim() === "*"
-				? "any (no restriction)"
-				: describeList(env.GAH_ALLOWED_HOSTS, "none");
-	// A checkout names its skills with GAH_SKILLS_DIR; the packaged launchers and
-	// the shared host pass them as --skill. Either way this is what loads.
-	const skillPaths = [...new Set([...(env.GAH_SKILLS_DIR ? [env.GAH_SKILLS_DIR] : []), ...skillArgs(options.argv ?? [])])];
-	const skills = skillPaths.length > 0 ? skillPaths.join(", ") : "none (your team's skills are not loaded)";
-	const providers = existsSync(providersFile) ? providersFile : `${providersFile} (absent)`;
+	const title = `${chalk.bold(app)} ${VERSION} - Good agent harness: your organisation's skills, run by an AI agent under policy.`;
+	const session = `${chalk.bold("This session")} (from the environment the launcher set):
+${gahSessionRows(options)
+	.flatMap((r) => [row(r.label, r.value), ...(r.note ? [row("", r.note)] : [])])
+	.join("\n")}`;
+	const docs = "Documentation: https://github.com/charliesolomon/gah#readme";
+
+	// The shared host's login shell drops arguments and gah-launch forwards
+	// none, so usage, options and examples would describe what nobody here
+	// can type. People get the same rows in a session, from /help.
+	if (env.GAH_LAUNCHER_KIND === "host") {
+		return `${title}
+
+${session}
+
+${chalk.bold("On this host:")}
+  People connect over SSH and gah starts for them, so it takes no options.
+  In a session, /help shows the rows above, and / lists every command.
+  Administrators: sudo -u <user> -H gah-launch --help shows this page for that account.
+
+${docs}
+`;
+	}
 
 	const scaffoldLines = scaffoldUsage(app, env.GAH_SCAFFOLD_COMMANDS);
 	const scaffold = scaffoldLines ? `${scaffoldLines}\n` : "";
@@ -149,24 +309,13 @@ export function renderGahHelp(options: GahHelpOptions = {}): string {
 					.join("\n")}\n`
 			: "";
 
-	return `${chalk.bold(app)} ${VERSION} - Good agent harness: your organisation's skills, run by an AI agent under policy.
+	return `${title}
 
 ${chalk.bold("Usage:")}
   ${app} [options] [--] [@files...] [message...]
 ${scaffold}${row(`${app} auth check`, "Report whether the configured provider is ready")}
 
-${chalk.bold("This session")} (from the environment the launcher set):
-${row("Tools", tools)}
-${row("", `GAH_ALLOW_TOOLS adds more; every call is written to the audit log`)}
-${row("Models", models)}
-${row("", `GAH_BUILTIN_MODELS; /model to choose, --list-models to see`)}
-${row("Endpoints file", providers)}
-${row("", `GAH_PROVIDERS_FILE; approved endpoints your deployment registered`)}
-${row("Network", hosts)}
-${row("", `GAH_ALLOWED_HOSTS; nothing else is reachable, including the tools`)}
-${row("Skills", skills)}
-${row("", `your team's skills repository; GAH_SKILLS_DIR, or --skill <path> for one run`)}
-${row("Audit log", auditLog)}
+${session}
 
 ${chalk.bold("Options:")}
 ${row("--continue, -c", "Continue the previous session")}
@@ -201,10 +350,10 @@ ${row("GAH_AUDIT_LOG", `Audit log path (default ${join(gahDir, "audit.log")})`)}
 ${row(ENV_AGENT_DIR, `Config directory (default ${join(home, CONFIG_DIR_NAME, "agent")})`)}
 ${row(ENV_SESSION_DIR, "Session storage directory (overridden by --session-dir)")}
 ${row(`${ENV}_TELEMETRY`, "Ignored: no telemetry leaves a GAH process")}${
-		bedrock
-			? `\n${row("AWS_PROFILE", "AWS profile for Amazon Bedrock (set by your deployment)")}\n${row("AWS_REGION", "AWS region for Amazon Bedrock")}`
-			: ""
-	}
+	bedrock
+		? `\n${row("AWS_PROFILE", "AWS profile for Amazon Bedrock (set by your deployment)")}\n${row("AWS_REGION", "AWS region for Amazon Bedrock")}`
+		: ""
+}
 
 ${chalk.bold("Examples:")}
   ${app}                                             Start a session
@@ -214,7 +363,7 @@ ${chalk.bold("Examples:")}
   ${app} --list-models                               See what this session may use
 
 Full upstream option reference: ${app} --help --verbose
-Documentation: https://github.com/charliesolomon/gah#readme
+${docs}
 `;
 }
 

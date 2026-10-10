@@ -100,6 +100,12 @@ jobs:
         # what every deployment reads before writing its third skill.
         run: ./scripts/check-skills.sh
 
+      - name: Help page and /help agree
+        # What a session may use reads the same in --help and in /help, in a
+        # checkout and on the shared host, and gah-launch --help reads an
+        # account's manifest without syncing or starting anything (#142).
+        run: make check-help
+
       - name: Onboarding without skills
         # gah starts without shared skills and says so; the model is told the
         # session has none; gah_setup reports status without secrets;
